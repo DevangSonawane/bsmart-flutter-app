@@ -1,0 +1,547 @@
+import 'package:flutter/material.dart';
+import 'package:flutter_svg/flutter_svg.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
+import 'package:lucide_icons_flutter/lucide_icons.dart';
+import 'package:b_smart/core/lucide_local.dart';
+import 'package:image_picker/image_picker.dart';
+import 'reels_screen.dart';
+import '../services/reels_service.dart';
+import '../models/reel_model.dart';
+import '../services/supabase_service.dart';
+import '../widgets/profile_header.dart';
+import '../widgets/posts_grid.dart';
+import '../widgets/post_detail_modal.dart';
+import '../models/feed_post_model.dart';
+import '../theme/design_tokens.dart';
+
+/// Heroicons badge-check (same as React web app verified badge)
+const String _verifiedBadgeSvg = r'''
+<svg viewBox="0 0 24 24" fill="currentColor" xmlns="http://www.w3.org/2000/svg">
+  <path fill-rule="evenodd" clip-rule="evenodd" d="M8.603 3.799A4.49 4.49 0 0112 2.25c1.357 0 2.573.6 3.397 1.549a4.49 4.49 0 013.498 1.307 4.491 4.491 0 011.307 3.497A4.49 4.49 0 0121.75 12a4.49 4.49 0 01-1.549 3.397 4.491 4.491 0 01-1.307 3.498 4.491 4.491 0 01-3.497 1.307A4.49 4.49 0 0112 21.75a4.49 4.49 0 01-3.397-1.549 4.49 4.49 0 01-3.498-1.306 4.491 4.491 0 01-1.307-3.498A4.49 4.49 0 012.25 12c0-1.357.6-2.573 1.549-3.397a4.49 4.49 0 011.307-3.497 4.49 4.49 0 013.497-1.307zm7.007 6.387a.75.75 0 10-1.22-.872l-3.236 4.53L9.53 12.22a.75.75 0 00-1.06 1.06l2.25 2.25a.75.75 0 001.14-.094l3.75-5.25z"/>
+</svg>
+''';
+
+class ProfileScreen extends StatefulWidget {
+  final String? userId;
+  const ProfileScreen({Key? key, this.userId}) : super(key: key);
+
+  @override
+  State<ProfileScreen> createState() => _ProfileScreenState();
+}
+
+class _ProfileScreenState extends State<ProfileScreen> {
+  final SupabaseService _svc = SupabaseService();
+  Map<String, dynamic>? _profile;
+  List<FeedPost> _posts = [];
+  bool _loading = true;
+  final ReelsService _reelsService = ReelsService();
+  List<Reel> _userReels = [];
+
+  @override
+  void initState() {
+    super.initState();
+    _load();
+  }
+
+  Future<void> _load() async {
+    final currentId = widget.userId ?? Supabase.instance.client.auth.currentUser?.id;
+    if (currentId == null) return;
+    final profile = await _svc.getUserById(currentId);
+    final rawPosts = await _svc.getUserPosts(currentId, limit: 50);
+    final posts = rawPosts.map((item) {
+      final media = item['media'] as List<dynamic>? ?? [];
+      final mediaUrls = media.map((m) {
+        if (m is String) return m;
+        if (m is Map) {
+          if (m.containsKey('image')) return m['image'] as String;
+          if (m.containsKey('url')) return m['url'] as String;
+        }
+        return m.toString();
+      }).cast<String>().toList();
+      return FeedPost(
+        id: item['id'] as String,
+        userId: item['user_id'] as String,
+        userName: (item['users'] as Map<String,dynamic>?)?['username'] as String? ?? 'user',
+        mediaType: PostMediaType.image,
+        mediaUrls: mediaUrls,
+        caption: item['caption'] as String?,
+        hashtags: ((item['hashtags'] as List<dynamic>?) ?? []).map((e) => e.toString()).toList(),
+        createdAt: DateTime.parse(item['created_at'] as String),
+      );
+    }).toList();
+
+    // Fetch wallet and follower/following counts (fallbacks)
+    int followersCount = 0;
+    int followingCount = 0;
+    int walletBalance = 0;
+    try {
+      final follRes = await Supabase.instance.client.from('follows').select().eq('followed_id', currentId);
+      followersCount = (follRes as List?)?.length ?? 0;
+    } catch (_) {}
+    try {
+      final folRes2 = await Supabase.instance.client.from('follows').select().eq('follower_id', currentId);
+      followingCount = (folRes2 as List?)?.length ?? 0;
+    } catch (_) {}
+    try {
+      final w = await Supabase.instance.client.from('wallets').select('balance').eq('user_id', currentId).maybeSingle();
+      final bal = w?['balance'];
+      if (bal is int) walletBalance = bal;
+      else if (bal is double) walletBalance = bal.toInt();
+    } catch (_) {}
+
+    if (mounted) {
+      setState(() {
+        _profile = {
+          ...?profile,
+          'posts_count': (profile?['posts_count'] as int?) ?? posts.length,
+          'followers_count': (profile?['followers_count'] as int?) ?? followersCount,
+          'following_count': (profile?['following_count'] as int?) ?? followingCount,
+          'wallet_balance': walletBalance,
+        };
+        _posts = posts;
+        _userReels = _reelsService.getReels().where((r) => r.userId == currentId).toList();
+        _loading = false;
+      });
+    }
+  }
+
+  void _onEdit() {
+    final targetId = widget.userId ?? Supabase.instance.client.auth.currentUser?.id;
+    if (targetId == null) return;
+    Navigator.of(context).push(MaterialPageRoute(builder: (ctx) {
+      return EditProfileScreen(userId: targetId);
+    })).then((_) => _load());
+  }
+
+  void _onFollow() async {
+    final me = Supabase.instance.client.auth.currentUser;
+    final targetId = widget.userId ?? Supabase.instance.client.auth.currentUser?.id;
+    if (me == null || targetId == null) return;
+    await _svc.toggleFollow(me.id, targetId);
+    _load();
+  }
+
+  void _onPostTap(FeedPost p) {
+    // Post detail modal implemented in task 5
+    _showPostDetail(p.id);
+  }
+
+  void _showPostDetail(String postId) {
+    showDialog(
+      context: context,
+      barrierColor: Colors.black54,
+      builder: (ctx) => Dialog(
+        backgroundColor: Colors.transparent,
+        insetPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 24),
+        child: PostDetailModal(
+          postId: postId,
+          onClose: () => Navigator.of(ctx).pop(),
+        ),
+      ),
+    );
+  }
+
+  static const List<({String title, String img})> _highlights = [
+    (title: 'Travel', img: 'https://images.unsplash.com/photo-1469854523086-cc02fe5d8800?w=150&h=150&fit=crop'),
+    (title: 'Work', img: 'https://images.unsplash.com/photo-1497215728101-856f4ea42174?w=150&h=150&fit=crop'),
+    (title: 'Life', img: 'https://images.unsplash.com/photo-1511632765486-a01980e01a18?w=150&h=150&fit=crop'),
+    (title: 'Tech', img: 'https://images.unsplash.com/photo-1519389950473-47ba0277781c?w=150&h=150&fit=crop'),
+    (title: 'Music', img: 'https://images.unsplash.com/photo-1511379938547-c1f69419868d?w=150&h=150&fit=crop'),
+  ];
+
+  Widget _buildHighlights() {
+    return SizedBox(
+      height: 110,
+      child: ListView.separated(
+        padding: const EdgeInsets.symmetric(horizontal: 16),
+        scrollDirection: Axis.horizontal,
+        itemCount: _highlights.length + 1,
+        separatorBuilder: (_, __) => const SizedBox(width: 12),
+        itemBuilder: (ctx, i) {
+          if (i == _highlights.length) {
+            return Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Container(
+                  width: 64,
+                  height: 64,
+                  decoration: BoxDecoration(
+                    shape: BoxShape.circle,
+                    border: Border.all(color: Colors.grey.shade300),
+                    color: Colors.white,
+                  ),
+                  child: Icon(LucideIcons.plus.localLucide, color: Colors.grey.shade800),
+                ),
+                const SizedBox(height: 6),
+                const Text('New', style: TextStyle(fontSize: 12)),
+              ],
+            );
+          }
+          final h = _highlights[i];
+          return Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Container(
+                width: 64,
+                height: 64,
+                decoration: BoxDecoration(
+                  shape: BoxShape.circle,
+                  border: Border.all(color: Colors.grey.shade200),
+                  color: Colors.white,
+                ),
+                padding: const EdgeInsets.all(2),
+                child: ClipOval(
+                  child: Image.network(h.img, width: 60, height: 60, fit: BoxFit.cover),
+                ),
+              ),
+              const SizedBox(height: 6),
+              SizedBox(width: 72, child: Text(h.title, textAlign: TextAlign.center, overflow: TextOverflow.ellipsis, style: const TextStyle(fontSize: 12))),
+            ],
+          );
+        },
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (_loading) {
+      return Scaffold(body: Center(child: CircularProgressIndicator(color: DesignTokens.instaPink)));
+    }
+    final username = _profile?['username'] as String? ?? 'user';
+    final fullName = _profile?['full_name'] as String?;
+    final bio = _profile?['bio'] as String?;
+    final avatar = _profile?['avatar_url'] as String?;
+    final postsCount = (_profile?['posts_count'] as int?) ?? _posts.length;
+    final followers = (_profile?['followers_count'] as int?) ?? 0;
+    final following = (_profile?['following_count'] as int?) ?? 0;
+    final isMe = Supabase.instance.client.auth.currentUser?.id == (widget.userId ?? Supabase.instance.client.auth.currentUser?.id);
+
+    return DefaultTabController(
+      length: 3,
+      child: Scaffold(
+        appBar: AppBar(
+          automaticallyImplyLeading: !isMe,
+          title: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text(username),
+              const SizedBox(width: 4),
+              SvgPicture.string(
+                _verifiedBadgeSvg,
+                width: 20,
+                height: 20,
+                colorFilter: const ColorFilter.mode(Color(0xFF3B82F6), BlendMode.srcIn),
+              ),
+            ],
+          ),
+          actions: [
+            if (isMe) ...[
+              IconButton(icon: Icon(LucideIcons.plus.localLucide), onPressed: () => Navigator.of(context).pushNamed('/create')),
+              IconButton(icon: Icon(LucideIcons.menu.localLucide), onPressed: () => Navigator.of(context).pushNamed('/settings')),
+            ],
+          ],
+        ),
+        body: NestedScrollView(
+          headerSliverBuilder: (context, innerBoxIsScrolled) => [
+            SliverToBoxAdapter(
+              child: ProfileHeader(
+                username: username,
+                fullName: fullName,
+                bio: bio,
+                avatarUrl: avatar,
+                posts: postsCount,
+                followers: followers,
+                following: following,
+                isMe: isMe,
+                onEdit: isMe ? _onEdit : null,
+                onFollow: isMe ? null : _onFollow,
+              ),
+            ),
+            SliverToBoxAdapter(
+              child: Padding(
+                padding: const EdgeInsets.only(bottom: 8),
+                child: _buildHighlights(),
+              ),
+            ),
+            SliverPersistentHeader(
+              pinned: true,
+              delegate: _SliverTabBarDelegate(
+                TabBar(
+                  tabs: [
+                    Tab(icon: Icon(LucideIcons.layoutGrid.localLucide)),
+                    Tab(icon: Icon(LucideIcons.video.localLucide)),
+                    Tab(icon: Icon(LucideIcons.bookmark.localLucide)),
+                  ],
+                  indicator: UnderlineTabIndicator(borderSide: BorderSide(width: 1.5, color: DesignTokens.instaPink)),
+                  labelColor: DesignTokens.instaPink,
+                  unselectedLabelColor: Colors.grey.shade400,
+                ),
+              ),
+            ),
+          ],
+          body: TabBarView(
+            children: [
+              _posts.isEmpty
+                  ? SingleChildScrollView(
+                      child: Padding(
+                        padding: const EdgeInsets.symmetric(vertical: 48),
+                        child: Column(
+                          children: [
+                            Container(
+                              width: 64,
+                              height: 64,
+                              decoration: BoxDecoration(shape: BoxShape.circle, border: Border.all(color: Colors.grey.shade300, width: 2)),
+                              child: Icon(LucideIcons.layoutGrid.localLucide, size: 32, color: Colors.grey.shade400),
+                            ),
+                            const SizedBox(height: 16),
+                            Text('No Posts Yet', style: Theme.of(context).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w600)),
+                            const SizedBox(height: 8),
+                            Text('When you share photos, they will appear on your profile.', style: TextStyle(color: Colors.grey.shade600, fontSize: 14), textAlign: TextAlign.center),
+                            if (isMe) ...[
+                              const SizedBox(height: 16),
+                              TextButton(
+                                onPressed: () => Navigator.of(context).pushNamed('/create'),
+                                child: const Text('Share your first photo'),
+                              ),
+                            ],
+                          ],
+                        ),
+                      ),
+                    )
+                  : Padding(
+                      padding: const EdgeInsets.all(8.0),
+                      child: PostsGrid(posts: _posts, onTap: (p) => _onPostTap(p)),
+                    ),
+              _userReels.isEmpty
+                  ? const Center(child: Padding(padding: EdgeInsets.all(24.0), child: Text('No reels yet')))
+                  : ListView.builder(
+                      itemCount: _userReels.length,
+                      itemBuilder: (ctx, i) {
+                        final r = _userReels[i];
+                        return ListTile(
+                          leading: r.thumbnailUrl != null ? Image.network(r.thumbnailUrl!) : Icon(LucideIcons.video.localLucide),
+                          title: Text(r.caption ?? ''),
+                          subtitle: Text('${r.views} views'),
+                          onTap: () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => ReelsScreen())),
+                        );
+                      },
+                    ),
+              const Center(child: Text('Saved')),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _SliverTabBarDelegate extends SliverPersistentHeaderDelegate {
+  final TabBar tabBar;
+
+  _SliverTabBarDelegate(this.tabBar);
+
+  @override
+  double get minExtent => 48;
+
+  @override
+  double get maxExtent => 48;
+
+  @override
+  Widget build(BuildContext context, double shrinkOffset, bool overlapsContent) {
+    return Container(
+      height: 48,
+      decoration: BoxDecoration(
+        color: Theme.of(context).scaffoldBackgroundColor,
+        border: Border(top: BorderSide(color: Colors.grey.shade200)),
+      ),
+      child: tabBar,
+    );
+  }
+
+  @override
+  bool shouldRebuild(covariant SliverPersistentHeaderDelegate oldDelegate) => false;
+}
+
+class EditProfileScreen extends StatefulWidget {
+  final String userId;
+  const EditProfileScreen({Key? key, required this.userId}) : super(key: key);
+
+  @override
+  State<EditProfileScreen> createState() => _EditProfileScreenState();
+}
+
+class _EditProfileScreenState extends State<EditProfileScreen> {
+  final SupabaseService _svc = SupabaseService();
+  final _usernameCtl = TextEditingController();
+  final _fullNameCtl = TextEditingController();
+  final _bioCtl = TextEditingController();
+  final _phoneCtl = TextEditingController();
+  bool _loading = true;
+  bool _uploading = false;
+  String? _avatarUrl;
+  Map<String, dynamic>? _profile;
+
+  @override
+  void initState() {
+    super.initState();
+    _load();
+  }
+
+  Future<void> _load() async {
+    final profile = await _svc.getUserById(widget.userId);
+    if (mounted) {
+      setState(() {
+        _profile = profile;
+        _usernameCtl.text = profile?['username'] ?? '';
+        _fullNameCtl.text = profile?['full_name'] ?? '';
+        _bioCtl.text = profile?['bio'] ?? '';
+        _phoneCtl.text = profile?['phone'] ?? '';
+        _avatarUrl = profile?['avatar_url'] as String?;
+        _loading = false;
+      });
+    }
+  }
+
+  Future<void> _uploadAvatar() async {
+    final picker = ImagePicker();
+    final xfile = await picker.pickImage(source: ImageSource.gallery);
+    if (xfile == null) return;
+    setState(() => _uploading = true);
+    try {
+      final bytes = await xfile.readAsBytes();
+      final ext = xfile.path.split('.').last;
+      final path = '${widget.userId}/${DateTime.now().millisecondsSinceEpoch}.$ext';
+      final url = await _svc.uploadFile('avatars', path, bytes);
+      if (url != null && mounted) {
+        setState(() {
+          _avatarUrl = url;
+          _uploading = false;
+        });
+      } else {
+        if (mounted) setState(() => _uploading = false);
+      }
+    } catch (e) {
+      if (mounted) {
+        setState(() => _uploading = false);
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Upload failed: $e')));
+      }
+    }
+  }
+
+  Future<void> _save() async {
+    setState(() => _loading = true);
+    final updates = {
+      'id': widget.userId,
+      'username': _usernameCtl.text.trim(),
+      'full_name': _fullNameCtl.text.trim(),
+      'bio': _bioCtl.text.trim(),
+      'phone': _phoneCtl.text.trim(),
+      if (_avatarUrl != null) 'avatar_url': _avatarUrl,
+      'updated_at': DateTime.now().toIso8601String(),
+    };
+    try {
+      await Supabase.instance.client.from('users').upsert(updates);
+      if (mounted) {
+        setState(() => _loading = false);
+        Navigator.of(context).pop();
+      }
+    } catch (e) {
+      if (mounted) {
+        setState(() => _loading = false);
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Save failed: $e')));
+      }
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (_loading && _profile == null) return const Scaffold(body: Center(child: CircularProgressIndicator(color: DesignTokens.instaPink)));
+    return Scaffold(
+      backgroundColor: Colors.grey.shade50,
+      appBar: AppBar(
+        leading: IconButton(icon: Icon(LucideIcons.arrowLeft.localLucide), onPressed: () => Navigator.of(context).pop()),
+        title: const Text('Edit Profile', style: TextStyle(fontSize: 18, fontWeight: FontWeight.w600)),
+        backgroundColor: Colors.white,
+        elevation: 0,
+        actions: [
+          TextButton(
+            onPressed: _loading ? null : _save,
+            child: Text(_loading ? 'Saving...' : 'Save', style: TextStyle(fontWeight: FontWeight.w600, color: _loading ? Colors.grey : DesignTokens.instaPink)),
+          ),
+        ],
+      ),
+      body: SingleChildScrollView(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          children: [
+            const SizedBox(height: 24),
+            GestureDetector(
+              onTap: _uploading ? null : _uploadAvatar,
+              child: Stack(
+                alignment: Alignment.center,
+                children: [
+                  Container(
+                    width: 96,
+                    height: 96,
+                    decoration: BoxDecoration(
+                      shape: BoxShape.circle,
+                      gradient: DesignTokens.instaGradient,
+                      boxShadow: [BoxShadow(color: DesignTokens.instaPink.withAlpha(80), blurRadius: 8)],
+                    ),
+                    padding: const EdgeInsets.all(3),
+                    child: Container(
+                      decoration: const BoxDecoration(shape: BoxShape.circle, color: Colors.white),
+                      padding: const EdgeInsets.all(2),
+                      child: ClipOval(
+                        child: _avatarUrl != null
+                            ? Image.network(_avatarUrl!, width: 86, height: 86, fit: BoxFit.cover, errorBuilder: (_, __, ___) => _placeholderAvatar())
+                            : _placeholderAvatar(),
+                      ),
+                    ),
+                  ),
+                  if (_uploading) Positioned.fill(child: Container(color: Colors.black38, child: const Center(child: CircularProgressIndicator(color: Colors.white)))),
+                  if (!_uploading) Positioned(bottom: 0, right: 0, child: Icon(LucideIcons.camera.localLucide, size: 20, color: Colors.grey.shade700)),
+                ],
+              ),
+            ),
+            const SizedBox(height: 8),
+            TextButton(
+              onPressed: _uploading ? null : _uploadAvatar,
+              child: Text(_uploading ? 'Uploading...' : 'Change Profile Photo', style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600, color: DesignTokens.instaPink)),
+            ),
+            const SizedBox(height: 24),
+            TextField(
+              controller: _fullNameCtl,
+              decoration: InputDecoration(labelText: 'Name', filled: true, fillColor: Colors.white, border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide(color: Colors.grey.shade200))),
+            ),
+            const SizedBox(height: 16),
+            TextField(
+              controller: _usernameCtl,
+              decoration: InputDecoration(labelText: 'Username', filled: true, fillColor: Colors.white, border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide(color: Colors.grey.shade200))),
+            ),
+            const SizedBox(height: 16),
+            TextField(
+              controller: _bioCtl,
+              maxLines: 3,
+              decoration: InputDecoration(labelText: 'Bio', hintText: 'Write something about yourself...', filled: true, fillColor: Colors.white, border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide(color: Colors.grey.shade200))),
+            ),
+            const SizedBox(height: 16),
+            TextField(
+              controller: _phoneCtl,
+              keyboardType: TextInputType.phone,
+              decoration: InputDecoration(labelText: 'Phone', filled: true, fillColor: Colors.white, border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide(color: Colors.grey.shade200))),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _placeholderAvatar() {
+    final name = _fullNameCtl.text.trim().isNotEmpty ? _fullNameCtl.text.trim() : _usernameCtl.text.trim();
+    final initial = name.isNotEmpty ? name.substring(0, 1).toUpperCase() : 'U';
+    return Container(color: Colors.grey.shade200, child: Center(child: Text(initial, style: TextStyle(fontSize: 32, fontWeight: FontWeight.bold, color: Colors.grey.shade600))));
+  }
+}
+
