@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_svg/flutter_svg.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
+import 'package:flutter_redux/flutter_redux.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 import 'package:image_picker/image_picker.dart';
 import 'reels_screen.dart';
@@ -12,6 +13,8 @@ import '../widgets/posts_grid.dart';
 import '../widgets/post_detail_modal.dart';
 import '../models/feed_post_model.dart';
 import '../theme/design_tokens.dart';
+import '../state/app_state.dart';
+import '../state/profile_actions.dart';
 
 /// Heroicons badge-check (same as React web app verified badge)
 const String _verifiedBadgeSvg = r'''
@@ -33,8 +36,10 @@ class _ProfileScreenState extends State<ProfileScreen> {
   Map<String, dynamic>? _profile;
   List<FeedPost> _posts = [];
   bool _loading = true;
+  bool _usedCache = false;
   final ReelsService _reelsService = ReelsService();
   List<Reel> _userReels = [];
+  static const int _initialPostsLimit = 20;
 
   @override
   void initState() {
@@ -42,11 +47,68 @@ class _ProfileScreenState extends State<ProfileScreen> {
     _load();
   }
 
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    final currentId = widget.userId ?? Supabase.instance.client.auth.currentUser?.id;
+    final isMe = currentId != null &&
+        (widget.userId == null || widget.userId == Supabase.instance.client.auth.currentUser?.id);
+    if (!isMe || _usedCache) return;
+    final store = StoreProvider.of<AppState>(context);
+    final cached = store.state.profileState.profile;
+    if (cached == null) return;
+    _usedCache = true;
+    setState(() {
+      _profile = Map<String, dynamic>.from(cached);
+      _loading = false;
+    });
+  }
+
   Future<void> _load() async {
     final currentId = widget.userId ?? Supabase.instance.client.auth.currentUser?.id;
     if (currentId == null) return;
-    final profile = await _svc.getUserById(currentId);
-    final rawPosts = await _svc.getUserPosts(currentId, limit: 50);
+
+    // Load profile, posts, followers, following, and wallet in parallel
+    final profileFuture = _svc.getUserById(currentId);
+    final postsFuture = _svc.getUserPosts(currentId, limit: _initialPostsLimit);
+    final followersFuture = Supabase.instance.client
+        .from('follows')
+        .select()
+        .eq('followed_id', currentId)
+        .then((res) => (res as List?)?.length ?? 0)
+        .catchError((_) => 0);
+    final followingFuture = Supabase.instance.client
+        .from('follows')
+        .select()
+        .eq('follower_id', currentId)
+        .then((res) => (res as List?)?.length ?? 0)
+        .catchError((_) => 0);
+    final walletFuture = Supabase.instance.client
+        .from('wallets')
+        .select('balance')
+        .eq('user_id', currentId)
+        .maybeSingle()
+        .then((w) {
+      final bal = w?['balance'];
+      if (bal is int) return bal;
+      if (bal is double) return bal.toInt();
+      return 0;
+    }).catchError((_) => 0);
+
+    final results = await Future.wait([
+      profileFuture,
+      postsFuture,
+      followersFuture,
+      followingFuture,
+      walletFuture,
+    ]);
+
+    final profile = results[0] as Map<String, dynamic>?;
+    final rawPosts = results[1] as List<Map<String, dynamic>>;
+    final followersCount = results[2] as int;
+    final followingCount = results[3] as int;
+    final walletBalance = results[4] as int;
+
     final posts = rawPosts.map((item) {
       final media = item['media'] as List<dynamic>? ?? [];
       final mediaUrls = media.map((m) {
@@ -60,7 +122,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
       return FeedPost(
         id: item['id'] as String,
         userId: item['user_id'] as String,
-        userName: (item['users'] as Map<String,dynamic>?)?['username'] as String? ?? 'user',
+        userName: (item['users'] as Map<String, dynamic>?)?['username'] as String? ?? 'user',
         mediaType: PostMediaType.image,
         mediaUrls: mediaUrls,
         caption: item['caption'] as String?,
@@ -69,38 +131,24 @@ class _ProfileScreenState extends State<ProfileScreen> {
       );
     }).toList();
 
-    // Fetch wallet and follower/following counts (fallbacks)
-    int followersCount = 0;
-    int followingCount = 0;
-    int walletBalance = 0;
-    try {
-      final follRes = await Supabase.instance.client.from('follows').select().eq('followed_id', currentId);
-      followersCount = (follRes as List?)?.length ?? 0;
-    } catch (_) {}
-    try {
-      final folRes2 = await Supabase.instance.client.from('follows').select().eq('follower_id', currentId);
-      followingCount = (folRes2 as List?)?.length ?? 0;
-    } catch (_) {}
-    try {
-      final w = await Supabase.instance.client.from('wallets').select('balance').eq('user_id', currentId).maybeSingle();
-      final bal = w?['balance'];
-      if (bal is int) walletBalance = bal;
-      else if (bal is double) walletBalance = bal.toInt();
-    } catch (_) {}
-
     if (mounted) {
+      final merged = {
+        ...?profile,
+        'posts_count': (profile?['posts_count'] as int?) ?? posts.length,
+        'followers_count': (profile?['followers_count'] as int?) ?? followersCount,
+        'following_count': (profile?['following_count'] as int?) ?? followingCount,
+        'wallet_balance': walletBalance,
+      };
       setState(() {
-        _profile = {
-          ...?profile,
-          'posts_count': (profile?['posts_count'] as int?) ?? posts.length,
-          'followers_count': (profile?['followers_count'] as int?) ?? followersCount,
-          'following_count': (profile?['following_count'] as int?) ?? followingCount,
-          'wallet_balance': walletBalance,
-        };
+        _profile = merged;
         _posts = posts;
         _userReels = _reelsService.getReels().where((r) => r.userId == currentId).toList();
         _loading = false;
       });
+      // Cache own profile in Redux for instant load next time
+      if (currentId == Supabase.instance.client.auth.currentUser?.id) {
+        StoreProvider.of<AppState>(context).dispatch(SetProfile(merged));
+      }
     }
   }
 

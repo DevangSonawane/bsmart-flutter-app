@@ -48,57 +48,73 @@ class PostCard extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // Header: avatar, name, three dots (Instagram style)
+          // Header: avatar, name, three dots (Instagram style) — tap avatar/name → user profile (same as React PostCard)
           Padding(
             padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
             child: Row(
               children: [
-                Container(
-                  decoration: BoxDecoration(
-                    shape: BoxShape.circle,
-                    gradient: DesignTokens.instaGradient,
-                  ),
-                  padding: const EdgeInsets.all(2),
-                  child: CircleAvatar(
-                    radius: 20,
-                    backgroundColor: isDark ? const Color(0xFF2D2D2D) : Colors.grey.shade200,
-                    backgroundImage: post.userAvatar != null && post.userAvatar!.isNotEmpty
-                        ? NetworkImage(post.userAvatar!)
-                        : null,
-                    child: post.userAvatar == null || post.userAvatar!.isEmpty
-                        ? Text(
-                            displayName.isNotEmpty ? displayName[0].toUpperCase() : '?',
-                            style: TextStyle(
-                              color: DesignTokens.instaPink,
-                              fontWeight: FontWeight.bold,
-                              fontSize: 18,
-                            ),
-                          )
-                        : null,
-                  ),
-                ),
-                const SizedBox(width: 12),
                 Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Row(
-                        children: [
-                          Text(
-                            displayName,
-                            style: TextStyle(
-                              fontWeight: FontWeight.w600,
-                              fontSize: 14,
-                              color: textColor,
-                            ),
+                  child: InkWell(
+                    onTap: post.userId.isNotEmpty
+                        ? () => Navigator.of(context).pushNamed('/profile/${post.userId}')
+                        : null,
+                    borderRadius: BorderRadius.circular(24),
+                    child: Row(
+                      children: [
+                        Container(
+                          decoration: BoxDecoration(
+                            shape: BoxShape.circle,
+                            gradient: DesignTokens.instaGradient,
                           ),
-                          if (post.isVerified) ...[
-                            const SizedBox(width: 4),
-                            Icon(LucideIcons.badgeCheck, size: 14, color: Colors.blue.shade400),
-                          ],
-                        ],
-                      ),
-                    ],
+                          padding: const EdgeInsets.all(2),
+                          child: CircleAvatar(
+                            radius: 20,
+                            backgroundColor: isDark ? const Color(0xFF2D2D2D) : Colors.grey.shade200,
+                            backgroundImage: post.userAvatar != null && post.userAvatar!.isNotEmpty
+                                ? NetworkImage(post.userAvatar!)
+                                : null,
+                            child: post.userAvatar == null || post.userAvatar!.isEmpty
+                                ? Text(
+                                    displayName.isNotEmpty ? displayName[0].toUpperCase() : '?',
+                                    style: TextStyle(
+                                      color: DesignTokens.instaPink,
+                                      fontWeight: FontWeight.bold,
+                                      fontSize: 18,
+                                    ),
+                                  )
+                                : null,
+                          ),
+                        ),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Row(
+                                children: [
+                                  Flexible(
+                                    child: Text(
+                                      displayName,
+                                      style: TextStyle(
+                                        fontWeight: FontWeight.w600,
+                                        fontSize: 14,
+                                        color: textColor,
+                                      ),
+                                      overflow: TextOverflow.ellipsis,
+                                    ),
+                                  ),
+                                  if (post.isVerified) ...[
+                                    const SizedBox(width: 4),
+                                    Icon(LucideIcons.badgeCheck, size: 14, color: Colors.blue.shade400),
+                                  ],
+                                ],
+                              ),
+                            ],
+                          ),
+                        ),
+                      ],
+                    ),
                   ),
                 ),
                 IconButton(

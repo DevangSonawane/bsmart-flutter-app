@@ -4,7 +4,6 @@ import 'package:flutter/material.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
-import 'package:image_cropper/image_cropper.dart';
 import 'package:path/path.dart' as p;
 import '../services/supabase_service.dart';
 
@@ -47,6 +46,81 @@ const _filterNames = [
   'Slumber', 'Crema', 'Ludwig', 'Aden', 'Perpetua',
 ];
 
+// Top-level 4x5 color matrix. When brightness=1, contrast=1, saturation=1 returns IDENTITY (no change).
+// Saturation: s=1 = full color (identity), s=0 = grayscale. Uses luminance weights.
+List<double> _buildFilterMatrixBase({double brightness = 1, double contrast = 1, double saturation = 1}) {
+  final b = brightness;
+  final c = contrast;
+  final s = saturation;
+  final invSat = 1 - s;
+  const lr = 0.2126, lg = 0.7152, lb = 0.0722;
+  final scale = c * b;
+  // Saturation matrix: (1-s)*luminance + s*channel → identity when s=1
+  return [
+    (invSat * lr + s) * scale, invSat * lg * scale, invSat * lb * scale, 0, 0,
+    invSat * lr * scale, (invSat * lg + s) * scale, invSat * lb * scale, 0, 0,
+    invSat * lr * scale, invSat * lg * scale, (invSat * lb + s) * scale, 0, 0,
+    0, 0, 0, 1, 0,
+  ];
+}
+
+// Filter preset matrices (approximate React CSS: contrast, saturate, brightness, grayscale, sepia).
+List<double> _filterMatrixFor(String name) {
+  switch (name) {
+    case 'Clarendon':
+      return _buildFilterMatrixBase(brightness: 1.0, contrast: 1.2, saturation: 1.25);
+    case 'Gingham':
+      return _buildFilterMatrixBase(brightness: 1.05, contrast: 1.0, saturation: 1.0);
+    case 'Moon':
+      return _buildGrayscaleMatrix(contrast: 1.1, brightness: 1.1);
+    case 'Lark':
+      return _buildFilterMatrixBase(brightness: 1.0, contrast: 0.9, saturation: 1.0);
+    case 'Reyes':
+      return _buildSepiaMatrix(amount: 0.22, brightness: 1.1, contrast: 0.85, saturation: 0.75);
+    case 'Juno':
+      return _buildSepiaMatrix(amount: 0.2, brightness: 1.1, contrast: 1.2, saturation: 1.4);
+    case 'Slumber':
+      return _buildSepiaMatrix(amount: 0.2, brightness: 1.05, contrast: 1.0, saturation: 0.66);
+    case 'Crema':
+      return _buildSepiaMatrix(amount: 0.2, brightness: 1.0, contrast: 0.9, saturation: 0.9);
+    case 'Ludwig':
+      return _buildFilterMatrixBase(brightness: 1.1, contrast: 0.9, saturation: 0.9);
+    case 'Aden':
+      return _buildFilterMatrixBase(brightness: 1.2, contrast: 0.9, saturation: 0.85);
+    case 'Perpetua':
+      return _buildFilterMatrixBase(brightness: 1.1, contrast: 1.1, saturation: 1.1);
+    case 'Original':
+    default:
+      return _buildFilterMatrixBase(brightness: 1.0, contrast: 1.0, saturation: 1.0);
+  }
+}
+
+List<double> _buildGrayscaleMatrix({double contrast = 1.0, double brightness = 1.0}) {
+  const r = 0.2126, g = 0.7152, b = 0.0722;
+  return [
+    r * contrast * brightness, g * contrast * brightness, b * contrast * brightness, 0, 0,
+    r * contrast * brightness, g * contrast * brightness, b * contrast * brightness, 0, 0,
+    r * contrast * brightness, g * contrast * brightness, b * contrast * brightness, 0, 0,
+    0, 0, 0, 1, 0,
+  ];
+}
+
+List<double> _buildSepiaMatrix({double amount = 0.2, double brightness = 1.0, double contrast = 1.0, double saturation = 1.0}) {
+  final t = 1 - amount;
+  final r = 0.393 + 0.607 * t;
+  final g = 0.769 - 0.769 * amount;
+  final b = 0.189 - 0.189 * amount;
+  final invSat = 1 - saturation;
+  const lr = 0.2126, lg = 0.7152, lb = 0.0722;
+  final c = contrast * brightness;
+  return [
+    (r * saturation + lr * invSat) * c, (g * saturation + lg * invSat) * c, (b * saturation + lb * invSat) * c, 0, 0,
+    (0.349 * t + 0.349 * amount) * saturation * c + lr * invSat * c, (0.686 + 0.314 * t) * saturation * c + lg * invSat * c, (0.168 * t) * saturation * c + lb * invSat * c, 0, 0,
+    (0.272 * t) * saturation * c + lr * invSat * c, (0.534 * t - 0.534 * amount) * saturation * c + lg * invSat * c, (0.131 + 0.869 * t) * saturation * c + lb * invSat * c, 0, 0,
+    0, 0, 0, 1, 0,
+  ];
+}
+
 // Adjustments matching React (property name, label, min, max)
 const _adjustments = [
   ('brightness', 'Brightness', -100, 100),
@@ -87,9 +161,23 @@ class _CreatePostScreenState extends State<CreatePostScreen> {
   List<Map<String, dynamic>> _tagSearchResults = [];
   bool _isSearchingUsers = false;
   bool _isSubmitting = false;
+  Map<String, dynamic>? _currentUserProfile;
 
   // Edit step tab
   String _editTab = 'filters';
+
+  Future<void> _loadCurrentUserProfile() async {
+    final uid = Supabase.instance.client.auth.currentUser?.id;
+    if (uid == null) return;
+    final profile = await _svc.getUserById(uid);
+    if (mounted) setState(() => _currentUserProfile = profile);
+  }
+
+  @override
+  void initState() {
+    super.initState();
+    _loadCurrentUserProfile();
+  }
 
   @override
   void dispose() {
@@ -101,64 +189,44 @@ class _CreatePostScreenState extends State<CreatePostScreen> {
       _media.isEmpty ? null : _media[_currentIndex.clamp(0, _media.length - 1)];
 
   Future<void> _pickMedia() async {
-    final files = await _picker.pickMultipleMedia();
-    if (files.isEmpty) return;
-    final newItems = <_CreatePostMediaItem>[];
-    for (final x in files) {
-      final path = x.path;
-      final isVideo = path.toLowerCase().contains('.mp4') ||
-          path.toLowerCase().contains('.mov') ||
-          (x.mimeType?.startsWith('video/') ?? false);
-      newItems.add(_CreatePostMediaItem(sourcePath: path, isVideo: isVideo));
-    }
-    setState(() {
-      if (_step == 'select') {
-        _media = newItems;
-        _currentIndex = 0;
-        _step = 'crop';
-      } else {
-        _media.addAll(newItems);
-        _currentIndex = _media.length - 1;
+    try {
+      final files = await _picker.pickMultipleMedia();
+      if (files.isEmpty) return;
+      final newItems = <_CreatePostMediaItem>[];
+      for (final x in files) {
+        final path = x.path;
+        final isVideo = path.toLowerCase().contains('.mp4') ||
+            path.toLowerCase().contains('.mov') ||
+            (x.mimeType?.startsWith('video/') ?? false);
+        newItems.add(_CreatePostMediaItem(sourcePath: path, isVideo: isVideo));
       }
-    });
+      if (mounted) {
+        setState(() {
+          if (_step == 'select') {
+            _media = newItems;
+            _currentIndex = 0;
+            _step = 'crop';
+          } else {
+            _media.addAll(newItems);
+            _currentIndex = _media.length - 1;
+          }
+        });
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Could not pick media: $e')),
+        );
+      }
+    }
   }
 
   Future<void> _cropCurrent() async {
     final item = _currentMedia;
-    if (item == null || item.isVideo) {
-      setState(() {
-        _advanceFromCrop((nextIndex, nextStep) {
-          _currentIndex = nextIndex;
-          if (nextStep != null) _step = nextStep;
-        });
-      });
-      return;
-    }
-    try {
-      final cropped = await ImageCropper().cropImage(
-        sourcePath: item.sourcePath,
-        aspectRatio: item.aspect > 0 && item.aspect < 0.9
-            ? const CropAspectRatio(ratioX: 4, ratioY: 5)
-            : item.aspect >= 1.7
-                ? const CropAspectRatio(ratioX: 16, ratioY: 9)
-                : item.aspect == 1.0
-                    ? const CropAspectRatio(ratioX: 1, ratioY: 1)
-                    : null,
-        uiSettings: [
-          AndroidUiSettings(toolbarTitle: 'Crop', lockAspectRatio: item.aspect > 0 && item.aspect != 4/5 && item.aspect != 16/9),
-          IOSUiSettings(title: 'Crop'),
-        ],
-      );
-      if (cropped != null && mounted) {
-        setState(() {
-          _media[_currentIndex].croppedPath = cropped.path;
-          _advanceFromCrop((nextIndex, nextStep) {
-            _currentIndex = nextIndex;
-            if (nextStep != null) _step = nextStep;
-          });
-        });
-      }
-    } catch (e) {
+    if (item == null) return;
+    // Advance to next item or edit step. Native ImageCropper is skipped to avoid
+    // app crashes on some platforms (path/activity issues); use source image as-is.
+    if (item.isVideo) {
       if (mounted) {
         setState(() {
           _advanceFromCrop((nextIndex, nextStep) {
@@ -167,6 +235,17 @@ class _CreatePostScreenState extends State<CreatePostScreen> {
           });
         });
       }
+      return;
+    }
+    // For images: use source path as display/upload path (no native crop) so flow never crashes
+    if (mounted) {
+      setState(() {
+        _media[_currentIndex].croppedPath = item.sourcePath;
+        _advanceFromCrop((nextIndex, nextStep) {
+          _currentIndex = nextIndex;
+          if (nextStep != null) _step = nextStep;
+        });
+      });
     }
   }
 
@@ -196,12 +275,20 @@ class _CreatePostScreenState extends State<CreatePostScreen> {
   }
 
   void _next() {
-    if (_step == 'crop') {
-      _cropCurrent();
-    } else if (_step == 'edit') {
-      setState(() => _step = 'share');
-    } else if (_step == 'share') {
-      _submit();
+    try {
+      if (_step == 'crop') {
+        _cropCurrent();
+      } else if (_step == 'edit') {
+        if (mounted) setState(() => _step = 'share');
+      } else if (_step == 'share') {
+        _submit();
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Something went wrong: $e')),
+        );
+      }
     }
   }
 
@@ -476,395 +563,556 @@ class _CreatePostScreenState extends State<CreatePostScreen> {
     );
   }
 
+  static const double _editPanelMinWidth = 300;
+  static const double _sharePanelMinWidth = 340;
+
   Widget _buildEdit() {
     final item = _currentMedia;
     if (item == null) return const SizedBox();
-    return Row(
-      children: [
-        Expanded(
-          flex: 2,
-          child: Stack(
-            alignment: Alignment.center,
-            children: [
-              item.isVideo
-                  ? Icon(LucideIcons.video, size: 100, color: Colors.grey[600])
-                  : _applyFilterToImage(File(item.displayPath), item),
-              if (_media.length > 1) ...[
-                if (_currentIndex > 0)
-                  Positioned(
-                    left: 8,
-                    child: IconButton(
-                      icon: Icon(LucideIcons.chevronLeft, color: Colors.black87),
-                      style: IconButton.styleFrom(backgroundColor: Colors.white70),
-                      onPressed: () => setState(() => _currentIndex--),
-                    ),
+    final file = File(item.displayPath);
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final useColumn = constraints.maxWidth < 600;
+        final imageSection = Stack(
+          alignment: Alignment.center,
+          children: [
+            item.isVideo
+                ? Icon(LucideIcons.video, size: 100, color: Colors.grey[600])
+                : _applyFilterToImage(file, item),
+            if (_media.length > 1) ...[
+              if (_currentIndex > 0)
+                Positioned(
+                  left: 8,
+                  child: IconButton(
+                    icon: Icon(LucideIcons.chevronLeft, color: Colors.black87),
+                    style: IconButton.styleFrom(backgroundColor: Colors.white70),
+                    onPressed: () => setState(() => _currentIndex--),
                   ),
-                if (_currentIndex < _media.length - 1)
-                  Positioned(
-                    right: 8,
-                    child: IconButton(
-                      icon: Icon(LucideIcons.chevronRight, color: Colors.black87),
-                      style: IconButton.styleFrom(backgroundColor: Colors.white70),
-                      onPressed: () => setState(() => _currentIndex++),
-                    ),
+                ),
+              if (_currentIndex < _media.length - 1)
+                Positioned(
+                  right: 8,
+                  child: IconButton(
+                    icon: Icon(LucideIcons.chevronRight, color: Colors.black87),
+                    style: IconButton.styleFrom(backgroundColor: Colors.white70),
+                    onPressed: () => setState(() => _currentIndex++),
                   ),
-              ],
+                ),
             ],
-          ),
-        ),
-        Container(
-          width: 1,
-          color: Colors.grey[200],
-        ),
-        Expanded(
-          flex: 1,
-          child: Container(
-            color: Colors.white,
-            child: Column(
-              children: [
-                Row(
-                  children: [
-                    Expanded(
-                      child: InkWell(
-                        onTap: () => setState(() => _editTab = 'filters'),
-                        child: Container(
-                          padding: const EdgeInsets.symmetric(vertical: 12),
-                          decoration: BoxDecoration(
-                            border: Border(
-                              bottom: BorderSide(
-                                color: _editTab == 'filters' ? Colors.black : Colors.transparent,
-                                width: 2,
-                              ),
-                            ),
-                          ),
-                          child: Text(
-                            'Filters',
-                            textAlign: TextAlign.center,
-                            style: TextStyle(
-                              fontWeight: FontWeight.w600,
-                              color: _editTab == 'filters' ? Colors.black : Colors.grey,
-                            ),
-                          ),
-                        ),
-                      ),
-                    ),
-                    Expanded(
-                      child: InkWell(
-                        onTap: () => setState(() => _editTab = 'adjustments'),
-                        child: Container(
-                          padding: const EdgeInsets.symmetric(vertical: 12),
-                          decoration: BoxDecoration(
-                            border: Border(
-                              bottom: BorderSide(
-                                color: _editTab == 'adjustments' ? Colors.black : Colors.transparent,
-                                width: 2,
-                              ),
-                            ),
-                          ),
-                          child: Text(
-                            'Adjustments',
-                            textAlign: TextAlign.center,
-                            style: TextStyle(
-                              fontWeight: FontWeight.w600,
-                              color: _editTab == 'adjustments' ? Colors.black : Colors.grey,
-                            ),
-                          ),
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
-                Expanded(
-                  child: SingleChildScrollView(
-                    padding: const EdgeInsets.all(16),
-                    child: _editTab == 'filters'
-                        ? Wrap(
-                            spacing: 12,
-                            runSpacing: 12,
-                            children: _filterNames.map((name) {
-                              final selected = item.filter == name;
-                              return InkWell(
-                                onTap: () => _applyFilter(name),
-                                child: Column(
-                                  mainAxisSize: MainAxisSize.min,
-                                  children: [
-                                    Container(
-                                      width: 72,
-                                      height: 72,
-                                      decoration: BoxDecoration(
-                                        borderRadius: BorderRadius.circular(8),
-                                        border: Border.all(
-                                          color: selected ? const Color(0xFF0095F6) : Colors.transparent,
-                                          width: 2,
-                                        ),
-                                      ),
-                                      child: ClipRRect(
-                                        borderRadius: BorderRadius.circular(6),
-                                        child: item.isVideo
-                                            ? Icon(LucideIcons.video, size: 32)
-                                            : Image.file(File(item.displayPath), fit: BoxFit.cover),
-                                      ),
-                                    ),
-                                    const SizedBox(height: 4),
-                                    Text(
-                                      name,
-                                      style: TextStyle(
-                                        fontSize: 11,
-                                        fontWeight: selected ? FontWeight.w600 : FontWeight.normal,
-                                        color: selected ? const Color(0xFF0095F6) : Colors.grey,
-                                      ),
-                                    ),
-                                  ],
-                                ),
-                              );
-                            }).toList(),
-                          )
-                        : Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: _adjustments.map((adj) {
-                              final key = adj.$1;
-                              final label = adj.$2;
-                              final min = adj.$3;
-                              final max = adj.$4;
-                              final value = item.adjustments[key] ?? 0;
-                              return Padding(
-                                padding: const EdgeInsets.only(bottom: 16),
-                                child: Column(
-                                  crossAxisAlignment: CrossAxisAlignment.start,
-                                  children: [
-                                    Row(
-                                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                                      children: [
-                                        Text(label, style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w500)),
-                                        Text('$value', style: TextStyle(fontSize: 12, color: Colors.grey[600])),
-                                      ],
-                                    ),
-                                    Slider(
-                                      value: value.toDouble(),
-                                      min: min.toDouble(),
-                                      max: max.toDouble(),
-                                      onChanged: (v) => _updateAdjustment(key, v.round()),
-                                    ),
-                                  ],
-                                ),
-                              );
-                            }).toList(),
-                          ),
-                  ),
-                ),
-              ],
+          ],
+        );
+        final toolsSection = Container(
+          width: useColumn ? null : _editPanelMinWidth,
+          constraints: useColumn ? null : BoxConstraints(minWidth: _editPanelMinWidth),
+          decoration: BoxDecoration(
+            color: Theme.of(context).colorScheme.surface,
+            border: Border(
+              left: useColumn ? BorderSide.none : BorderSide(color: Theme.of(context).dividerColor),
+              top: useColumn ? BorderSide(color: Theme.of(context).dividerColor) : BorderSide.none,
             ),
           ),
-        ),
-      ],
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Row(
+                children: [
+                  Expanded(
+                    child: InkWell(
+                      onTap: () => setState(() => _editTab = 'filters'),
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(vertical: 12),
+                        decoration: BoxDecoration(
+                          border: Border(
+                            bottom: BorderSide(
+                              color: _editTab == 'filters' ? Colors.black : Colors.transparent,
+                              width: 2,
+                            ),
+                          ),
+                        ),
+                        child: Text(
+                          'Filters',
+                          textAlign: TextAlign.center,
+                          style: TextStyle(
+                            fontWeight: FontWeight.w600,
+                            fontSize: 14,
+                            color: _editTab == 'filters' ? Colors.black : Colors.grey,
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+                  Expanded(
+                    child: InkWell(
+                      onTap: () => setState(() => _editTab = 'adjustments'),
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(vertical: 12),
+                        decoration: BoxDecoration(
+                          border: Border(
+                            bottom: BorderSide(
+                              color: _editTab == 'adjustments' ? Colors.black : Colors.transparent,
+                              width: 2,
+                            ),
+                          ),
+                        ),
+                        child: Text(
+                          'Adjustments',
+                          textAlign: TextAlign.center,
+                          style: TextStyle(
+                            fontWeight: FontWeight.w600,
+                            fontSize: 14,
+                            color: _editTab == 'adjustments' ? Colors.black : Colors.grey,
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+              Expanded(
+                child: SingleChildScrollView(
+                  padding: const EdgeInsets.all(16),
+                  child: _editTab == 'filters'
+                      ? Row(
+                          children: [
+                            Expanded(
+                              child: SingleChildScrollView(
+                                scrollDirection: Axis.horizontal,
+                                child: Row(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: _filterNames.map((name) {
+                                    final selected = item.filter == name;
+                                    return Padding(
+                                      padding: const EdgeInsets.only(right: 16),
+                                      child: InkWell(
+                                        onTap: () => _applyFilter(name),
+                                        child: Column(
+                                          mainAxisSize: MainAxisSize.min,
+                                          children: [
+                                            Container(
+                                              width: 72,
+                                              height: 72,
+                                              decoration: BoxDecoration(
+                                                borderRadius: BorderRadius.circular(8),
+                                                border: Border.all(
+                                                  color: selected ? const Color(0xFF0095F6) : Colors.grey.shade300,
+                                                  width: 2,
+                                                ),
+                                              ),
+                                              clipBehavior: Clip.antiAlias,
+                                              child: item.isVideo
+                                                  ? Icon(LucideIcons.video, size: 32)
+                                                  : _filterThumbnail(file, name, selected),
+                                            ),
+                                            const SizedBox(height: 4),
+                                            Text(
+                                              name,
+                                              style: TextStyle(
+                                                fontSize: 11,
+                                                fontWeight: selected ? FontWeight.w600 : FontWeight.normal,
+                                                color: selected ? const Color(0xFF0095F6) : Colors.grey,
+                                              ),
+                                            ),
+                                          ],
+                                        ),
+                                      ),
+                                    );
+                                  }).toList(),
+                                ),
+                              ),
+                            ),
+                          ],
+                        )
+                      : Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: _adjustments.map((adj) {
+                            final key = adj.$1;
+                            final label = adj.$2;
+                            final min = adj.$3;
+                            final max = adj.$4;
+                            final value = item.adjustments[key] ?? 0;
+                            return Padding(
+                              padding: const EdgeInsets.only(bottom: 16),
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Row(
+                                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                    children: [
+                                      Text(label, style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w500)),
+                                      Text('$value', style: TextStyle(fontSize: 12, color: Colors.grey[600])),
+                                    ],
+                                  ),
+                                  Slider(
+                                    value: value.toDouble(),
+                                    min: min.toDouble(),
+                                    max: max.toDouble(),
+                                    onChanged: (v) => _updateAdjustment(key, v.round()),
+                                  ),
+                                ],
+                              ),
+                            );
+                          }).toList(),
+                        ),
+                ),
+              ),
+            ],
+          ),
+        );
+        if (useColumn) {
+          return Column(
+            children: [
+              Expanded(flex: 2, child: imageSection),
+              SizedBox(
+                height: 280,
+                child: toolsSection,
+              ),
+            ],
+          );
+        }
+        return Row(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Expanded(flex: 2, child: imageSection),
+            toolsSection,
+          ],
+        );
+      },
     );
   }
 
+  /// Applies named filter preset + adjustments (matches React getFilterStyle).
   Widget _applyFilterToImage(File file, _CreatePostMediaItem item) {
-    // Approximate filter with ColorFilter (brightness/contrast/saturation via matrix)
-    double b = (item.adjustments['brightness'] ?? 0) / 100 + 1;
-    double c = (item.adjustments['contrast'] ?? 0) / 100 + 1;
-    double s = (item.adjustments['saturate'] ?? 0) / 100 + 1;
-    final matrix = _buildFilterMatrix(brightness: b, contrast: c, saturation: s);
-    return ColorFiltered(
-      colorFilter: ColorFilter.matrix(matrix),
-      child: Image.file(file, fit: BoxFit.contain),
+    final adj = item.adjustments;
+    final b = (adj['brightness'] ?? 0) / 100.0 + 1.0;
+    final c = (adj['contrast'] ?? 0) / 100.0 + 1.0;
+    final s = (adj['saturate'] ?? 0) / 100.0 + 1.0;
+    final opacity = 1.0 - (adj['opacity'] ?? 0) / 100.0;
+    final presetMatrix = _filterMatrixFor(item.filter);
+    final adjustmentMatrix = _buildFilterMatrix(brightness: b, contrast: c, saturation: s);
+    return Opacity(
+      opacity: opacity.clamp(0.0, 1.0),
+      child: ColorFiltered(
+        colorFilter: ColorFilter.matrix(presetMatrix),
+        child: ColorFiltered(
+          colorFilter: ColorFilter.matrix(adjustmentMatrix),
+          child: Image.file(file, fit: BoxFit.contain),
+        ),
+      ),
     );
   }
 
+  /// Adjustment matrix (brightness/contrast/saturation). Identity when b=1, c=1, s=1.
   List<double> _buildFilterMatrix({double brightness = 1, double contrast = 1, double saturation = 1}) {
-    // Simplified 4x5 matrix: brightness scales, contrast and saturation approximated
     final b = brightness;
     final c = contrast;
     final s = saturation;
     final invSat = 1 - s;
-    final r = 0.2126 * invSat;
-    final g = 0.7152 * invSat;
-    final b_ = 0.0722 * invSat;
+    const lr = 0.2126, lg = 0.7152, lb = 0.0722;
+    final scale = c * b;
     return [
-      (r + s) * c * b, g * c * b, b_ * c * b, 0, 0,
-      r * c * b, (g + s) * c * b, b_ * c * b, 0, 0,
-      r * c * b, g * c * b, (b_ + s) * c * b, 0, 0,
+      (invSat * lr + s) * scale, invSat * lg * scale, invSat * lb * scale, 0, 0,
+      invSat * lr * scale, (invSat * lg + s) * scale, invSat * lb * scale, 0, 0,
+      invSat * lr * scale, invSat * lg * scale, (invSat * lb + s) * scale, 0, 0,
       0, 0, 0, 1, 0,
     ];
+  }
+
+  /// Thumbnail with a single filter preset (for Filters tab).
+  Widget _filterThumbnail(File file, String filterName, bool isSelected) {
+    final matrix = _filterMatrixFor(filterName);
+    return ColorFiltered(
+      colorFilter: ColorFilter.matrix(matrix),
+      child: Image.file(file, fit: BoxFit.cover),
+    );
   }
 
   Widget _buildShare() {
     final item = _currentMedia;
     if (item == null) return const SizedBox();
-    return Row(
+    final imageSection = Stack(
+      alignment: Alignment.center,
       children: [
-        Expanded(
-          flex: 2,
-          child: Stack(
-            alignment: Alignment.center,
-            children: [
-              GestureDetector(
-                onTapDown: _onImageTapForTag,
-                child: item.isVideo
-                    ? Icon(LucideIcons.video, size: 100, color: Colors.grey[600])
-                    : _applyFilterToImage(File(item.displayPath), item),
-              ),
-              Positioned(
-                left: 0,
-                right: 0,
-                bottom: 16,
-                child: Center(
-                  child: Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-                    decoration: BoxDecoration(color: Colors.black54, borderRadius: BorderRadius.circular(20)),
-                    child: const Text('Tap photo to tag people', style: TextStyle(color: Colors.white, fontSize: 12)),
-                  ),
-                ),
-              ),
-              ..._tags.map((t) => Positioned(
-                left: 0,
-                right: 0,
-                top: 0,
-                bottom: 0,
-                child: Align(
-                  alignment: Alignment(t.x / 50 - 1, t.y / 50 - 1),
-                  child: Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                        decoration: BoxDecoration(color: Colors.black54, borderRadius: BorderRadius.circular(8)),
-                        child: Row(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            Text(
-                              (t.user['username'] as String?) ?? '',
-                              style: const TextStyle(color: Colors.white, fontSize: 12, fontWeight: FontWeight.w600),
-                            ),
-                            GestureDetector(
-                              onTap: () => _removeTag(t.id),
-                              child: Padding(
-                                padding: const EdgeInsets.only(left: 6),
-                                child: Icon(LucideIcons.x, size: 14, color: Colors.white),
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              )),
-              if (_showTagSearch) _buildTagSearchOverlay(),
-              if (_media.length > 1) ...[
-                if (_currentIndex > 0)
-                  Positioned(
-                    left: 8,
-                    child: IconButton(
-                      icon: Icon(LucideIcons.chevronLeft, color: Colors.black87),
-                      style: IconButton.styleFrom(backgroundColor: Colors.white70),
-                      onPressed: () => setState(() => _currentIndex--),
-                    ),
-                  ),
-                if (_currentIndex < _media.length - 1)
-                  Positioned(
-                    right: 8,
-                    child: IconButton(
-                      icon: Icon(LucideIcons.chevronRight, color: Colors.black87),
-                      style: IconButton.styleFrom(backgroundColor: Colors.white70),
-                      onPressed: () => setState(() => _currentIndex++),
-                    ),
-                  ),
-              ],
-            ],
+        GestureDetector(
+          onTapDown: _onImageTapForTag,
+          child: item.isVideo
+              ? Icon(LucideIcons.video, size: 100, color: Colors.grey[600])
+              : _applyFilterToImage(File(item.displayPath), item),
+        ),
+        Positioned(
+          left: 0,
+          right: 0,
+          bottom: 16,
+          child: Center(
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+              decoration: BoxDecoration(color: Colors.black54, borderRadius: BorderRadius.circular(20)),
+              child: const Text('Tap photo to tag people', style: TextStyle(color: Colors.white, fontSize: 12)),
+            ),
           ),
         ),
-        Container(width: 1, color: Colors.grey[200]),
-        Expanded(
-          flex: 1,
-          child: Container(
-            color: Colors.white,
-            child: ListView(
-              padding: const EdgeInsets.all(16),
+        ..._tags.map((t) => Positioned(
+          left: 0,
+          right: 0,
+          top: 0,
+          bottom: 0,
+          child: Align(
+            alignment: Alignment(t.x / 50 - 1, t.y / 50 - 1),
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+              decoration: BoxDecoration(color: Colors.black54, borderRadius: BorderRadius.circular(8)),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text(
+                    (t.user['username'] as String?) ?? '',
+                    style: const TextStyle(color: Colors.white, fontSize: 12, fontWeight: FontWeight.w600),
+                  ),
+                  GestureDetector(
+                    onTap: () => _removeTag(t.id),
+                    child: Padding(
+                      padding: const EdgeInsets.only(left: 6),
+                      child: Icon(LucideIcons.x, size: 14, color: Colors.white),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        )),
+        if (_showTagSearch) _buildTagSearchOverlay(),
+        if (_media.length > 1) ...[
+          if (_currentIndex > 0)
+            Positioned(
+              left: 8,
+              child: IconButton(
+                icon: Icon(LucideIcons.chevronLeft, color: Colors.black87),
+                style: IconButton.styleFrom(backgroundColor: Colors.white70),
+                onPressed: () => setState(() => _currentIndex--),
+              ),
+            ),
+          if (_currentIndex < _media.length - 1)
+            Positioned(
+              right: 8,
+              child: IconButton(
+                icon: Icon(LucideIcons.chevronRight, color: Colors.black87),
+                style: IconButton.styleFrom(backgroundColor: Colors.white70),
+                onPressed: () => setState(() => _currentIndex++),
+              ),
+            ),
+        ],
+      ],
+    );
+    final sharePanel = Container(
+      color: Theme.of(context).colorScheme.surface,
+      child: ListView(
+        padding: EdgeInsets.zero,
+        children: [
+          // User row (React: user avatar + username)
+          Padding(
+            padding: const EdgeInsets.all(16),
+            child: Row(
               children: [
-                const SizedBox(height: 8),
+                CircleAvatar(
+                  radius: 16,
+                  backgroundColor: Colors.grey[300],
+                  backgroundImage: _currentUserProfile?['avatar_url'] != null &&
+                          (_currentUserProfile!['avatar_url'] as String).isNotEmpty
+                      ? NetworkImage(_currentUserProfile!['avatar_url'] as String)
+                      : null,
+                  child: _currentUserProfile?['avatar_url'] == null ||
+                          (_currentUserProfile!['avatar_url'] as String).isEmpty
+                      ? Text(
+                          ((_currentUserProfile?['username'] as String?) ?? 'U').toUpperCase().substring(0, 1),
+                          style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w600),
+                        )
+                      : null,
+                ),
+                const SizedBox(width: 12),
+                Text(
+                  (_currentUserProfile?['username'] as String?) ?? 'User',
+                  style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w600),
+                ),
+              ],
+            ),
+          ),
+          // Caption section
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 16),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
                 TextField(
                   controller: _captionCtl,
-                  maxLines: 5,
+                  maxLines: 6,
                   maxLength: 2200,
                   decoration: const InputDecoration(
                     hintText: 'Write a caption...',
                     border: InputBorder.none,
                     contentPadding: EdgeInsets.zero,
+                    counterText: '',
                   ),
                 ),
                 Row(
                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [
                     IconButton(
-                      icon: Icon(LucideIcons.smile, color: Colors.grey),
+                      icon: Icon(LucideIcons.smile, color: Colors.grey[600], size: 22),
                       onPressed: () => setState(() => _showEmojiPicker = !_showEmojiPicker),
                     ),
                     ValueListenableBuilder<TextEditingValue>(
                       valueListenable: _captionCtl,
-                      builder: (_, value, __) => Text('${value.text.length}/2,200', style: TextStyle(fontSize: 12, color: Colors.grey[600])),
+                      builder: (_, value, __) => Text(
+                        '${value.text.length}/2,200',
+                        style: TextStyle(fontSize: 12, color: Colors.grey[600]),
+                      ),
                     ),
                   ],
                 ),
                 if (_showEmojiPicker)
                   Container(
-                    padding: const EdgeInsets.all(8),
-                    decoration: BoxDecoration(border: Border.all(color: Colors.grey[200]!), borderRadius: BorderRadius.circular(8)),
-                    child: Wrap(
-                      spacing: 4,
-                      runSpacing: 4,
-                      children: _popularEmojis.map((e) => InkWell(
-                        onTap: () {
-                          _captionCtl.text = _captionCtl.text + e;
-                          setState(() {});
-                        },
-                        child: Padding(
-                          padding: const EdgeInsets.all(4),
-                          child: Text(e, style: const TextStyle(fontSize: 22)),
-                        ),
-                      )).toList(),
+                    padding: const EdgeInsets.all(12),
+                    decoration: BoxDecoration(
+                      border: Border.all(color: Colors.grey[300]!),
+                      borderRadius: BorderRadius.circular(12),
                     ),
-                  ),
-                const Divider(height: 24),
-                ListTile(
-                  contentPadding: EdgeInsets.zero,
-                  leading: Icon(LucideIcons.userPlus, size: 22),
-                  title: const Text('Add Tag', style: TextStyle(fontSize: 14)),
-                ),
-                InkWell(
-                  onTap: () => setState(() => _advancedOpen = !_advancedOpen),
-                  child: Padding(
-                    padding: const EdgeInsets.symmetric(vertical: 12),
-                    child: Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        const Text('Advanced Settings', style: TextStyle(fontSize: 14, fontWeight: FontWeight.w500)),
-                        Icon(_advancedOpen ? LucideIcons.chevronUp : LucideIcons.chevronDown, color: Colors.grey[600]),
+                        Text(
+                          'Most popular',
+                          style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: Colors.grey[600]),
+                        ),
+                        const SizedBox(height: 8),
+                        Wrap(
+                          spacing: 6,
+                          runSpacing: 6,
+                          children: _popularEmojis.map((e) => InkWell(
+                            onTap: () {
+                              _captionCtl.text = _captionCtl.text + e;
+                              setState(() {});
+                            },
+                            child: Padding(
+                              padding: const EdgeInsets.all(6),
+                              child: Text(e, style: const TextStyle(fontSize: 22)),
+                            ),
+                          )).toList(),
+                        ),
                       ],
                     ),
                   ),
-                ),
-                if (_advancedOpen) ...[
-                  SwitchListTile(
-                    contentPadding: EdgeInsets.zero,
-                    title: const Text('Hide like and view counts on this post', style: TextStyle(fontSize: 14)),
-                    value: _hideLikes,
-                    onChanged: (v) => setState(() => _hideLikes = v),
-                  ),
-                  SwitchListTile(
-                    contentPadding: EdgeInsets.zero,
-                    title: const Text('Turn off commenting', style: TextStyle(fontSize: 14)),
-                    value: _turnOffCommenting,
-                    onChanged: (v) => setState(() => _turnOffCommenting = v),
-                  ),
-                ],
-                const SizedBox(height: 24),
               ],
             ),
           ),
-        ),
-      ],
+          const Divider(height: 1),
+          // Add Tag row (React parity)
+          ListTile(
+            contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+            leading: Icon(LucideIcons.userPlus, size: 22, color: Colors.grey[700]),
+            title: const Text('Add Tag', style: TextStyle(fontSize: 14)),
+          ),
+          // Advanced Settings accordion (React: Hide likes, Turn off commenting + description)
+          InkWell(
+            onTap: () => setState(() => _advancedOpen = !_advancedOpen),
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  const Text('Advanced Settings', style: TextStyle(fontSize: 14, fontWeight: FontWeight.w500)),
+                  Icon(_advancedOpen ? LucideIcons.chevronUp : LucideIcons.chevronDown, color: Colors.grey[600], size: 20),
+                ],
+              ),
+            ),
+          ),
+          if (_advancedOpen) ...[
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            const Text(
+                              'Hide like and view counts on this post',
+                              style: TextStyle(fontSize: 14),
+                            ),
+                            const SizedBox(height: 4),
+                            Text(
+                              'Only you will see the total number of likes and views. You can change this later in the ... menu.',
+                              style: TextStyle(fontSize: 12, color: Colors.grey[600]),
+                            ),
+                          ],
+                        ),
+                      ),
+                      Switch(value: _hideLikes, onChanged: (v) => setState(() => _hideLikes = v)),
+                    ],
+                  ),
+                  const SizedBox(height: 16),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            const Text('Turn off commenting', style: TextStyle(fontSize: 14)),
+                            const SizedBox(height: 4),
+                            Text(
+                              'You can change this later in the ... menu at the top of your post.',
+                              style: TextStyle(fontSize: 12, color: Colors.grey[600]),
+                            ),
+                          ],
+                        ),
+                      ),
+                      Switch(value: _turnOffCommenting, onChanged: (v) => setState(() => _turnOffCommenting = v)),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+          ],
+          const SizedBox(height: 24),
+        ],
+      ),
+    );
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final useColumn = constraints.maxWidth < 600;
+        final borderedPanel = Container(
+          decoration: BoxDecoration(
+            color: Theme.of(context).colorScheme.surface,
+            border: Border(
+              left: useColumn ? BorderSide.none : BorderSide(color: Theme.of(context).dividerColor),
+              top: useColumn ? BorderSide(color: Theme.of(context).dividerColor) : BorderSide.none,
+            ),
+          ),
+          child: sharePanel,
+        );
+        if (useColumn) {
+          return Column(
+            children: [
+              Expanded(flex: 2, child: imageSection),
+              SizedBox(
+                height: 320,
+                child: borderedPanel,
+              ),
+            ],
+          );
+        }
+        return Row(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Expanded(flex: 2, child: imageSection),
+            SizedBox(
+              width: _sharePanelMinWidth,
+              child: borderedPanel,
+            ),
+          ],
+        );
+      },
     );
   }
 

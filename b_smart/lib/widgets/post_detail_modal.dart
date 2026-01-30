@@ -215,19 +215,36 @@ class _PostDetailModalState extends State<PostDetailModal> {
           padding: const EdgeInsets.all(12),
           child: Row(
             children: [
-              CircleAvatar(
-                radius: 18,
-                backgroundImage: avatarUrl != null ? NetworkImage(avatarUrl) : null,
-                child: avatarUrl == null ? Text(username.isNotEmpty ? username[0].toUpperCase() : 'U') : null,
-              ),
-              const SizedBox(width: 12),
               Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(username, style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 14)),
-                    if (location != null && location.isNotEmpty) Text(location, style: TextStyle(fontSize: 12, color: Colors.grey.shade600)),
-                  ],
+                child: InkWell(
+                  onTap: () {
+                    final userId = _postUser?['id'] as String?;
+                    if (userId != null && userId.isNotEmpty) {
+                      Navigator.of(context).pop();
+                      Navigator.of(context).pushNamed('/profile/$userId');
+                    }
+                  },
+                  borderRadius: BorderRadius.circular(24),
+                  child: Row(
+                    children: [
+                      CircleAvatar(
+                        radius: 18,
+                        backgroundImage: avatarUrl != null ? NetworkImage(avatarUrl) : null,
+                        child: avatarUrl == null ? Text(username.isNotEmpty ? username[0].toUpperCase() : 'U') : null,
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Text(username, style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 14), overflow: TextOverflow.ellipsis),
+                            if (location != null && location.isNotEmpty) Text(location, style: TextStyle(fontSize: 12, color: Colors.grey.shade600), overflow: TextOverflow.ellipsis),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ),
                 ),
               ),
               IconButton(icon: Icon(LucideIcons.ellipsis), onPressed: () {}),

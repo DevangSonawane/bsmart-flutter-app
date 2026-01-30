@@ -400,39 +400,53 @@ class _InstagramFeedScreenState extends State<InstagramFeedScreen> {
       padding: const EdgeInsets.all(16),
       child: Row(
         children: [
-          CircleAvatar(
-            radius: 20,
-            backgroundColor: InstagramTheme.dividerGrey,
-            child: Text(
-              post.userName[0].toUpperCase(),
-              style: const TextStyle(
-                color: InstagramTheme.primaryPink,
-                fontWeight: FontWeight.bold,
-              ),
-            ),
-          ),
-          const SizedBox(width: 12),
           Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  post.userName,
-                  style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                    fontWeight: FontWeight.bold,
+            child: InkWell(
+              onTap: post.userId.isNotEmpty
+                  ? () => Navigator.of(context).pushNamed('/profile/${post.userId}')
+                  : null,
+              borderRadius: BorderRadius.circular(24),
+              child: Row(
+                children: [
+                  CircleAvatar(
+                    radius: 20,
+                    backgroundColor: InstagramTheme.dividerGrey,
+                    child: Text(
+                      post.userName.isNotEmpty ? post.userName[0].toUpperCase() : '?',
+                      style: const TextStyle(
+                        color: InstagramTheme.primaryPink,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
                   ),
-                ),
-                if (post.isAd) ...[
-                  const SizedBox(height: 2),
-                  Text(
-                    'Sponsored',
-                    style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                      fontSize: 11,
-                      color: InstagramTheme.primaryPink,
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Text(
+                          post.userName,
+                          style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                            fontWeight: FontWeight.bold,
+                          ),
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                        if (post.isAd) ...[
+                          const SizedBox(height: 2),
+                          Text(
+                            'Sponsored',
+                            style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                              fontSize: 11,
+                              color: InstagramTheme.primaryPink,
+                            ),
+                          ),
+                        ],
+                      ],
                     ),
                   ),
                 ],
-              ],
+              ),
             ),
           ),
           IconButton(

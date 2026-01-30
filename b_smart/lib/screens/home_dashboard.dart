@@ -1,9 +1,12 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_redux/flutter_redux.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 import '../services/feed_service.dart';
 import '../services/supabase_service.dart';
 import '../services/wallet_service.dart';
+import '../state/app_state.dart';
+import '../state/profile_actions.dart';
 import '../widgets/post_card.dart';
 import '../widgets/stories_row.dart';
 import '../widgets/bottom_nav.dart';
@@ -67,6 +70,10 @@ class _HomeDashboardState extends State<HomeDashboard> {
         _balance = bal;
         _isLoading = false;
       });
+      // Preload profile into Redux so ProfileScreen opens instantly
+      if (currentUserId != null && currentProfile != null) {
+        StoreProvider.of<AppState>(context).dispatch(SetProfile(currentProfile));
+      }
     }
   }
 
@@ -261,7 +268,10 @@ class _HomeDashboardState extends State<HomeDashboard> {
                 subtitle: Text('Photo or video', style: TextStyle(fontSize: 12, color: Theme.of(ctx).colorScheme.onSurfaceVariant)),
                 onTap: () {
                   Navigator.of(ctx).pop();
-                  Navigator.of(context).pushNamed('/create');
+                  // Defer push to next frame so sheet closes first (matches React: modal overlay, no route conflict)
+                  WidgetsBinding.instance.addPostFrameCallback((_) {
+                    if (mounted) Navigator.of(context).pushNamed('/create');
+                  });
                 },
               ),
               ListTile(
@@ -275,7 +285,9 @@ class _HomeDashboardState extends State<HomeDashboard> {
                 subtitle: Text('Short video', style: TextStyle(fontSize: 12, color: Theme.of(ctx).colorScheme.onSurfaceVariant)),
                 onTap: () {
                   Navigator.of(ctx).pop();
-                  Navigator.of(context).pushNamed('/create');
+                  WidgetsBinding.instance.addPostFrameCallback((_) {
+                    if (mounted) Navigator.of(context).pushNamed('/create');
+                  });
                 },
               ),
               const SizedBox(height: 16),
