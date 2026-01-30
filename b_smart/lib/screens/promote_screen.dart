@@ -3,8 +3,8 @@ import 'package:flutter/material.dart';
 import 'package:video_player/video_player.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
-import 'package:b_smart/core/lucide_local.dart';
 import '../theme/design_tokens.dart';
+import '../services/promote_service.dart';
 
 class PromoteScreen extends StatefulWidget {
   const PromoteScreen({Key? key}) : super(key: key);
@@ -15,53 +15,37 @@ class PromoteScreen extends StatefulWidget {
 
 class _PromoteScreenState extends State<PromoteScreen> {
   final PageController _pageController = PageController();
+  final PromoteService _promoteService = PromoteService();
   int _currentIndex = 0;
   bool _isMuted = true;
+  bool _loading = true;
+  List<Map<String, dynamic>> _promotes = [];
   final Map<int, VideoPlayerController> _controllers = {};
 
-  /// Height reserved for the floating bottom nav (match BottomNav: 8 + 64 + 8 padding).
+  /// Height reserved for the floating bottom nav (match BottomNav: 8 + 64 + 8 padding + safe area).
   static const double kBottomNavHeight = 5;
-
-  final List<Map<String, dynamic>> promotes = [
-    {
-      'id': 'p1',
-      'username': 'business_growth',
-      'videoUrl': 'https://assets.mixkit.co/videos/preview/mixkit-working-on-a-new-project-4240-large.mp4',
-      'likes': '1.2k',
-      'comments': '34',
-      'description': 'Boost your business with our new tools! 🚀 #growth #business',
-      'brandName': 'Growth Tools Inc.',
-      'rating': 4.5,
-      'products': [
-        {'id': 1, 'image': 'https://images.unsplash.com/photo-1556742049-0cfed4f7a07d?w=400&h=300&fit=crop', 'title': 'Product A'},
-        {'id': 2, 'image': 'https://images.unsplash.com/photo-1556740758-90de374c12ad?w=400&h=300&fit=crop', 'title': 'Product B'},
-      ],
-    },
-    {
-      'id': 'p2',
-      'username': 'marketing_pro',
-      'videoUrl': 'https://assets.mixkit.co/videos/preview/mixkit-discussion-of-a-marketing-project-4248-large.mp4',
-      'likes': '850',
-      'comments': '22',
-      'description': 'Marketing strategies that work. 📈 #marketing #tips',
-      'brandName': 'MarketMaster',
-      'rating': 4.2,
-      'products': [
-        {'id': 1, 'image': 'https://images.unsplash.com/photo-1533750516457-a7f992034fec?w=400&h=300&fit=crop', 'title': 'Tool X'},
-      ],
-    },
-  ];
 
   @override
   void initState() {
     super.initState();
-    _initControllerForIndex(0);
+    _loadPromotes();
+  }
+
+  Future<void> _loadPromotes() async {
+    final list = await _promoteService.fetchPromotes();
+    if (mounted) {
+      setState(() {
+        _promotes = list;
+        _loading = false;
+      });
+      if (_promotes.isNotEmpty) _initControllerForIndex(0);
+    }
   }
 
   Future<void> _initControllerForIndex(int index) async {
-    if (index < 0 || index >= promotes.length) return;
+    if (index < 0 || index >= _promotes.length) return;
     if (_controllers.containsKey(index)) return;
-    final url = promotes[index]['videoUrl'] as String?;
+    final url = _promotes[index]['videoUrl'] as String?;
     if (url == null || url.isEmpty) return;
     final controller = VideoPlayerController.network(url);
     _controllers[index] = controller;
@@ -114,15 +98,27 @@ class _PromoteScreenState extends State<PromoteScreen> {
 
   @override
   Widget build(BuildContext context) {
+    if (_loading) {
+      return Scaffold(
+        backgroundColor: Colors.black,
+        body: Center(child: CircularProgressIndicator(color: DesignTokens.instaPink)),
+      );
+    }
+    if (_promotes.isEmpty) {
+      return Scaffold(
+        backgroundColor: Colors.black,
+        body: Center(child: Text('No promoted content yet.', style: TextStyle(color: Colors.grey.shade400))),
+      );
+    }
     return Scaffold(
       backgroundColor: Colors.black,
       body: PageView.builder(
         controller: _pageController,
         scrollDirection: Axis.vertical,
         onPageChanged: _onPageChanged,
-        itemCount: promotes.length,
+        itemCount: _promotes.length,
         itemBuilder: (context, index) {
-          final item = promotes[index];
+          final item = _promotes[index];
           final products = (item['products'] as List<dynamic>?) ?? [];
           final controller = _controllers[index];
           return Stack(
@@ -159,7 +155,7 @@ class _PromoteScreenState extends State<PromoteScreen> {
                 child: Material(
                   color: Colors.transparent,
                   child: IconButton(
-                    icon: Icon(_isMuted ? LucideIcons.volumeX.localLucide : LucideIcons.volume2.localLucide, color: Colors.white, size: 28),
+                    icon: Icon(_isMuted ? LucideIcons.volumeX : LucideIcons.volume2, color: Colors.white, size: 28),
                     onPressed: () {
                       setState(() {
                         _isMuted = !_isMuted;
@@ -177,13 +173,13 @@ class _PromoteScreenState extends State<PromoteScreen> {
                 child: Column(
                   mainAxisSize: MainAxisSize.min,
                   children: [
-                    _RightAction(icon: LucideIcons.heart.localLucide, label: (item['likes'] as String?) ?? '0', onTap: () {}),
+                    _RightAction(icon: LucideIcons.heart, label: (item['likes'] as String?) ?? '0', onTap: () {}),
                     const SizedBox(height: 4),
-                    _RightAction(icon: LucideIcons.messageCircle.localLucide, label: (item['comments'] as String?) ?? '0', onTap: () {}),
+                    _RightAction(icon: LucideIcons.messageCircle, label: (item['comments'] as String?) ?? '0', onTap: () {}),
                     const SizedBox(height: 4),
-                    _RightAction(icon: LucideIcons.send.localLucide, label: null, onTap: () {}),
+                    _RightAction(icon: LucideIcons.send, label: null, onTap: () {}),
                     const SizedBox(height: 4),
-                    _RightAction(icon: LucideIcons.ellipsis.localLucide, label: null, onTap: () {}),
+                    _RightAction(icon: LucideIcons.ellipsis, label: null, onTap: () {}),
                   ],
                 ),
               ),
@@ -193,7 +189,7 @@ class _PromoteScreenState extends State<PromoteScreen> {
                 right: 0,
                 bottom: 0,
                 child: Padding(
-                  padding: EdgeInsets.only(bottom: kBottomNavHeight),
+                  padding: EdgeInsets.only(bottom: kBottomNavHeight + MediaQuery.of(context).padding.bottom),
                   child: Container(
                     width: double.infinity,
                     decoration: BoxDecoration(
@@ -243,7 +239,7 @@ class _PromoteScreenState extends State<PromoteScreen> {
                                     children: [
                                       Text('Sponsored', style: TextStyle(color: Colors.white.withValues(alpha: 0.85), fontSize: 12)),
                                       Text(' • ', style: TextStyle(color: Colors.white.withValues(alpha: 0.85), fontSize: 12)),
-                                      Icon(LucideIcons.star.localLucide, color: Colors.amber, size: 14),
+                                      Icon(LucideIcons.star, color: Colors.amber, size: 14),
                                       Text(' ${item['rating']} ', style: TextStyle(color: Colors.white.withValues(alpha: 0.85), fontSize: 12)),
                                       Text(' • ', style: TextStyle(color: Colors.white.withValues(alpha: 0.85), fontSize: 12)),
                                       Text('FREE', style: TextStyle(color: Colors.white.withValues(alpha: 0.85), fontSize: 12, fontWeight: FontWeight.w600)),
@@ -270,7 +266,7 @@ class _PromoteScreenState extends State<PromoteScreen> {
                             onPressed: () {
 _showFeaturedProductsSheet(context, products);
                             },
-                            icon: Icon(LucideIcons.shoppingBag.localLucide, color: Colors.white, size: 20),
+                            icon: Icon(LucideIcons.shoppingBag, color: Colors.white, size: 20),
                             label: const Text('View Products', style: TextStyle(color: Colors.white, fontWeight: FontWeight.w600)),
                             style: OutlinedButton.styleFrom(
                               side: const BorderSide(color: Colors.white),
@@ -330,7 +326,7 @@ _showFeaturedProductsSheet(context, products);
                   child: Text('Featured Products', style: TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold)),
                 ),
                 IconButton(
-                  icon: Icon(LucideIcons.x.localLucide, color: Colors.white),
+                  icon: Icon(LucideIcons.x, color: Colors.white),
                   onPressed: () => Navigator.of(ctx).pop(),
                 ),
               ],
@@ -360,8 +356,8 @@ _showFeaturedProductsSheet(context, products);
                           child: CachedNetworkImage(
                             imageUrl: (prod['image'] as String?) ?? '',
                             fit: BoxFit.cover,
-                            placeholder: (_, __) => Center(child: Icon(LucideIcons.image.localLucide, color: Colors.white54)),
-                            errorWidget: (_, __, ___) => Center(child: Icon(LucideIcons.imageOff.localLucide, color: Colors.white54)),
+                            placeholder: (_, __) => Center(child: Icon(LucideIcons.image, color: Colors.white54)),
+                            errorWidget: (_, __, ___) => Center(child: Icon(LucideIcons.imageOff, color: Colors.white54)),
                           ),
                         ),
                         Padding(

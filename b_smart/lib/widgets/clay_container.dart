@@ -81,6 +81,13 @@ class _ClayButtonState extends State<ClayButton> {
       onTap: widget.onPressed,
       child: AnimatedContainer(
         duration: const Duration(milliseconds: 100),
+        transform: Matrix4.identity()
+          ..scaleByDouble(
+            _isPressed ? 0.98 : 1.0,
+            _isPressed ? 0.98 : 1.0,
+            1.0,
+            1.0,
+          ),
         width: widget.width,
         height: widget.height,
         padding: const EdgeInsets.symmetric(vertical: 16, horizontal: 24),

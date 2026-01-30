@@ -107,14 +107,14 @@ const EditProfile = () => {
   };
 
   return (
-    <div className="min-h-screen bg-gray-50 pb-20">
+    <div className="min-h-screen bg-gray-50 dark:bg-black pb-20">
       {/* Header */}
-      <div className="sticky top-0 bg-white border-b border-gray-200 px-4 py-3 flex items-center justify-between z-40">
+      <div className="sticky top-0 bg-white dark:bg-black border-b border-gray-200 dark:border-gray-800 px-4 py-3 flex items-center justify-between z-40">
         <div className="flex items-center gap-3">
-          <Link to="/profile" className="text-gray-800">
+          <Link to="/profile" className="text-gray-800 dark:text-white">
             <ArrowLeft size={24} />
           </Link>
-          <h1 className="text-lg font-semibold">Edit Profile</h1>
+          <h1 className="text-lg font-semibold dark:text-white">Edit Profile</h1>
         </div>
         <button 
           onClick={handleSubmit}
@@ -130,7 +130,7 @@ const EditProfile = () => {
         <div className="flex flex-col items-center mb-8">
           <div className="relative group cursor-pointer">
             <div className="w-24 h-24 rounded-full p-[2px] bg-gradient-to-tr from-insta-yellow via-insta-orange to-insta-pink mb-3">
-              <div className="w-full h-full rounded-full bg-white p-[2px] overflow-hidden relative">
+              <div className="w-full h-full rounded-full bg-white dark:bg-black p-[2px] overflow-hidden relative">
                 {form.avatar_url ? (
                   <img
                     src={form.avatar_url}
@@ -138,7 +138,7 @@ const EditProfile = () => {
                     alt="Profile"
                   />
                 ) : (
-                  <div className="w-full h-full bg-gray-100 flex items-center justify-center text-2xl font-bold text-gray-500">
+                  <div className="w-full h-full bg-gray-100 dark:bg-gray-800 flex items-center justify-center text-2xl font-bold text-gray-500 dark:text-gray-400">
                     {getInitials(form.full_name || form.username)}
                   </div>
                 )}
@@ -179,50 +179,50 @@ const EditProfile = () => {
         {/* Form Fields */}
         <form onSubmit={handleSubmit} className="space-y-6">
           <div className="space-y-1">
-            <label className="text-sm font-medium text-gray-700">Name</label>
+            <label className="text-sm font-medium text-gray-700 dark:text-gray-300">Name</label>
             <input
               type="text"
               name="full_name"
               value={form.full_name}
               onChange={handleChange}
               placeholder="Your full name"
-              className="w-full px-4 py-3 bg-white border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-insta-pink/20 focus:border-insta-pink transition-all"
+              className="w-full px-4 py-3 bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-xl focus:outline-none focus:ring-2 focus:ring-insta-pink/20 focus:border-insta-pink transition-all dark:text-white"
             />
           </div>
 
           <div className="space-y-1">
-            <label className="text-sm font-medium text-gray-700">Username</label>
+            <label className="text-sm font-medium text-gray-700 dark:text-gray-300">Username</label>
             <input
               type="text"
               name="username"
               value={form.username}
               onChange={handleChange}
               placeholder="Username"
-              className="w-full px-4 py-3 bg-white border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-insta-pink/20 focus:border-insta-pink transition-all"
+              className="w-full px-4 py-3 bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-xl focus:outline-none focus:ring-2 focus:ring-insta-pink/20 focus:border-insta-pink transition-all dark:text-white"
             />
           </div>
 
           <div className="space-y-1">
-            <label className="text-sm font-medium text-gray-700">Bio</label>
+            <label className="text-sm font-medium text-gray-700 dark:text-gray-300">Bio</label>
             <textarea
               name="bio"
               value={form.bio}
               onChange={handleChange}
               placeholder="Write something about yourself..."
               rows={3}
-              className="w-full px-4 py-3 bg-white border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-insta-pink/20 focus:border-insta-pink transition-all resize-none"
+              className="w-full px-4 py-3 bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-xl focus:outline-none focus:ring-2 focus:ring-insta-pink/20 focus:border-insta-pink transition-all resize-none dark:text-white"
             />
           </div>
 
           <div className="space-y-1">
-            <label className="text-sm font-medium text-gray-700">Phone</label>
+            <label className="text-sm font-medium text-gray-700 dark:text-gray-300">Phone</label>
             <input
               type="tel"
               name="phone"
               value={form.phone}
               onChange={handleChange}
               placeholder="Phone number"
-              className="w-full px-4 py-3 bg-white border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-insta-pink/20 focus:border-insta-pink transition-all"
+              className="w-full px-4 py-3 bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-xl focus:outline-none focus:ring-2 focus:ring-insta-pink/20 focus:border-insta-pink transition-all dark:text-white"
             />
           </div>
         </form>

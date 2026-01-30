@@ -163,11 +163,10 @@ class BoostAnalyticsScreen extends StatelessWidget {
                     _buildDetailRow('Duration', '${boost.duration.hours} hours'),
                     _buildDetailRow('Cost', '\$${boost.cost.toStringAsFixed(2)}'),
                     _buildDetailRow('Payment Status', boost.paymentStatus.name.toUpperCase()),
-                    if (boost.startTime != null)
-                      _buildDetailRow(
-                        'Started',
-                        _formatDateTime(boost.startTime),
-                      ),
+                    _buildDetailRow(
+                      'Started',
+                      _formatDateTime(boost.startTime),
+                    ),
                     if (boost.endTime != null)
                       _buildDetailRow(
                         'Ends',

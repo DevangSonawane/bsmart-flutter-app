@@ -1,6 +1,5 @@
 import 'package:flutter/material.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
-import 'package:b_smart/core/lucide_local.dart';
 import 'package:intl/intl.dart';
 import '../../../theme/instagram_theme.dart';
 import '../../../widgets/clay_container.dart';
@@ -133,7 +132,7 @@ class _SignupAgeVerificationScreenState
     return Scaffold(
       appBar: AppBar(
         leading: IconButton(
-          icon: Icon(LucideIcons.arrowLeft.localLucide),
+          icon: Icon(LucideIcons.arrowLeft),
           onPressed: () => Navigator.of(context).pop(),
         ),
       ),
@@ -156,7 +155,7 @@ class _SignupAgeVerificationScreenState
                       borderRadius: 50,
                       child: Center(
                         child: Icon(
-                          LucideIcons.cake.localLucide,
+                          LucideIcons.cake,
                           size: 48,
                           color: InstagramTheme.primaryPink,
                         ),
@@ -193,7 +192,7 @@ class _SignupAgeVerificationScreenState
                       child: Row(
                         children: [
                           Icon(
-                            LucideIcons.calendar.localLucide,
+                            LucideIcons.calendar,
                             color: InstagramTheme.textGrey,
                           ),
                           const SizedBox(width: 16),
@@ -211,7 +210,7 @@ class _SignupAgeVerificationScreenState
                             ),
                           ),
                           Icon(
-                            LucideIcons.chevronRight.localLucide,
+                            LucideIcons.chevronRight,
                             size: 16,
                             color: InstagramTheme.textGrey,
                           ),
@@ -250,7 +249,7 @@ class _SignupAgeVerificationScreenState
                       child: Row(
                         children: [
                           Icon(
-                            LucideIcons.info.localLucide,
+                            LucideIcons.info,
                             color: Colors.orange,
                           ),
                           const SizedBox(width: 12),
@@ -282,7 +281,7 @@ class _SignupAgeVerificationScreenState
                       child: Row(
                         children: [
                           Icon(
-                            LucideIcons.circleAlert.localLucide,
+                            LucideIcons.circleAlert,
                             color: InstagramTheme.errorRed,
                           ),
                           const SizedBox(width: 12),

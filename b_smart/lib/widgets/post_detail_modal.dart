@@ -2,7 +2,6 @@ import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
-import 'package:b_smart/core/lucide_local.dart';
 import '../services/supabase_service.dart';
 import '../theme/design_tokens.dart';
 
@@ -26,6 +25,7 @@ class _PostDetailModalState extends State<PostDetailModal> {
   bool _loadingComments = true;
   final _commentController = TextEditingController();
   bool _isLiked = false;
+  int _likeCount = 0;
   bool _postingComment = false;
 
   @override
@@ -56,14 +56,43 @@ class _PostDetailModalState extends State<PostDetailModal> {
       user = await _svc.getUserById(userId);
     }
     final comments = await _svc.getComments(widget.postId);
+    final rawLikes = post['likes'] as List<dynamic>? ?? [];
+    final likesList = rawLikes.map((e) => Map<String, dynamic>.from(e as Map)).toList();
+    final currentUserId = Supabase.instance.client.auth.currentUser?.id;
+    final isLiked = currentUserId != null && likesList.any((e) => e['user_id'] == currentUserId);
     if (mounted) {
       setState(() {
         _post = post;
         _postUser = user;
         _comments = comments;
+        _isLiked = isLiked;
+        _likeCount = likesList.length;
         _loadingPost = false;
         _loadingComments = false;
       });
+    }
+  }
+
+  Future<void> _handleLike() async {
+    final userId = Supabase.instance.client.auth.currentUser?.id;
+    if (userId == null || _post == null) return;
+    final rawLikes = _post!['likes'] as List<dynamic>? ?? [];
+    final current = rawLikes.map((e) => Map<String, dynamic>.from(e as Map)).toList();
+    final newLikes = _isLiked
+        ? current.where((e) => e['user_id'] != userId).toList()
+        : [...current, {'user_id': userId, 'like': true}];
+    setState(() {
+      _isLiked = !_isLiked;
+      _likeCount = newLikes.length;
+    });
+    final ok = await _svc.updatePostLikes(widget.postId, newLikes);
+    if (!ok && mounted) {
+      setState(() {
+        _isLiked = !_isLiked;
+        _likeCount = current.length;
+      });
+    } else if (ok && mounted) {
+      setState(() => _post = {..._post!, 'likes': newLikes});
     }
   }
 
@@ -110,7 +139,7 @@ class _PostDetailModalState extends State<PostDetailModal> {
     }
     if (_post == null) {
       return Scaffold(
-        appBar: AppBar(leading: IconButton(icon: Icon(LucideIcons.x.localLucide), onPressed: () => Navigator.of(context).pop())),
+        appBar: AppBar(leading: IconButton(icon: Icon(LucideIcons.x), onPressed: () => Navigator.of(context).pop())),
         body: const Center(child: Text('Post not found')),
       );
     }
@@ -130,7 +159,7 @@ class _PostDetailModalState extends State<PostDetailModal> {
                 Align(
                   alignment: Alignment.topRight,
                   child: IconButton(
-                    icon: Icon(LucideIcons.x.localLucide),
+                    icon: Icon(LucideIcons.x),
                     onPressed: () => Navigator.of(context).pop(),
                   ),
                 ),
@@ -166,7 +195,7 @@ class _PostDetailModalState extends State<PostDetailModal> {
           imageUrl: _displayImageUrl(),
           fit: BoxFit.contain,
           placeholder: (_, __) => const Center(child: CircularProgressIndicator(color: Colors.white)),
-          errorWidget: (_, __, ___) => Icon(LucideIcons.imageOff.localLucide, size: 64, color: Colors.white54),
+          errorWidget: (_, __, ___) => Icon(LucideIcons.imageOff, size: 64, color: Colors.white54),
         ),
       ),
     );
@@ -201,7 +230,7 @@ class _PostDetailModalState extends State<PostDetailModal> {
                   ],
                 ),
               ),
-              IconButton(icon: Icon(LucideIcons.ellipsis.localLucide), onPressed: () {}),
+              IconButton(icon: Icon(LucideIcons.ellipsis), onPressed: () {}),
             ],
           ),
         ),
@@ -272,7 +301,7 @@ class _PostDetailModalState extends State<PostDetailModal> {
                               ],
                             ),
                           ),
-                          IconButton(icon: Icon(LucideIcons.heart.localLucide, size: 14), onPressed: () {}, padding: EdgeInsets.zero, constraints: const BoxConstraints()),
+                          IconButton(icon: Icon(LucideIcons.heart, size: 14), onPressed: () {}, padding: EdgeInsets.zero, constraints: const BoxConstraints()),
                         ],
                       ),
                     );
@@ -287,17 +316,17 @@ class _PostDetailModalState extends State<PostDetailModal> {
           padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
           child: Row(
             children: [
-              IconButton(icon: Icon(LucideIcons.heart.localLucide, color: _isLiked ? Colors.red : Colors.black87), onPressed: () => setState(() => _isLiked = !_isLiked)),
-              IconButton(icon: Icon(LucideIcons.messageCircle.localLucide), onPressed: () {}),
-              IconButton(icon: Icon(LucideIcons.send.localLucide), onPressed: () {}),
+              IconButton(icon: Icon(LucideIcons.heart, color: _isLiked ? Colors.red : Colors.black87), onPressed: _handleLike),
+              IconButton(icon: Icon(LucideIcons.messageCircle), onPressed: () {}),
+              IconButton(icon: Icon(LucideIcons.send), onPressed: () {}),
               const Spacer(),
-              IconButton(icon: Icon(LucideIcons.bookmark.localLucide), onPressed: () {}),
+              IconButton(icon: Icon(LucideIcons.bookmark), onPressed: () {}),
             ],
           ),
         ),
         Padding(
           padding: const EdgeInsets.only(left: 12, right: 12, bottom: 8),
-          child: Text(_isLiked ? '1 like' : '0 likes', style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 14)),
+          child: Text('$_likeCount ${_likeCount == 1 ? 'like' : 'likes'}', style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 14)),
         ),
         Padding(
           padding: const EdgeInsets.only(left: 12, right: 12, bottom: 8),
@@ -311,7 +340,7 @@ class _PostDetailModalState extends State<PostDetailModal> {
           padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
           child: Row(
             children: [
-              IconButton(icon: Icon(LucideIcons.smile.localLucide), onPressed: () {}),
+              IconButton(icon: Icon(LucideIcons.smile), onPressed: () {}),
               Expanded(
                 child: TextField(
                   controller: _commentController,

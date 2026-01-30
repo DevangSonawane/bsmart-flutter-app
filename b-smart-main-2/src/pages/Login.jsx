@@ -58,7 +58,7 @@ const Login = () => {
   };
 
   return (
-    <div className="min-h-screen flex bg-white">
+    <div className="min-h-screen flex bg-white dark:bg-black">
       {/* Left Side - Visuals (Hidden on mobile) */}
       <div className="hidden lg:flex lg:w-1/2 relative bg-insta-gradient overflow-hidden">
         <div className="absolute inset-0 bg-black/10" />
@@ -78,29 +78,29 @@ const Login = () => {
       </div>
 
       {/* Right Side - Form */}
-      <div className="w-full lg:w-1/2 flex flex-col justify-center px-6 sm:px-12 xl:px-24 bg-white">
+      <div className="w-full lg:w-1/2 flex flex-col justify-center px-6 sm:px-12 xl:px-24 bg-white dark:bg-black">
         <div className="max-w-md w-full mx-auto">
           <div className="mb-8">
-            <Link to="/" className="inline-flex items-center text-gray-500 hover:text-insta-pink transition-colors mb-6 group">
+            <Link to="/" className="inline-flex items-center text-gray-500 dark:text-gray-400 hover:text-insta-pink transition-colors mb-6 group">
               <ArrowLeft size={20} className="mr-2 group-hover:-translate-x-1 transition-transform" />
               Back to Home
             </Link>
-            <h2 className="text-3xl font-bold text-gray-900 mb-2">Log In</h2>
-            <p className="text-gray-500">Enter your credentials to access your account.</p>
+            <h2 className="text-3xl font-bold text-gray-900 dark:text-white mb-2">Log In</h2>
+            <p className="text-gray-500 dark:text-gray-400">Enter your credentials to access your account.</p>
           </div>
 
           <form onSubmit={handleSubmit} className="space-y-5">
             <div className="space-y-1">
-              <label className="text-sm font-medium text-gray-700 ml-1">Identity</label>
+              <label className="text-sm font-medium text-gray-700 dark:text-gray-300 ml-1">Identity</label>
               <div className="relative group">
-                <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-gray-400 group-focus-within:text-insta-pink transition-colors">
+                <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-gray-400 dark:text-gray-500 group-focus-within:text-insta-pink transition-colors">
                   <User size={20} />
                 </div>
                 <input
                   value={identifier}
                   onChange={(e) => setIdentifier(e.target.value)}
                   placeholder="Email, Phone, or Username"
-                  className="w-full pl-10 pr-4 py-3 bg-gray-50 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-insta-pink/20 focus:border-insta-pink transition-all placeholder:text-gray-400"
+                  className="w-full pl-10 pr-4 py-3 bg-gray-50 dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-xl focus:outline-none focus:ring-2 focus:ring-insta-pink/20 focus:border-insta-pink transition-all placeholder:text-gray-400 dark:placeholder:text-gray-600 dark:text-white"
                   required
                 />
               </div>
@@ -108,11 +108,11 @@ const Login = () => {
 
             <div className="space-y-1">
               <div className="flex justify-between items-center ml-1">
-                <label className="text-sm font-medium text-gray-700">Password</label>
+                <label className="text-sm font-medium text-gray-700 dark:text-gray-300">Password</label>
                 <Link to="/forgot-password" className="text-xs font-medium text-insta-pink hover:text-insta-purple transition-colors">Forgot password?</Link>
               </div>
               <div className="relative group">
-                <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-gray-400 group-focus-within:text-insta-pink transition-colors">
+                <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-gray-400 dark:text-gray-500 group-focus-within:text-insta-pink transition-colors">
                   <Lock size={20} />
                 </div>
                 <input
@@ -120,21 +120,21 @@ const Login = () => {
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
                   placeholder="••••••••"
-                  className="w-full pl-10 pr-4 py-3 bg-gray-50 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-insta-pink/20 focus:border-insta-pink transition-all placeholder:text-gray-400"
+                  className="w-full pl-10 pr-4 py-3 bg-gray-50 dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-xl focus:outline-none focus:ring-2 focus:ring-insta-pink/20 focus:border-insta-pink transition-all placeholder:text-gray-400 dark:placeholder:text-gray-600 dark:text-white"
                   required
                 />
               </div>
             </div>
 
             {message && (
-              <div className="p-3 rounded-lg bg-green-50 border border-green-100 text-green-600 text-sm flex items-center">
+              <div className="p-3 rounded-lg bg-green-50 dark:bg-green-900/20 border border-green-100 dark:border-green-800 text-green-600 dark:text-green-400 text-sm flex items-center">
                 <CheckCircle className="w-4 h-4 mr-2 flex-shrink-0" />
                 {message}
               </div>
             )}
 
             {error && (
-              <div className="p-3 rounded-lg bg-red-50 border border-red-100 text-red-600 text-sm flex items-center">
+              <div className="p-3 rounded-lg bg-red-50 dark:bg-red-900/20 border border-red-100 dark:border-red-800 text-red-600 dark:text-red-400 text-sm flex items-center">
                 <AlertCircle className="w-4 h-4 mr-2 flex-shrink-0" />
                 {error}
               </div>
@@ -159,17 +159,17 @@ const Login = () => {
 
           <div className="relative my-8">
             <div className="absolute inset-0 flex items-center">
-              <div className="w-full border-t border-gray-200"></div>
+              <div className="w-full border-t border-gray-200 dark:border-gray-800"></div>
             </div>
             <div className="relative flex justify-center text-sm">
-              <span className="px-4 bg-white text-gray-500 font-medium">Or continue with</span>
+              <span className="px-4 bg-white dark:bg-black text-gray-500 dark:text-gray-400 font-medium">Or continue with</span>
             </div>
           </div>
 
           <button
             onClick={handleGoogleLogin}
             type="button"
-            className="w-full flex items-center justify-center gap-3 bg-white border border-gray-200 text-gray-700 py-3.5 rounded-xl font-semibold hover:bg-gray-50 hover:border-gray-300 transition-all shadow-sm hover:shadow"
+            className="w-full flex items-center justify-center gap-3 bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 text-gray-700 dark:text-white py-3.5 rounded-xl font-semibold hover:bg-gray-50 dark:hover:bg-gray-800 hover:border-gray-300 dark:hover:border-gray-700 transition-all shadow-sm hover:shadow"
           >
             <svg className="w-5 h-5" viewBox="0 0 24 24">
               <path
@@ -193,7 +193,7 @@ const Login = () => {
           </button>
 
           <div className="text-center mt-8">
-            <p className="text-gray-600">
+            <p className="text-gray-600 dark:text-gray-400">
               Don't have an account?{' '}
               <Link to="/signup" className="text-insta-pink font-semibold hover:text-insta-purple transition-colors">
                 Sign up

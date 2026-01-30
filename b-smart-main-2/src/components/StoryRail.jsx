@@ -20,7 +20,7 @@ const StoryRail = () => {
 
   return (
     <>
-      <div className="bg-white border-b border-gray-200 py-4 mb-2">
+      <div className="bg-white dark:bg-black border-b border-gray-200 dark:border-gray-800 py-4 mb-2">
         <div className="flex gap-4 overflow-x-auto px-4 no-scrollbar">
           {stories.map((story, index) => (
             <button
@@ -28,8 +28,8 @@ const StoryRail = () => {
               className="flex flex-col items-center min-w-[70px] cursor-pointer"
               onClick={() => handleStoryClick(index)}
             >
-              <div className={`w-16 h-16 rounded-full p-[2px] ${story.isUser ? 'border-2 border-gray-300' : 'bg-gradient-to-tr from-insta-yellow via-insta-orange to-insta-pink'}`}>
-                <div className="w-full h-full rounded-full bg-white p-[2px]">
+              <div className={`w-16 h-16 rounded-full p-[2px] ${story.isUser ? 'border-2 border-gray-300 dark:border-gray-700' : 'bg-gradient-to-tr from-insta-yellow via-insta-orange to-insta-pink'}`}>
+                <div className="w-full h-full rounded-full bg-white dark:bg-black p-[2px]">
                   <img
                     src={`https://i.pravatar.cc/150?u=${story.username}`}
                     alt={story.username}
@@ -37,7 +37,7 @@ const StoryRail = () => {
                   />
                 </div>
               </div>
-              <span className="text-xs mt-1 truncate w-full text-center text-gray-700">
+              <span className="text-xs mt-1 truncate w-full text-center text-gray-700 dark:text-gray-200">
                 {story.isUser ? 'Your Story' : story.username}
               </span>
             </button>

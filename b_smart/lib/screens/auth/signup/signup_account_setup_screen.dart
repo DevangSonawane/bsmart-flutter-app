@@ -1,6 +1,5 @@
 import 'package:flutter/material.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
-import 'package:b_smart/core/lucide_local.dart';
 import '../../../theme/instagram_theme.dart';
 import '../../../widgets/clay_container.dart';
 import '../../../models/auth/signup_session_model.dart';
@@ -194,7 +193,7 @@ class _SignupAccountSetupScreenState extends State<SignupAccountSetupScreen> {
     return Scaffold(
       appBar: AppBar(
         leading: IconButton(
-          icon: Icon(LucideIcons.arrowLeft.localLucide),
+          icon: Icon(LucideIcons.arrowLeft),
           onPressed: () => Navigator.of(context).pop(),
         ),
       ),
@@ -230,7 +229,7 @@ class _SignupAccountSetupScreenState extends State<SignupAccountSetupScreen> {
                       style: const TextStyle(color: InstagramTheme.textBlack),
                       decoration: InputDecoration(
                         labelText: 'Full Name (Optional)',
-                        prefixIcon: Icon(LucideIcons.user.localLucide),
+                        prefixIcon: Icon(LucideIcons.user),
                       ),
                       validator: (value) =>
                           Validators.validateFullName(value, required: false),
@@ -243,7 +242,7 @@ class _SignupAccountSetupScreenState extends State<SignupAccountSetupScreen> {
                       style: const TextStyle(color: InstagramTheme.textBlack),
                       decoration: InputDecoration(
                         labelText: 'Username',
-                        prefixIcon: Icon(LucideIcons.mail.localLucide),
+                        prefixIcon: Icon(LucideIcons.mail),
                         suffixIcon: _isCheckingUsername
                             ? const SizedBox(
                                 width: 20,
@@ -258,8 +257,7 @@ class _SignupAccountSetupScreenState extends State<SignupAccountSetupScreen> {
                             : _usernameController.text.trim().isNotEmpty
                                 ? Icon(
                                     _isUsernameAvailable
-                                        ? LucideIcons.circleCheck.localLucide
-                                        : LucideIcons.x.localLucide,
+                                        ? LucideIcons.circleCheck                                        : LucideIcons.x,
                                     color: _isUsernameAvailable
                                         ? InstagramTheme.successGreen
                                         : InstagramTheme.errorRed,
@@ -285,12 +283,11 @@ class _SignupAccountSetupScreenState extends State<SignupAccountSetupScreen> {
                         style: const TextStyle(color: InstagramTheme.textBlack),
                         decoration: InputDecoration(
                           labelText: 'Password',
-                          prefixIcon: Icon(LucideIcons.lock.localLucide),
+                          prefixIcon: Icon(LucideIcons.lock),
                           suffixIcon: IconButton(
                             icon: Icon(
                               _isPasswordVisible
-                                  ? LucideIcons.eye.localLucide
-                                  : LucideIcons.eyeOff.localLucide,
+                                  ? LucideIcons.eye                                  : LucideIcons.eyeOff,
                               color: InstagramTheme.textGrey,
                             ),
                             onPressed: () {

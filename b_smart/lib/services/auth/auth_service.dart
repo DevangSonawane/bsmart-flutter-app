@@ -5,7 +5,6 @@ import '../../models/auth/auth_user_model.dart' as model;
 import '../../models/auth/signup_session_model.dart';
 import '../../utils/validators.dart';
 import '../../utils/constants.dart';
-import '../../config/supabase_config.dart';
 
 class AuthService {
   static final AuthService _instance = AuthService._internal();

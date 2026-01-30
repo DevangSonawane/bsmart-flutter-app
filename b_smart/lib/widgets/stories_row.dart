@@ -1,6 +1,5 @@
 import 'package:flutter/material.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
-import 'package:b_smart/core/lucide_local.dart';
 import '../theme/design_tokens.dart';
 
 class StoriesRow extends StatelessWidget {
@@ -73,7 +72,7 @@ class _StoryItem extends StatelessWidget {
               radius: 28,
               backgroundColor: Colors.white,
               backgroundImage: avatarUrl != null ? NetworkImage(avatarUrl!) : null,
-              child: avatarUrl == null ? Icon(LucideIcons.user.localLucide, color: Colors.grey) : null,
+              child: avatarUrl == null ? Icon(LucideIcons.user, color: Colors.grey) : null,
             ),
           ),
         ),

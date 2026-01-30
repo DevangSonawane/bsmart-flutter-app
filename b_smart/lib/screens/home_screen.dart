@@ -12,7 +12,6 @@ class HomeScreen extends StatefulWidget {
 class _HomeScreenState extends State<HomeScreen> {
   final FeedService _feedService = FeedService();
   final List posts = [];
-  bool _loading = true;
   int _page = 0;
   final int _limit = 10;
   bool _hasMore = true;
@@ -25,11 +24,9 @@ class _HomeScreenState extends State<HomeScreen> {
 
   Future<void> _loadMore() async {
     if (!_hasMore) return;
-    setState(() => _loading = true);
     final items = await _feedService.fetchFeedFromBackend(limit: _limit, offset: _page * _limit);
     setState(() {
       posts.addAll(items);
-      _loading = false;
       _page += 1;
       if (items.length < _limit) _hasMore = false;
     });

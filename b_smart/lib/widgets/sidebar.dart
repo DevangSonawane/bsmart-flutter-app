@@ -1,6 +1,5 @@
 import 'package:flutter/material.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
-import 'package:b_smart/core/lucide_local.dart';
 import '../theme/design_tokens.dart';
 
 /// Desktop sidebar matching React: collapsible on hover, nav items, Create dropdown.
@@ -91,8 +90,8 @@ class _SidebarState extends State<Sidebar> {
               child: ListView(
                 padding: const EdgeInsets.symmetric(horizontal: 12),
                 children: [
-                  _NavItem(icon: LucideIcons.house.localLucide, label: 'Home', index: 0, currentIndex: widget.currentIndex, hovered: _hovered, onTap: () => widget.onNavTap(0)),
-                  _NavItem(icon: LucideIcons.target.localLucide, label: 'Ads', index: 1, currentIndex: widget.currentIndex, hovered: _hovered, onTap: () => widget.onNavTap(1)),
+                  _NavItem(icon: LucideIcons.house, label: 'Home', index: 0, currentIndex: widget.currentIndex, hovered: _hovered, onTap: () => widget.onNavTap(0)),
+                  _NavItem(icon: LucideIcons.target, label: 'Ads', index: 1, currentIndex: widget.currentIndex, hovered: _hovered, onTap: () => widget.onNavTap(1)),
                   _CreateItem(
                     currentIndex: widget.currentIndex,
                     hovered: _hovered,
@@ -108,11 +107,11 @@ class _SidebarState extends State<Sidebar> {
                       widget.onUploadReel?.call();
                     },
                   ),
-                  _NavItem(icon: LucideIcons.megaphone.localLucide, label: 'Promote', index: 3, currentIndex: widget.currentIndex, hovered: _hovered, onTap: () => widget.onNavTap(3)),
-                  _NavItem(icon: LucideIcons.clapperboard.localLucide, label: 'Reels', index: 4, currentIndex: widget.currentIndex, hovered: _hovered, onTap: () => widget.onNavTap(4)),
-                  _NavItem(icon: LucideIcons.user.localLucide, label: 'Profile', index: 5, currentIndex: widget.currentIndex, hovered: _hovered, onTap: () => widget.onNavTap(5)), // 5 = profile (navigate in parent)
+                  _NavItem(icon: LucideIcons.megaphone, label: 'Promote', index: 3, currentIndex: widget.currentIndex, hovered: _hovered, onTap: () => widget.onNavTap(3)),
+                  _NavItem(icon: LucideIcons.clapperboard, label: 'Reels', index: 4, currentIndex: widget.currentIndex, hovered: _hovered, onTap: () => widget.onNavTap(4)),
+                  _NavItem(icon: LucideIcons.user, label: 'Profile', index: 5, currentIndex: widget.currentIndex, hovered: _hovered, onTap: () => widget.onNavTap(5)), // 5 = profile (navigate in parent)
                   const SizedBox(height: 16),
-                  _NavItem(icon: LucideIcons.menu.localLucide, label: 'More', index: -1, currentIndex: -2, hovered: _hovered, onTap: () {}),
+                  _NavItem(icon: LucideIcons.menu, label: 'More', index: -1, currentIndex: -2, hovered: _hovered, onTap: () {}),
                 ],
               ),
             ),
@@ -216,7 +215,7 @@ class _CreateItem extends StatelessWidget {
                 padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
                 child: Row(
                   children: [
-                    Icon(LucideIcons.squarePlus.localLucide, size: 24, color: active ? DesignTokens.instaPink : Colors.grey.shade800),
+                    Icon(LucideIcons.squarePlus, size: 24, color: active ? DesignTokens.instaPink : Colors.grey.shade800),
                     if (hovered) ...[
                       const SizedBox(width: 16),
                       Expanded(
@@ -255,12 +254,12 @@ class _CreateItem extends StatelessWidget {
                     mainAxisSize: MainAxisSize.min,
                     children: [
                       ListTile(
-                        leading: Icon(LucideIcons.image.localLucide, size: 20),
+                        leading: Icon(LucideIcons.image, size: 20),
                         title: const Text('Create Post', style: TextStyle(fontSize: 14, fontWeight: FontWeight.w500)),
                         onTap: onCreatePost,
                       ),
                       ListTile(
-                        leading: Icon(LucideIcons.video.localLucide, size: 20),
+                        leading: Icon(LucideIcons.video, size: 20),
                         title: const Text('Upload Reel', style: TextStyle(fontSize: 14, fontWeight: FontWeight.w500)),
                         onTap: onUploadReel,
                       ),

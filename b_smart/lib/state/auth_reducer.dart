@@ -1,8 +1,5 @@
 import 'package:redux/redux.dart';
 import 'auth_state.dart';
-import 'profile_reducer.dart';
-import 'reels_reducer.dart';
-import 'ads_reducer.dart';
 import 'auth_actions.dart';
 
 final authReducer = combineReducers<AuthState>([

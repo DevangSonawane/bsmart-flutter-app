@@ -1,5 +1,4 @@
 import '../models/user_model.dart';
-import '../models/post_model.dart';
 
 class DummyDataService {
   static final DummyDataService _instance = DummyDataService._internal();

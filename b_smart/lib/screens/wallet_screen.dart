@@ -6,14 +6,6 @@ import 'coins_history_screen.dart';
 import 'watch_ads_screen.dart';
 import 'gift_coins_screen.dart';
 import 'account_details_screen.dart';
-import 'package:flutter/material.dart';
-import '../services/wallet_service.dart';
-import '../theme/instagram_theme.dart';
-import '../widgets/clay_container.dart';
-import 'coins_history_screen.dart';
-import 'watch_ads_screen.dart';
-import 'gift_coins_screen.dart';
-import 'account_details_screen.dart';
 
 class WalletScreen extends StatefulWidget {
   const WalletScreen({super.key});

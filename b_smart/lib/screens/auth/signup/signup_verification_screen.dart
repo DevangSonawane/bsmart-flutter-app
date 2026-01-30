@@ -1,6 +1,5 @@
 import 'package:flutter/material.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
-import 'package:b_smart/core/lucide_local.dart';
 import '../../../theme/instagram_theme.dart';
 import '../../../widgets/clay_container.dart';
 import '../../../services/auth/auth_service.dart';
@@ -148,7 +147,7 @@ class _SignupVerificationScreenState extends State<SignupVerificationScreen> {
     return Scaffold(
       appBar: AppBar(
         leading: IconButton(
-          icon: Icon(LucideIcons.arrowLeft.localLucide),
+          icon: Icon(LucideIcons.arrowLeft),
           onPressed: () => Navigator.of(context).pop(),
         ),
       ),
@@ -174,8 +173,7 @@ class _SignupVerificationScreenState extends State<SignupVerificationScreen> {
                         child: Center(
                           child: Icon(
                             widget.session.identifierType == IdentifierType.email
-                                ? LucideIcons.mail.localLucide
-                                : LucideIcons.phone.localLucide,
+                                ? LucideIcons.mail                                : LucideIcons.phone,
                             size: 48,
                             color: InstagramTheme.primaryPink,
                           ),
@@ -221,7 +219,7 @@ class _SignupVerificationScreenState extends State<SignupVerificationScreen> {
                         labelText: 'Enter OTP',
                         hintText: '000000',
                         counterText: '',
-                        prefixIcon: Icon(LucideIcons.lock.localLucide),
+                        prefixIcon: Icon(LucideIcons.lock),
                       ),
                       validator: Validators.validateOTP,
                       onChanged: (value) {

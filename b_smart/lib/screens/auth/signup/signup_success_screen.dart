@@ -1,6 +1,5 @@
 import 'package:flutter/material.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
-import 'package:b_smart/core/lucide_local.dart';
 import '../../../theme/instagram_theme.dart';
 import '../../../widgets/clay_container.dart';
 import '../../../models/auth/auth_user_model.dart';
@@ -30,7 +29,7 @@ class SignupSuccessScreen extends StatelessWidget {
                   borderRadius: 60,
                   child: Center(
                     child: Icon(
-                      LucideIcons.circleCheck.localLucide,
+                      LucideIcons.circleCheck,
                       size: 60,
                       color: InstagramTheme.primaryPink,
                     ),

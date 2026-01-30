@@ -2,7 +2,6 @@ import 'package:flutter/material.dart';
 import 'package:flutter_svg/flutter_svg.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
-import 'package:b_smart/core/lucide_local.dart';
 import 'package:image_picker/image_picker.dart';
 import 'reels_screen.dart';
 import '../services/reels_service.dart';
@@ -127,18 +126,23 @@ class _ProfileScreenState extends State<ProfileScreen> {
   }
 
   void _showPostDetail(String postId) {
-    showDialog(
-      context: context,
-      barrierColor: Colors.black54,
-      builder: (ctx) => Dialog(
-        backgroundColor: Colors.transparent,
-        insetPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 24),
-        child: PostDetailModal(
-          postId: postId,
-          onClose: () => Navigator.of(ctx).pop(),
+    final isMobile = MediaQuery.sizeOf(context).width < 600;
+    if (isMobile) {
+      Navigator.of(context).pushNamed('/post/$postId');
+    } else {
+      showDialog(
+        context: context,
+        barrierColor: Colors.black54,
+        builder: (ctx) => Dialog(
+          backgroundColor: Colors.transparent,
+          insetPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 24),
+          child: PostDetailModal(
+            postId: postId,
+            onClose: () => Navigator.of(ctx).pop(),
+          ),
         ),
-      ),
-    );
+      );
+    }
   }
 
   static const List<({String title, String img})> _highlights = [
@@ -170,7 +174,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                     border: Border.all(color: Colors.grey.shade300),
                     color: Colors.white,
                   ),
-                  child: Icon(LucideIcons.plus.localLucide, color: Colors.grey.shade800),
+                  child: Icon(LucideIcons.plus, color: Colors.grey.shade800),
                 ),
                 const SizedBox(height: 6),
                 const Text('New', style: TextStyle(fontSize: 12)),
@@ -217,15 +221,21 @@ class _ProfileScreenState extends State<ProfileScreen> {
     final following = (_profile?['following_count'] as int?) ?? 0;
     final isMe = Supabase.instance.client.auth.currentUser?.id == (widget.userId ?? Supabase.instance.client.auth.currentUser?.id);
 
+    final theme = Theme.of(context);
+    final isDark = theme.brightness == Brightness.dark;
+    final fgColor = theme.colorScheme.onSurface;
     return DefaultTabController(
       length: 3,
       child: Scaffold(
+        backgroundColor: theme.scaffoldBackgroundColor,
         appBar: AppBar(
           automaticallyImplyLeading: !isMe,
+          backgroundColor: theme.appBarTheme.backgroundColor,
+          foregroundColor: theme.appBarTheme.foregroundColor,
           title: Row(
             mainAxisSize: MainAxisSize.min,
             children: [
-              Text(username),
+              Text(username, style: TextStyle(color: fgColor)),
               const SizedBox(width: 4),
               SvgPicture.string(
                 _verifiedBadgeSvg,
@@ -237,8 +247,8 @@ class _ProfileScreenState extends State<ProfileScreen> {
           ),
           actions: [
             if (isMe) ...[
-              IconButton(icon: Icon(LucideIcons.plus.localLucide), onPressed: () => Navigator.of(context).pushNamed('/create')),
-              IconButton(icon: Icon(LucideIcons.menu.localLucide), onPressed: () => Navigator.of(context).pushNamed('/settings')),
+              IconButton(icon: Icon(LucideIcons.plus, color: fgColor), onPressed: () => Navigator.of(context).pushNamed('/create')),
+              IconButton(icon: Icon(LucideIcons.menu, color: fgColor), onPressed: () => Navigator.of(context).pushNamed('/settings')),
             ],
           ],
         ),
@@ -269,13 +279,13 @@ class _ProfileScreenState extends State<ProfileScreen> {
               delegate: _SliverTabBarDelegate(
                 TabBar(
                   tabs: [
-                    Tab(icon: Icon(LucideIcons.layoutGrid.localLucide)),
-                    Tab(icon: Icon(LucideIcons.video.localLucide)),
-                    Tab(icon: Icon(LucideIcons.bookmark.localLucide)),
+                    Tab(icon: Icon(LucideIcons.layoutGrid)),
+                    Tab(icon: Icon(LucideIcons.video)),
+                    Tab(icon: Icon(LucideIcons.bookmark)),
                   ],
                   indicator: UnderlineTabIndicator(borderSide: BorderSide(width: 1.5, color: DesignTokens.instaPink)),
                   labelColor: DesignTokens.instaPink,
-                  unselectedLabelColor: Colors.grey.shade400,
+                  unselectedLabelColor: theme.colorScheme.onSurface.withValues(alpha: 0.6),
                 ),
               ),
             ),
@@ -291,18 +301,18 @@ class _ProfileScreenState extends State<ProfileScreen> {
                             Container(
                               width: 64,
                               height: 64,
-                              decoration: BoxDecoration(shape: BoxShape.circle, border: Border.all(color: Colors.grey.shade300, width: 2)),
-                              child: Icon(LucideIcons.layoutGrid.localLucide, size: 32, color: Colors.grey.shade400),
+                              decoration: BoxDecoration(shape: BoxShape.circle, border: Border.all(color: theme.dividerColor, width: 2)),
+                              child: Icon(LucideIcons.layoutGrid, size: 32, color: theme.colorScheme.onSurface.withValues(alpha: 0.5)),
                             ),
                             const SizedBox(height: 16),
-                            Text('No Posts Yet', style: Theme.of(context).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w600)),
+                            Text('No Posts Yet', style: theme.textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w600, color: fgColor)),
                             const SizedBox(height: 8),
-                            Text('When you share photos, they will appear on your profile.', style: TextStyle(color: Colors.grey.shade600, fontSize: 14), textAlign: TextAlign.center),
+                            Text('When you share photos, they will appear on your profile.', style: TextStyle(color: theme.textTheme.bodyMedium?.color ?? Colors.grey.shade600, fontSize: 14), textAlign: TextAlign.center),
                             if (isMe) ...[
                               const SizedBox(height: 16),
                               TextButton(
                                 onPressed: () => Navigator.of(context).pushNamed('/create'),
-                                child: const Text('Share your first photo'),
+                                child: Text('Share your first photo', style: TextStyle(color: DesignTokens.instaPink)),
                               ),
                             ],
                           ],
@@ -314,20 +324,20 @@ class _ProfileScreenState extends State<ProfileScreen> {
                       child: PostsGrid(posts: _posts, onTap: (p) => _onPostTap(p)),
                     ),
               _userReels.isEmpty
-                  ? const Center(child: Padding(padding: EdgeInsets.all(24.0), child: Text('No reels yet')))
+                  ? Center(child: Padding(padding: const EdgeInsets.all(24.0), child: Text('No reels yet', style: TextStyle(color: fgColor))))
                   : ListView.builder(
                       itemCount: _userReels.length,
                       itemBuilder: (ctx, i) {
                         final r = _userReels[i];
                         return ListTile(
-                          leading: r.thumbnailUrl != null ? Image.network(r.thumbnailUrl!) : Icon(LucideIcons.video.localLucide),
-                          title: Text(r.caption ?? ''),
-                          subtitle: Text('${r.views} views'),
+                          leading: r.thumbnailUrl != null ? Image.network(r.thumbnailUrl!) : Icon(LucideIcons.video, color: fgColor),
+                          title: Text(r.caption ?? '', style: TextStyle(color: fgColor)),
+                          subtitle: Text('${r.views} views', style: TextStyle(color: theme.textTheme.bodyMedium?.color)),
                           onTap: () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => ReelsScreen())),
                         );
                       },
                     ),
-              const Center(child: Text('Saved')),
+              Center(child: Text('Saved', style: TextStyle(color: fgColor))),
             ],
           ),
         ),
@@ -353,7 +363,7 @@ class _SliverTabBarDelegate extends SliverPersistentHeaderDelegate {
       height: 48,
       decoration: BoxDecoration(
         color: Theme.of(context).scaffoldBackgroundColor,
-        border: Border(top: BorderSide(color: Colors.grey.shade200)),
+        border: Border(top: BorderSide(color: Theme.of(context).dividerColor)),
       ),
       child: tabBar,
     );
@@ -456,13 +466,16 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final fgColor = theme.colorScheme.onSurface;
     if (_loading && _profile == null) return const Scaffold(body: Center(child: CircularProgressIndicator(color: DesignTokens.instaPink)));
     return Scaffold(
-      backgroundColor: Colors.grey.shade50,
+      backgroundColor: theme.scaffoldBackgroundColor,
       appBar: AppBar(
-        leading: IconButton(icon: Icon(LucideIcons.arrowLeft.localLucide), onPressed: () => Navigator.of(context).pop()),
-        title: const Text('Edit Profile', style: TextStyle(fontSize: 18, fontWeight: FontWeight.w600)),
-        backgroundColor: Colors.white,
+        leading: IconButton(icon: Icon(LucideIcons.arrowLeft, color: fgColor), onPressed: () => Navigator.of(context).pop()),
+        title: Text('Edit Profile', style: TextStyle(fontSize: 18, fontWeight: FontWeight.w600, color: fgColor)),
+        backgroundColor: theme.appBarTheme.backgroundColor,
+        foregroundColor: fgColor,
         elevation: 0,
         actions: [
           TextButton(
@@ -491,7 +504,7 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
                     ),
                     padding: const EdgeInsets.all(3),
                     child: Container(
-                      decoration: const BoxDecoration(shape: BoxShape.circle, color: Colors.white),
+                      decoration: BoxDecoration(shape: BoxShape.circle, color: theme.cardColor),
                       padding: const EdgeInsets.all(2),
                       child: ClipOval(
                         child: _avatarUrl != null
@@ -501,7 +514,7 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
                     ),
                   ),
                   if (_uploading) Positioned.fill(child: Container(color: Colors.black38, child: const Center(child: CircularProgressIndicator(color: Colors.white)))),
-                  if (!_uploading) Positioned(bottom: 0, right: 0, child: Icon(LucideIcons.camera.localLucide, size: 20, color: Colors.grey.shade700)),
+                  if (!_uploading) Positioned(bottom: 0, right: 0, child: Icon(LucideIcons.camera, size: 20, color: fgColor)),
                 ],
               ),
             ),
@@ -513,24 +526,28 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
             const SizedBox(height: 24),
             TextField(
               controller: _fullNameCtl,
-              decoration: InputDecoration(labelText: 'Name', filled: true, fillColor: Colors.white, border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide(color: Colors.grey.shade200))),
+              style: TextStyle(color: fgColor),
+              decoration: InputDecoration(labelText: 'Name', filled: true, fillColor: theme.cardColor, border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide(color: theme.dividerColor))),
             ),
             const SizedBox(height: 16),
             TextField(
               controller: _usernameCtl,
-              decoration: InputDecoration(labelText: 'Username', filled: true, fillColor: Colors.white, border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide(color: Colors.grey.shade200))),
+              style: TextStyle(color: fgColor),
+              decoration: InputDecoration(labelText: 'Username', filled: true, fillColor: theme.cardColor, border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide(color: theme.dividerColor))),
             ),
             const SizedBox(height: 16),
             TextField(
               controller: _bioCtl,
               maxLines: 3,
-              decoration: InputDecoration(labelText: 'Bio', hintText: 'Write something about yourself...', filled: true, fillColor: Colors.white, border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide(color: Colors.grey.shade200))),
+              style: TextStyle(color: fgColor),
+              decoration: InputDecoration(labelText: 'Bio', hintText: 'Write something about yourself...', filled: true, fillColor: theme.cardColor, border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide(color: theme.dividerColor))),
             ),
             const SizedBox(height: 16),
             TextField(
               controller: _phoneCtl,
               keyboardType: TextInputType.phone,
-              decoration: InputDecoration(labelText: 'Phone', filled: true, fillColor: Colors.white, border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide(color: Colors.grey.shade200))),
+              style: TextStyle(color: fgColor),
+              decoration: InputDecoration(labelText: 'Phone', filled: true, fillColor: theme.cardColor, border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide(color: theme.dividerColor))),
             ),
           ],
         ),
@@ -539,9 +556,10 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
   }
 
   Widget _placeholderAvatar() {
+    final theme = Theme.of(context);
     final name = _fullNameCtl.text.trim().isNotEmpty ? _fullNameCtl.text.trim() : _usernameCtl.text.trim();
     final initial = name.isNotEmpty ? name.substring(0, 1).toUpperCase() : 'U';
-    return Container(color: Colors.grey.shade200, child: Center(child: Text(initial, style: TextStyle(fontSize: 32, fontWeight: FontWeight.bold, color: Colors.grey.shade600))));
+    return Container(color: theme.cardColor, child: Center(child: Text(initial, style: TextStyle(fontSize: 32, fontWeight: FontWeight.bold, color: theme.colorScheme.onSurface))));
   }
 }
 

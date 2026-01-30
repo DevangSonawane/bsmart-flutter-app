@@ -9,8 +9,8 @@ const ProtectedRoute = ({ children }) => {
   if (loading) {
     // You can replace this with a proper loading spinner
     return (
-      <div className="flex items-center justify-center min-h-screen">
-        <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-insta-pink"></div>
+      <div className="flex items-center justify-center min-h-screen bg-white dark:bg-black">
+        <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-[#fa3f5e]"></div>
       </div>
     );
   }

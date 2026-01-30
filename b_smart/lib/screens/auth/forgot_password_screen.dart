@@ -1,7 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
-import 'package:b_smart/core/lucide_local.dart';
 import '../../theme/design_tokens.dart';
 import '../../services/supabase_service.dart';
 
@@ -138,7 +137,7 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
               children: [
                 TextButton.icon(
                   onPressed: () => Navigator.of(context).pushReplacementNamed('/login'),
-                  icon: Icon(LucideIcons.arrowLeft.localLucide, size: 20),
+                  icon: Icon(LucideIcons.arrowLeft, size: 20),
                   label: const Text('Back to Login'),
                   style: TextButton.styleFrom(foregroundColor: Colors.grey.shade700),
                 ),
@@ -178,7 +177,7 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
                             ),
                             child: Row(
                               children: [
-                                Icon(LucideIcons.circleAlert.localLucide, color: Colors.red.shade700, size: 20),
+                                Icon(LucideIcons.circleAlert, color: Colors.red.shade700, size: 20),
                                 const SizedBox(width: 8),
                                 Expanded(child: Text(_error, style: TextStyle(color: Colors.red.shade700, fontSize: 13))),
                               ],
@@ -238,7 +237,7 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        Icon(LucideIcons.shieldCheck.localLucide, size: 48, color: DesignTokens.instaPink),
+        Icon(LucideIcons.shieldCheck, size: 48, color: DesignTokens.instaPink),
         const SizedBox(height: 16),
         const Text("Verify it's you", textAlign: TextAlign.center, style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold)),
         const SizedBox(height: 8),
@@ -253,7 +252,7 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
                 CircleAvatar(radius: 24, backgroundImage: _foundUser!['avatar_url'] != null ? NetworkImage(_foundUser!['avatar_url'] as String) : null, child: _foundUser!['avatar_url'] == null ? Text('${(_foundUser!['username'] ?? 'U').toString().substring(0, 1).toUpperCase()}') : null),
                 const SizedBox(width: 12),
                 Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [Text('${_foundUser!['full_name'] ?? _foundUser!['username']}', style: const TextStyle(fontWeight: FontWeight.bold)), Text('${_foundUser!['email']}', style: TextStyle(fontSize: 12, color: Colors.grey.shade600))])),
-                Icon(LucideIcons.circleCheck.localLucide, color: Colors.green, size: 22),
+                Icon(LucideIcons.circleCheck, color: Colors.green, size: 22),
               ],
             ),
           ),
@@ -294,7 +293,7 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        Icon(LucideIcons.circleCheck.localLucide, size: 48, color: Colors.green),
+        Icon(LucideIcons.circleCheck, size: 48, color: Colors.green),
         const SizedBox(height: 16),
         const Text('Reset Password', textAlign: TextAlign.center, style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold)),
         const SizedBox(height: 8),

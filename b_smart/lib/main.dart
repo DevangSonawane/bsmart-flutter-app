@@ -5,12 +5,16 @@ import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'screens/auth/login/login_screen.dart';
 import 'screens/home_dashboard.dart';
 import 'theme/app_theme.dart';
+import 'theme/theme_notifier.dart';
+import 'theme/theme_scope.dart';
 import 'state/store.dart';
 import 'state/app_state.dart';
 import 'config/supabase_config.dart';
 import 'package:flutter_redux/flutter_redux.dart';
 import 'theme/design_tokens.dart';
 import 'routes.dart';
+import 'screens/post_detail_screen.dart';
+import 'screens/profile_screen.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -59,9 +63,13 @@ void main() async {
   ]);
 
   final store = createStore();
+  final themeNotifier = await ThemeNotifier.create();
   runApp(StoreProvider<AppState>(
     store: store,
-    child: const BSmartApp(),
+    child: ThemeScope(
+      notifier: themeNotifier,
+      child: const BSmartApp(),
+    ),
   ));
 }
 
@@ -116,12 +124,37 @@ class _BSmartAppState extends State<BSmartApp> {
 
     // When using home:, routes must not contain '/' (Navigator.defaultRouteName)
     final routes = Map<String, WidgetBuilder>.from(appRoutes)..remove('/');
+    final isDark = ThemeScope.of(context).isDark;
     return MaterialApp(
       title: 'b Smart',
       debugShowCheckedModeBanner: false,
       theme: AppTheme.theme,
+      darkTheme: AppTheme.darkTheme,
+      themeMode: isDark ? ThemeMode.dark : ThemeMode.light,
       home: _isAuthenticated ? const HomeDashboard() : const LoginScreen(),
       routes: routes,
+      onGenerateRoute: (settings) {
+        final name = settings.name ?? '';
+        final uri = Uri.parse(name);
+        final segments = uri.pathSegments;
+        // /post/:postId
+        if (segments.length == 2 && segments[0] == 'post') {
+          final postId = segments[1];
+          return MaterialPageRoute<void>(
+            builder: (ctx) => PostDetailScreen(postId: postId),
+            settings: settings,
+          );
+        }
+        // /profile/:userId
+        if (segments.length == 2 && segments[0] == 'profile') {
+          final userId = segments[1];
+          return MaterialPageRoute<void>(
+            builder: (ctx) => ProfileScreen(userId: userId),
+            settings: settings,
+          );
+        }
+        return null;
+      },
     );
   }
 }

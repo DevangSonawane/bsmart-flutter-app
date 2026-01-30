@@ -1,6 +1,6 @@
 import React, { useEffect } from 'react';
 import { BrowserRouter, Routes, Route } from 'react-router-dom';
-import { useDispatch } from 'react-redux';
+import { useDispatch, useSelector } from 'react-redux';
 import { supabase } from './lib/supabase';
 import { setUser, setLoading } from './store/authSlice';
 import Layout from './components/Layout';
@@ -16,10 +16,20 @@ import Signup from './pages/Signup';
 import ForgotPassword from './pages/ForgotPassword';
 import VerifyOtp from './pages/VerifyOtp';
 import EditProfile from './pages/EditProfile';
+import MobilePostDetail from './pages/MobilePostDetail';
 import ProtectedRoute from './components/ProtectedRoute';
 
 function App() {
   const dispatch = useDispatch();
+  const { mode } = useSelector((state) => state.theme);
+
+  useEffect(() => {
+    if (mode === 'dark') {
+      document.documentElement.classList.add('dark');
+    } else {
+      document.documentElement.classList.remove('dark');
+    }
+  }, [mode]);
 
   useEffect(() => {
     const fetchUserProfile = async (session) => {
@@ -101,9 +111,16 @@ function App() {
           <Route path="/promote" element={<Promote />} />
           <Route path="/ads" element={<Ads />} />
           <Route path="/profile" element={<Profile />} />
+          <Route path="/profile/:userId" element={<Profile />} />
           <Route path="/edit-profile" element={<EditProfile />} />
           <Route path="/settings" element={<Settings />} />
         </Route>
+
+        <Route path="/post/:postId" element={
+          <ProtectedRoute>
+            <MobilePostDetail />
+          </ProtectedRoute>
+        } />
       </Routes>
     </BrowserRouter>
   );

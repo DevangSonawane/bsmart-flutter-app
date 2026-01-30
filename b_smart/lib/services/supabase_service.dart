@@ -11,7 +11,7 @@ class SupabaseService {
   Future<Map<String, dynamic>?> getUserById(String userId) async {
     try {
       final res = await _client.from('users').select().eq('id', userId).maybeSingle();
-      return res as Map<String, dynamic>?;
+      return res != null ? Map<String, dynamic>.from(res) : null;
     } catch (e) {
       return null;
     }
@@ -25,7 +25,7 @@ class SupabaseService {
           .select('id, email, full_name, username, avatar_url')
           .eq('email', email)
           .maybeSingle();
-      return res as Map<String, dynamic>?;
+      return res != null ? Map<String, dynamic>.from(res) : null;
     } catch (e) {
       return null;
     }
@@ -34,7 +34,7 @@ class SupabaseService {
   Future<Map<String, dynamic>?> getPostById(String postId) async {
     try {
       final res = await _client.from('posts').select().eq('id', postId).maybeSingle();
-      return res as Map<String, dynamic>?;
+      return res != null ? Map<String, dynamic>.from(res) : null;
     } catch (e) {
       return null;
     }
@@ -48,8 +48,7 @@ class SupabaseService {
           .eq('user_id', userId)
           .order('created_at', ascending: false)
           .range(offset, offset + limit - 1);
-      if (res == null) return [];
-      return List<Map<String, dynamic>>.from(res as List);
+      return List<Map<String, dynamic>>.from(res);
     } catch (e) {
       return [];
     }
@@ -108,8 +107,7 @@ class SupabaseService {
           .select('*, users:users(id, username, avatar_url)')
           .order('created_at', ascending: false)
           .range(offset, offset + limit - 1);
-      if (res == null) return [];
-      return List<Map<String, dynamic>>.from(res as List);
+      return List<Map<String, dynamic>>.from(res);
     } catch (e) {
       return [];
     }
@@ -160,8 +158,7 @@ class SupabaseService {
   Future<List<Map<String, dynamic>>> getComments(String postId) async {
     try {
       final res = await _client.from('comments').select('*, user:users(id, username, avatar_url)').eq('post_id', postId).order('created_at', ascending: true);
-      if (res == null) return [];
-      return List<Map<String, dynamic>>.from(res as List);
+      return List<Map<String, dynamic>>.from(res);
     } catch (_) {
       // Fallback: return mock ads similar to React promote/ads data
       return [
@@ -201,6 +198,30 @@ class SupabaseService {
     }
   }
 
+  // Get set of post IDs the user has liked (for feed like state)
+  Future<Set<String>> getLikedPostIds(String userId) async {
+    try {
+      final res = await _client
+          .from('post_likes')
+          .select('post_id')
+          .eq('user_id', userId);
+      final list = List<Map<String, dynamic>>.from(res);
+      return list.map((e) => e['post_id'] as String).toSet();
+    } catch (_) {
+      return {};
+    }
+  }
+
+  // Update post likes array - same as React: posts.likes is array of { user_id, like: true }
+  Future<bool> updatePostLikes(String postId, List<Map<String, dynamic>> likes) async {
+    try {
+      await _client.from('posts').update({'likes': likes}).eq('id', postId);
+      return true;
+    } catch (_) {
+      return false;
+    }
+  }
+
   // Likes - simple like toggle using post_likes table
   Future<bool> togglePostLike(String postId, String userId) async {
     try {
@@ -228,8 +249,7 @@ class SupabaseService {
   Future<List<Map<String, dynamic>>> fetchAds({int limit = 20, int offset = 0}) async {
     try {
       final res = await _client.from('ads').select('*, company:companies(*)').order('created_at', ascending: false).range(offset, offset + limit - 1);
-      if (res == null) return [];
-      return List<Map<String, dynamic>>.from(res as List);
+      return List<Map<String, dynamic>>.from(res);
     } catch (_) {
       return [];
     }
@@ -238,7 +258,7 @@ class SupabaseService {
   Future<Map<String, dynamic>?> getProductById(String productId) async {
     try {
       final res = await _client.from('products').select().eq('id', productId).maybeSingle();
-      return res as Map<String, dynamic>?;
+      return res != null ? Map<String, dynamic>.from(res) : null;
     } catch (_) {
       return null;
     }
@@ -248,8 +268,7 @@ class SupabaseService {
   Future<List<Map<String, dynamic>>> fetchUsers({String? excludeUserId, int limit = 100}) async {
     try {
       final res = await _client.from('users').select('id, username, full_name, avatar_url').order('created_at', ascending: false).limit(limit);
-      if (res == null) return [];
-      final list = List<Map<String, dynamic>>.from(res as List);
+      final list = List<Map<String, dynamic>>.from(res);
       if (excludeUserId != null) {
         list.removeWhere((m) => (m['id'] as String?) == excludeUserId);
       }
@@ -298,8 +317,7 @@ class SupabaseService {
   Future<List<Map<String, dynamic>>> getTransactions(String userId, {int limit = 50}) async {
     try {
       final res = await _client.from('transactions').select().eq('user_id', userId).order('created_at', ascending: false).range(0, limit - 1);
-      if (res == null) return [];
-      return List<Map<String, dynamic>>.from(res as List);
+      return List<Map<String, dynamic>>.from(res);
     } catch (_) {
       return [];
     }
@@ -311,17 +329,22 @@ class SupabaseService {
       await _client.rpc('reward_user_for_view', params: {'user_id': userId, 'ad_id': adId, 'amount': amount});
       return true;
     } catch (_) {
-      // fallback: insert transaction and update wallet
+      // fallback: insert transaction then upsert wallet (so wallet row is created if missing)
       try {
+        final now = DateTime.now().toIso8601String();
         await _client.from('transactions').insert({
           'user_id': userId,
           'type': 'adReward',
           'amount': amount,
           'status': 'completed',
-          'created_at': DateTime.now().toIso8601String(),
+          'created_at': now,
         });
         final bal = await getCoinBalance(userId);
-        await _client.from('wallets').update({'balance': bal + amount}).eq('user_id', userId);
+        await _client.from('wallets').upsert({
+          'user_id': userId,
+          'balance': bal + amount,
+          'updated_at': now,
+        }, onConflict: 'user_id');
         return true;
       } catch (_) {
         return false;

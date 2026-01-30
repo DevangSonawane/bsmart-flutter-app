@@ -1,3 +1,5 @@
+// ignore_for_file: unnecessary_type_check, dead_code
+
 import '../models/notification_model.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'dart:async';
@@ -113,17 +115,14 @@ class NotificationService {
       final stream = client.from('notifications').stream(primaryKey: ['id']).eq('user_id', userId);
       _subscription = stream.listen((payload) {
         try {
-          if (payload is List) {
-            for (final record in payload) {
-              if (record is Map && record['user_id'] == userId) {
-                final item = NotificationItem.fromJson(Map<String, dynamic>.from(record));
-                addNotification(item);
-              }
-            }
-          } else if (payload is Map) {
-            final record = payload as Map<String, dynamic>;
-            if (record['user_id'] == userId) {
-              final item = NotificationItem.fromJson(Map<String, dynamic>.from(record));
+          final List<dynamic> records = payload is List
+              ? payload as List<dynamic>
+              : (payload is Map ? [payload] : <dynamic>[]);
+          for (final record in records) {
+            if (record is! Map<String, dynamic>) continue;
+            final rec = record;
+            if (rec['user_id'] == userId) {
+              final item = NotificationItem.fromJson(rec);
               addNotification(item);
             }
           }

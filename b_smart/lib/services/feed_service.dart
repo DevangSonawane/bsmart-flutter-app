@@ -2,7 +2,6 @@ import '../models/feed_post_model.dart';
 import 'package:supabase_flutter/supabase_flutter.dart' as sb;
 import '../models/story_model.dart';
 import '../models/user_model.dart';
-import '../services/dummy_data_service.dart';
 
 class FeedService {
   static final FeedService _instance = FeedService._internal();
@@ -211,23 +210,26 @@ class FeedService {
     ];
   }
 
-  // Fetch feed from Supabase with simple pagination
-  Future<List<FeedPost>> fetchFeedFromBackend({int limit = 20, int offset = 0}) async {
+  // Fetch feed from Supabase - same logic as React Home.jsx: all posts, users(id, username, avatar_url).
+  // Likes: use post.likes array (React stores likes on post), likeCount = array.length, isLiked from array.
+  Future<List<FeedPost>> fetchFeedFromBackend({
+    int limit = 50,
+    int offset = 0,
+    String? currentUserId,
+  }) async {
     try {
       final client = sb.Supabase.instance.client;
       final res = await client
           .from('posts')
-          .select('*, users:users(id, username, avatar_url, is_verified)')
+          .select('*, users:users(id, username, avatar_url)')
           .order('created_at', ascending: false)
           .range(offset, offset + limit - 1);
 
-      if (res == null) return [];
-      final items = List<Map<String, dynamic>>.from(res as List);
+      final items = List<Map<String, dynamic>>.from(res);
 
       return items.map((item) {
         final user = item['users'] as Map<String, dynamic>?;
         final media = item['media'] as List<dynamic>? ?? [];
-        // Map media entries to URLs (depends on schema)
         final mediaUrls = media.map((m) {
           if (m is String) return m;
           if (m is Map) {
@@ -245,10 +247,26 @@ class FeedService {
           mediaType = PostMediaType.carousel;
         }
 
+        // React: likes are stored as array on post, likeCount = likes.length, isLiked = likes.some(like => like.user_id === userObject.id)
+        final rawLikesList = item['likes'] as List<dynamic>?;
+        List<Map<String, dynamic>>? rawLikes;
+        int likeCount = 0;
+        bool isLiked = false;
+        if (rawLikesList != null && rawLikesList.isNotEmpty) {
+          rawLikes = rawLikesList.map((e) => Map<String, dynamic>.from(e as Map)).toList();
+          likeCount = rawLikes.length;
+          if (currentUserId != null) {
+            isLiked = rawLikes.any((e) => e['user_id'] == currentUserId);
+          }
+        } else {
+          likeCount = item['likes_count'] as int? ?? 0;
+        }
+
         return FeedPost(
           id: item['id'] as String,
           userId: item['user_id'] as String,
           userName: user?['username'] as String? ?? 'user',
+          fullName: user?['full_name'] as String?,
           userAvatar: user?['avatar_url'] as String?,
           isVerified: user?['is_verified'] as bool? ?? false,
           mediaType: mediaType,
@@ -256,10 +274,10 @@ class FeedService {
           caption: item['caption'] as String?,
           hashtags: ((item['hashtags'] as List<dynamic>?) ?? []).map((e) => e.toString()).toList(),
           createdAt: DateTime.parse(item['created_at'] as String),
-          likes: item['likes_count'] as int? ?? 0,
+          likes: likeCount,
           comments: item['comments_count'] as int? ?? 0,
           views: item['views_count'] as int? ?? 0,
-          isLiked: false,
+          isLiked: isLiked,
           isSaved: false,
           isFollowed: false,
           isTagged: false,
@@ -268,10 +286,10 @@ class FeedService {
           adTitle: item['ad_title'] as String?,
           adCompanyId: item['ad_company_id'] as String?,
           adCompanyName: item['ad_company_name'] as String?,
+          rawLikes: rawLikes,
         );
       }).toList();
     } catch (e) {
-      // No mock fallback: return empty list when backend unavailable
       return [];
     }
   }

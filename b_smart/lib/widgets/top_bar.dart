@@ -1,6 +1,5 @@
 import 'package:flutter/material.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
-import 'package:b_smart/core/lucide_local.dart';
 import '../theme/design_tokens.dart';
 
 class TopBar extends StatelessWidget implements PreferredSizeWidget {
@@ -9,14 +8,20 @@ class TopBar extends StatelessWidget implements PreferredSizeWidget {
 
   @override
   Widget build(BuildContext context) {
+    final theme = Theme.of(context);
     return AppBar(
-      title: Text(title),
+      title: Text(
+        title,
+        style: theme.appBarTheme.titleTextStyle ?? TextStyle(color: theme.appBarTheme.foregroundColor, fontSize: 20),
+      ),
       centerTitle: false,
-      backgroundColor: Colors.white,
+      backgroundColor: theme.appBarTheme.backgroundColor,
+      foregroundColor: theme.appBarTheme.foregroundColor,
+      iconTheme: theme.appBarTheme.iconTheme,
       elevation: 0,
       actions: [
         IconButton(
-          icon: Icon(LucideIcons.bell.localLucide),
+          icon: Icon(LucideIcons.bell, color: theme.appBarTheme.foregroundColor),
           onPressed: () {},
         ),
         Padding(
@@ -24,7 +29,7 @@ class TopBar extends StatelessWidget implements PreferredSizeWidget {
           child: CircleAvatar(
             radius: 16,
             backgroundColor: DesignTokens.instaPink,
-            child: Icon(LucideIcons.user.localLucide, size: 16, color: Colors.white),
+            child: Icon(LucideIcons.user, size: 16, color: Colors.white),
           ),
         ),
       ],

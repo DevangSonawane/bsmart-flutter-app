@@ -2,7 +2,6 @@ import 'dart:io';
 import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
-import 'package:b_smart/core/lucide_local.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:image_cropper/image_cropper.dart';
@@ -20,10 +19,10 @@ class _CreatePostMediaItem {
 
   _CreatePostMediaItem({
     required this.sourcePath,
-    this.croppedPath,
+    this.croppedPath, // ignore: unused_element_parameter
     required this.isVideo,
-    this.aspect = 1.0,
-    this.filter = 'Original',
+    this.aspect = 1.0, // ignore: unused_element_parameter
+    this.filter = 'Original', // ignore: unused_element_parameter
     Map<String, int>? adjustments,
   }) : adjustments = adjustments ?? {
     'brightness': 0, 'contrast': 0, 'saturate': 0,
@@ -328,7 +327,7 @@ class _CreatePostScreenState extends State<CreatePostScreen> {
         elevation: 0,
         backgroundColor: Colors.white,
         leading: IconButton(
-          icon: Icon(LucideIcons.arrowLeft.localLucide, color: Colors.black87),
+          icon: Icon(LucideIcons.arrowLeft, color: Colors.black87),
           onPressed: _back,
         ),
         title: Text(
@@ -367,9 +366,9 @@ class _CreatePostScreenState extends State<CreatePostScreen> {
             Row(
               mainAxisAlignment: MainAxisAlignment.center,
               children: [
-                Icon(LucideIcons.image.localLucide, size: 56, color: Colors.grey[700]),
+                Icon(LucideIcons.image, size: 56, color: Colors.grey[700]),
                 const SizedBox(width: 8),
-                Icon(LucideIcons.video.localLucide, size: 56, color: Colors.grey[700]),
+                Icon(LucideIcons.video, size: 56, color: Colors.grey[700]),
               ],
             ),
             const SizedBox(height: 16),
@@ -405,7 +404,7 @@ class _CreatePostScreenState extends State<CreatePostScreen> {
               ? Column(
                   mainAxisAlignment: MainAxisAlignment.center,
                   children: [
-                    Icon(LucideIcons.video.localLucide, size: 80, color: Colors.grey[600]),
+                    Icon(LucideIcons.video, size: 80, color: Colors.grey[600]),
                     const SizedBox(height: 8),
                     Text('Video (no crop)', style: TextStyle(color: Colors.grey[600])),
                   ],
@@ -434,7 +433,7 @@ class _CreatePostScreenState extends State<CreatePostScreen> {
               bottom: 0,
               child: Center(
                 child: IconButton(
-                  icon: Icon(LucideIcons.chevronLeft.localLucide, color: Colors.white, size: 32),
+                  icon: Icon(LucideIcons.chevronLeft, color: Colors.white, size: 32),
                   style: IconButton.styleFrom(backgroundColor: Colors.black54),
                   onPressed: () => setState(() => _currentIndex--),
                 ),
@@ -447,7 +446,7 @@ class _CreatePostScreenState extends State<CreatePostScreen> {
               bottom: 0,
               child: Center(
                 child: IconButton(
-                  icon: Icon(LucideIcons.chevronRight.localLucide, color: Colors.white, size: 32),
+                  icon: Icon(LucideIcons.chevronRight, color: Colors.white, size: 32),
                   style: IconButton.styleFrom(backgroundColor: Colors.black54),
                   onPressed: () => setState(() => _currentIndex++),
                 ),
@@ -488,14 +487,14 @@ class _CreatePostScreenState extends State<CreatePostScreen> {
             alignment: Alignment.center,
             children: [
               item.isVideo
-                  ? Icon(LucideIcons.video.localLucide, size: 100, color: Colors.grey[600])
+                  ? Icon(LucideIcons.video, size: 100, color: Colors.grey[600])
                   : _applyFilterToImage(File(item.displayPath), item),
               if (_media.length > 1) ...[
                 if (_currentIndex > 0)
                   Positioned(
                     left: 8,
                     child: IconButton(
-                      icon: Icon(LucideIcons.chevronLeft.localLucide, color: Colors.black87),
+                      icon: Icon(LucideIcons.chevronLeft, color: Colors.black87),
                       style: IconButton.styleFrom(backgroundColor: Colors.white70),
                       onPressed: () => setState(() => _currentIndex--),
                     ),
@@ -504,7 +503,7 @@ class _CreatePostScreenState extends State<CreatePostScreen> {
                   Positioned(
                     right: 8,
                     child: IconButton(
-                      icon: Icon(LucideIcons.chevronRight.localLucide, color: Colors.black87),
+                      icon: Icon(LucideIcons.chevronRight, color: Colors.black87),
                       style: IconButton.styleFrom(backgroundColor: Colors.white70),
                       onPressed: () => setState(() => _currentIndex++),
                     ),
@@ -602,7 +601,7 @@ class _CreatePostScreenState extends State<CreatePostScreen> {
                                       child: ClipRRect(
                                         borderRadius: BorderRadius.circular(6),
                                         child: item.isVideo
-                                            ? Icon(LucideIcons.video.localLucide, size: 32)
+                                            ? Icon(LucideIcons.video, size: 32)
                                             : Image.file(File(item.displayPath), fit: BoxFit.cover),
                                       ),
                                     ),
@@ -703,7 +702,7 @@ class _CreatePostScreenState extends State<CreatePostScreen> {
               GestureDetector(
                 onTapDown: _onImageTapForTag,
                 child: item.isVideo
-                    ? Icon(LucideIcons.video.localLucide, size: 100, color: Colors.grey[600])
+                    ? Icon(LucideIcons.video, size: 100, color: Colors.grey[600])
                     : _applyFilterToImage(File(item.displayPath), item),
               ),
               Positioned(
@@ -742,7 +741,7 @@ class _CreatePostScreenState extends State<CreatePostScreen> {
                               onTap: () => _removeTag(t.id),
                               child: Padding(
                                 padding: const EdgeInsets.only(left: 6),
-                                child: Icon(LucideIcons.x.localLucide, size: 14, color: Colors.white),
+                                child: Icon(LucideIcons.x, size: 14, color: Colors.white),
                               ),
                             ),
                           ],
@@ -758,7 +757,7 @@ class _CreatePostScreenState extends State<CreatePostScreen> {
                   Positioned(
                     left: 8,
                     child: IconButton(
-                      icon: Icon(LucideIcons.chevronLeft.localLucide, color: Colors.black87),
+                      icon: Icon(LucideIcons.chevronLeft, color: Colors.black87),
                       style: IconButton.styleFrom(backgroundColor: Colors.white70),
                       onPressed: () => setState(() => _currentIndex--),
                     ),
@@ -767,7 +766,7 @@ class _CreatePostScreenState extends State<CreatePostScreen> {
                   Positioned(
                     right: 8,
                     child: IconButton(
-                      icon: Icon(LucideIcons.chevronRight.localLucide, color: Colors.black87),
+                      icon: Icon(LucideIcons.chevronRight, color: Colors.black87),
                       style: IconButton.styleFrom(backgroundColor: Colors.white70),
                       onPressed: () => setState(() => _currentIndex++),
                     ),
@@ -799,7 +798,7 @@ class _CreatePostScreenState extends State<CreatePostScreen> {
                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [
                     IconButton(
-                      icon: Icon(LucideIcons.smile.localLucide, color: Colors.grey),
+                      icon: Icon(LucideIcons.smile, color: Colors.grey),
                       onPressed: () => setState(() => _showEmojiPicker = !_showEmojiPicker),
                     ),
                     ValueListenableBuilder<TextEditingValue>(
@@ -830,7 +829,7 @@ class _CreatePostScreenState extends State<CreatePostScreen> {
                 const Divider(height: 24),
                 ListTile(
                   contentPadding: EdgeInsets.zero,
-                  leading: Icon(LucideIcons.userPlus.localLucide, size: 22),
+                  leading: Icon(LucideIcons.userPlus, size: 22),
                   title: const Text('Add Tag', style: TextStyle(fontSize: 14)),
                 ),
                 InkWell(
@@ -841,7 +840,7 @@ class _CreatePostScreenState extends State<CreatePostScreen> {
                       mainAxisAlignment: MainAxisAlignment.spaceBetween,
                       children: [
                         const Text('Advanced Settings', style: TextStyle(fontSize: 14, fontWeight: FontWeight.w500)),
-                        Icon(_advancedOpen ? LucideIcons.chevronUp.localLucide : LucideIcons.chevronDown.localLucide, color: Colors.grey[600]),
+                        Icon(_advancedOpen ? LucideIcons.chevronUp : LucideIcons.chevronDown, color: Colors.grey[600]),
                       ],
                     ),
                   ),
@@ -889,7 +888,7 @@ class _CreatePostScreenState extends State<CreatePostScreen> {
                 children: [
                   const Text('Tag People', style: TextStyle(fontWeight: FontWeight.w600, fontSize: 14)),
                   IconButton(
-                    icon: Icon(LucideIcons.x.localLucide, size: 20),
+                    icon: Icon(LucideIcons.x, size: 20),
                     onPressed: () => setState(() => _showTagSearch = false),
                   ),
                 ],
@@ -897,7 +896,7 @@ class _CreatePostScreenState extends State<CreatePostScreen> {
               TextField(
                 decoration: InputDecoration(
                   hintText: 'Search user',
-                  prefixIcon: Icon(LucideIcons.search.localLucide, size: 20),
+                  prefixIcon: Icon(LucideIcons.search, size: 20),
                   isDense: true,
                   border: const OutlineInputBorder(),
                 ),
@@ -921,7 +920,7 @@ class _CreatePostScreenState extends State<CreatePostScreen> {
                                       ? NetworkImage(u['avatar_url'] as String)
                                       : null,
                                   child: u['avatar_url'] == null || (u['avatar_url'] as String).isEmpty
-                                      ? Icon(LucideIcons.user.localLucide)
+                                      ? Icon(LucideIcons.user)
                                       : null,
                                 ),
                                 title: Text((u['username'] as String?) ?? '', style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w600)),

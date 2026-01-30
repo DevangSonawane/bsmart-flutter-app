@@ -9,6 +9,7 @@ class FeedPost {
   final String id;
   final String userId;
   final String userName;
+  final String? fullName;
   final String? userAvatar;
   final bool isVerified;
   final PostMediaType mediaType;
@@ -30,11 +31,14 @@ class FeedPost {
   final String? adTitle;
   final String? adCompanyId;
   final String? adCompanyName;
+  /// Raw likes array from backend (same as React: [{ user_id, like: true }, ...])
+  final List<Map<String, dynamic>>? rawLikes;
 
   FeedPost({
     required this.id,
     required this.userId,
     required this.userName,
+    this.fullName,
     this.userAvatar,
     this.isVerified = false,
     required this.mediaType,
@@ -56,12 +60,14 @@ class FeedPost {
     this.adTitle,
     this.adCompanyId,
     this.adCompanyName,
+    this.rawLikes,
   });
 
   FeedPost copyWith({
     String? id,
     String? userId,
     String? userName,
+    String? fullName,
     String? userAvatar,
     bool? isVerified,
     PostMediaType? mediaType,
@@ -83,11 +89,13 @@ class FeedPost {
     String? adTitle,
     String? adCompanyId,
     String? adCompanyName,
+    List<Map<String, dynamic>>? rawLikes,
   }) {
     return FeedPost(
       id: id ?? this.id,
       userId: userId ?? this.userId,
       userName: userName ?? this.userName,
+      fullName: fullName ?? this.fullName,
       userAvatar: userAvatar ?? this.userAvatar,
       isVerified: isVerified ?? this.isVerified,
       mediaType: mediaType ?? this.mediaType,
@@ -109,6 +117,7 @@ class FeedPost {
       adTitle: adTitle ?? this.adTitle,
       adCompanyId: adCompanyId ?? this.adCompanyId,
       adCompanyName: adCompanyName ?? this.adCompanyName,
+      rawLikes: rawLikes ?? this.rawLikes,
     );
   }
 }

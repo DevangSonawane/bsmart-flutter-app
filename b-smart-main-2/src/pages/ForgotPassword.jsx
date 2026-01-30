@@ -122,22 +122,22 @@ const ForgotPassword = () => {
   const renderStep1 = () => (
     <div className="space-y-6">
       <div className="text-center">
-        <h1 className="text-2xl font-bold text-gray-900 mb-2">Find Your Account</h1>
-        <p className="text-gray-500">Enter your email address to search for your account.</p>
+        <h1 className="text-2xl font-bold text-gray-900 dark:text-white mb-2">Find Your Account</h1>
+        <p className="text-gray-500 dark:text-gray-400">Enter your email address to search for your account.</p>
       </div>
 
       <form onSubmit={(e) => handleFindAccount(e, true)} className="space-y-5">
         <div className="space-y-1">
-          <label className="text-sm font-medium text-gray-700 ml-1">Email Address</label>
+          <label className="text-sm font-medium text-gray-700 dark:text-gray-300 ml-1">Email Address</label>
           <div className="relative group">
-            <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-gray-400 group-focus-within:text-insta-pink transition-colors">
+            <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-gray-400 dark:text-gray-500 group-focus-within:text-insta-pink transition-colors">
               <Mail size={20} />
             </div>
             <input
               type="email"
               value={email}
               onChange={(e) => setEmail(e.target.value)}
-              className="w-full pl-10 pr-4 py-3 bg-gray-50 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-insta-pink/20 focus:border-insta-pink transition-all placeholder:text-gray-400"
+              className="w-full pl-10 pr-4 py-3 bg-gray-50 dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-xl focus:outline-none focus:ring-2 focus:ring-insta-pink/20 focus:border-insta-pink transition-all placeholder:text-gray-400 dark:placeholder:text-gray-600 dark:text-white"
               placeholder="Enter your email"
               required
             />
@@ -172,26 +172,26 @@ const ForgotPassword = () => {
   const renderStep2 = () => (
     <div className="space-y-6">
       <div className="text-center">
-        <div className="w-20 h-20 bg-pink-50 rounded-full flex items-center justify-center mx-auto mb-6 shadow-sm">
+        <div className="w-20 h-20 bg-pink-50 dark:bg-gray-800 rounded-full flex items-center justify-center mx-auto mb-6 shadow-sm">
           <ShieldCheck size={40} className="text-insta-pink" />
         </div>
-        <h1 className="text-2xl font-bold text-gray-900 mb-2">Verify it's you</h1>
-        <p className="text-gray-500">
-          We sent a code to <span className="font-medium text-gray-900">{email}</span>
+        <h1 className="text-2xl font-bold text-gray-900 dark:text-white mb-2">Verify it's you</h1>
+        <p className="text-gray-500 dark:text-gray-400">
+          We sent a code to <span className="font-medium text-gray-900 dark:text-white">{email}</span>
         </p>
 
         {foundUser && (
-          <div className="mt-8 p-4 bg-gray-50 rounded-2xl border border-gray-100 flex items-center gap-4 text-left shadow-sm">
-            <div className="w-12 h-12 bg-white rounded-full flex items-center justify-center overflow-hidden border border-gray-100 shadow-sm shrink-0">
+          <div className="mt-8 p-4 bg-gray-50 dark:bg-gray-900 rounded-2xl border border-gray-100 dark:border-gray-800 flex items-center gap-4 text-left shadow-sm">
+            <div className="w-12 h-12 bg-white dark:bg-gray-800 rounded-full flex items-center justify-center overflow-hidden border border-gray-100 dark:border-gray-800 shadow-sm shrink-0">
               {foundUser.avatar_url ? (
                 <img src={foundUser.avatar_url} alt={foundUser.username} className="w-full h-full object-cover" />
               ) : (
-                <span className="text-gray-500 font-bold text-lg">{foundUser.username?.[0]?.toUpperCase() || 'U'}</span>
+                <span className="text-gray-500 dark:text-gray-400 font-bold text-lg">{foundUser.username?.[0]?.toUpperCase() || 'U'}</span>
               )}
             </div>
             <div className="overflow-hidden">
-              <p className="font-bold text-gray-900 truncate">{foundUser.full_name || foundUser.username}</p>
-              <p className="text-xs text-gray-500 truncate">{foundUser.email}</p>
+              <p className="font-bold text-gray-900 dark:text-white truncate">{foundUser.full_name || foundUser.username}</p>
+              <p className="text-xs text-gray-500 dark:text-gray-400 truncate">{foundUser.email}</p>
             </div>
             <div className="ml-auto">
               <CheckCircle size={20} className="text-green-500" />
@@ -202,12 +202,12 @@ const ForgotPassword = () => {
 
       <form onSubmit={handleVerifyOtp} className="space-y-6">
         <div className="space-y-2">
-          <label className="text-sm font-medium text-gray-700 ml-1">Verification Code</label>
+          <label className="text-sm font-medium text-gray-700 dark:text-gray-300 ml-1">Verification Code</label>
           <input
             type="text"
             value={otp}
             onChange={(e) => setOtp(e.target.value)}
-            className="w-full px-4 py-4 bg-gray-50 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-insta-pink/20 focus:border-insta-pink transition-all text-center tracking-[0.5em] font-mono text-2xl placeholder:tracking-normal"
+            className="w-full px-4 py-4 bg-gray-50 dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-xl focus:outline-none focus:ring-2 focus:ring-insta-pink/20 focus:border-insta-pink transition-all text-center tracking-[0.5em] font-mono text-2xl placeholder:tracking-normal dark:text-white"
             placeholder="000000"
             maxLength={6}
             required
@@ -229,25 +229,25 @@ const ForgotPassword = () => {
   const renderStep3 = () => (
     <div className="space-y-6">
       <div className="text-center">
-        <div className="w-20 h-20 bg-green-50 rounded-full flex items-center justify-center mx-auto mb-6 shadow-sm">
+        <div className="w-20 h-20 bg-green-50 dark:bg-green-900/20 rounded-full flex items-center justify-center mx-auto mb-6 shadow-sm">
           <CheckCircle size={40} className="text-green-500" />
         </div>
-        <h1 className="text-2xl font-bold text-gray-900 mb-2">Reset Password</h1>
-        <p className="text-gray-500">Create a new strong password for your account.</p>
+        <h1 className="text-2xl font-bold text-gray-900 dark:text-white mb-2">Reset Password</h1>
+        <p className="text-gray-500 dark:text-gray-400">Create a new strong password for your account.</p>
       </div>
 
       <form onSubmit={handleResetPassword} className="space-y-5">
         <div className="space-y-1">
-          <label className="text-sm font-medium text-gray-700 ml-1">New Password</label>
+          <label className="text-sm font-medium text-gray-700 dark:text-gray-300 ml-1">New Password</label>
           <div className="relative group">
-            <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-gray-400 group-focus-within:text-insta-pink transition-colors">
+            <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-gray-400 dark:text-gray-500 group-focus-within:text-insta-pink transition-colors">
               <Lock size={20} />
             </div>
             <input
               type="password"
               value={password}
               onChange={(e) => setPassword(e.target.value)}
-              className="w-full pl-10 pr-4 py-3 bg-gray-50 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-insta-pink/20 focus:border-insta-pink transition-all placeholder:text-gray-400"
+              className="w-full pl-10 pr-4 py-3 bg-gray-50 dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-xl focus:outline-none focus:ring-2 focus:ring-insta-pink/20 focus:border-insta-pink transition-all placeholder:text-gray-400 dark:placeholder:text-gray-600 dark:text-white"
               placeholder="New password"
               required
               minLength={6}
@@ -256,16 +256,16 @@ const ForgotPassword = () => {
         </div>
 
         <div className="space-y-1">
-          <label className="text-sm font-medium text-gray-700 ml-1">Confirm Password</label>
+          <label className="text-sm font-medium text-gray-700 dark:text-gray-300 ml-1">Confirm Password</label>
           <div className="relative group">
-            <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-gray-400 group-focus-within:text-insta-pink transition-colors">
+            <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-gray-400 dark:text-gray-500 group-focus-within:text-insta-pink transition-colors">
               <Lock size={20} />
             </div>
             <input
               type="password"
               value={confirmPassword}
               onChange={(e) => setConfirmPassword(e.target.value)}
-              className="w-full pl-10 pr-4 py-3 bg-gray-50 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-insta-pink/20 focus:border-insta-pink transition-all placeholder:text-gray-400"
+              className="w-full pl-10 pr-4 py-3 bg-gray-50 dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-xl focus:outline-none focus:ring-2 focus:ring-insta-pink/20 focus:border-insta-pink transition-all placeholder:text-gray-400 dark:placeholder:text-gray-600 dark:text-white"
               placeholder="Confirm new password"
               required
               minLength={6}
@@ -285,18 +285,18 @@ const ForgotPassword = () => {
   );
 
   return (
-    <div className="min-h-screen bg-gray-50 flex flex-col justify-center py-12 px-4 sm:px-6 lg:px-8">
+    <div className="min-h-screen bg-gray-50 dark:bg-black flex flex-col justify-center py-12 px-4 sm:px-6 lg:px-8">
       <div className="sm:mx-auto sm:w-full sm:max-w-md">
-        <Link to="/login" className="flex items-center justify-center text-gray-500 hover:text-gray-900 transition-colors mb-8 group w-fit mx-auto">
-          <div className="w-8 h-8 rounded-full bg-white shadow-sm flex items-center justify-center mr-2 group-hover:-translate-x-1 transition-transform">
+        <Link to="/login" className="flex items-center justify-center text-gray-500 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white transition-colors mb-8 group w-fit mx-auto">
+          <div className="w-8 h-8 rounded-full bg-white dark:bg-gray-900 shadow-sm flex items-center justify-center mr-2 group-hover:-translate-x-1 transition-transform">
             <ArrowLeft size={16} />
           </div>
           <span className="font-medium">Back to Login</span>
         </Link>
 
-        <div className="bg-white py-8 px-4 shadow-xl rounded-2xl sm:px-10 border border-gray-100 relative overflow-hidden">
+        <div className="bg-white dark:bg-black py-8 px-4 shadow-xl rounded-2xl sm:px-10 border border-gray-100 dark:border-gray-800 relative overflow-hidden">
           {/* Progress Bar */}
-          <div className="absolute top-0 left-0 w-full h-1.5 bg-gray-100">
+          <div className="absolute top-0 left-0 w-full h-1.5 bg-gray-100 dark:bg-gray-800">
             <div
               className="h-full bg-gradient-to-r from-insta-purple via-insta-pink to-insta-orange transition-all duration-500 ease-out"
               style={{ width: `${(step / 3) * 100}%` }}
@@ -305,7 +305,7 @@ const ForgotPassword = () => {
 
           <div className="mt-6">
             {error && (
-              <div className="mb-6 p-4 bg-red-50 text-red-600 rounded-xl text-sm border border-red-100 flex items-start animate-fade-in">
+              <div className="mb-6 p-4 bg-red-50 dark:bg-red-900/20 text-red-600 dark:text-red-400 rounded-xl text-sm border border-red-100 dark:border-red-800 flex items-start animate-fade-in">
                 <AlertCircle className="w-5 h-5 mr-2 flex-shrink-0 mt-0.5" />
                 <span>{error}</span>
               </div>
@@ -317,7 +317,7 @@ const ForgotPassword = () => {
           </div>
         </div>
 
-        <p className="mt-8 text-center text-sm text-gray-500">
+        <p className="mt-8 text-center text-sm text-gray-500 dark:text-gray-400">
           &copy; {new Date().getFullYear()} b_smart. All rights reserved.
         </p>
       </div>

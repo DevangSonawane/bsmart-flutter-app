@@ -1,43 +1,76 @@
-import React from 'react';
+import React, { useEffect, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import StoryRail from '../components/StoryRail';
-import FeedPost from '../components/FeedPost';
+import PostCard from '../components/PostCard';
+import PostDetailModal from '../components/PostDetailModal';
+import { supabase } from '../lib/supabase';
 
 const Home = () => {
-  const posts = [
-    {
-      id: 1,
-      username: 'jane_doe',
-      userAvatar: 'https://i.pravatar.cc/150?u=jane_doe',
-      imageUrl: 'https://images.unsplash.com/photo-1515886657613-9f3515b0c78f?w=600&auto=format&fit=crop&q=60',
-      likes: 120,
-      caption: 'Loving the new outfit! 🌸 #fashion #style'
-    },
-    {
-      id: 2,
-      username: 'travel_lover',
-      userAvatar: 'https://i.pravatar.cc/150?u=travel_lover',
-      imageUrl: 'https://images.unsplash.com/photo-1502602898657-3e91760cbb34?w=600&auto=format&fit=crop&q=60',
-      likes: 845,
-      caption: 'Paris is always a good idea 🗼 #travel #paris'
-    },
-    {
-      id: 3,
-      username: 'foodie_life',
-      userAvatar: 'https://i.pravatar.cc/150?u=foodie_life',
-      imageUrl: 'https://images.unsplash.com/photo-1504674900247-0877df9cc836?w=600&auto=format&fit=crop&q=60',
-      likes: 562,
-      caption: 'Best burger in town! 🍔 #foodie #delicious'
+  const navigate = useNavigate();
+  const [posts, setPosts] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [selectedPost, setSelectedPost] = useState(null);
+
+  useEffect(() => {
+    const fetchPosts = async () => {
+      try {
+        const { data, error } = await supabase
+          .from('posts')
+          .select(`
+            *,
+            users (
+              id,
+              username,
+              avatar_url
+            )
+          `)
+          .order('created_at', { ascending: false });
+
+        if (error) throw error;
+        setPosts(data || []);
+      } catch (error) {
+        console.error('Error fetching posts:', error);
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    fetchPosts();
+  }, []);
+
+  const handleCommentClick = (post) => {
+    if (window.innerWidth < 768) {
+      navigate(`/post/${post.id}`);
+    } else {
+      setSelectedPost(post);
     }
-  ];
+  };
 
   return (
     <div>
       <StoryRail />
       <div className="pb-4">
-        {posts.map(post => (
-          <FeedPost key={post.id} post={post} />
-        ))}
+        {loading ? (
+          <div className="flex justify-center p-8">
+            <div className="animate-spin w-8 h-8 border-2 border-gray-300 dark:border-gray-700 border-t-blue-500 rounded-full"></div>
+          </div>
+        ) : (
+          posts.map(post => (
+            <PostCard
+              key={post.id}
+              post={post}
+              onCommentClick={handleCommentClick}
+            />
+          ))
+        )}
       </div>
+
+      {/* Post Detail Modal */}
+      <PostDetailModal
+        isOpen={!!selectedPost}
+        post={selectedPost}
+        onClose={() => setSelectedPost(null)}
+      />
     </div>
   );
 };

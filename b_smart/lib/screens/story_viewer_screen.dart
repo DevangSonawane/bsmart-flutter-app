@@ -1,6 +1,5 @@
 import 'package:flutter/material.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
-import 'package:b_smart/core/lucide_local.dart';
 import 'dart:async';
 import 'package:cached_network_image/cached_network_image.dart';
 import '../models/story_model.dart';
@@ -264,7 +263,7 @@ class _StoryViewerScreenState extends State<StoryViewerScreen> {
                         ),
                       ),
                       IconButton(
-                        icon: Icon(LucideIcons.x.localLucide, color: Colors.white),
+                        icon: Icon(LucideIcons.x, color: Colors.white),
                         onPressed: () => Navigator.of(context).pop(),
                       ),
                     ],
@@ -290,12 +289,12 @@ class _StoryViewerScreenState extends State<StoryViewerScreen> {
               imageUrl: story.mediaUrl,
               fit: BoxFit.contain,
               placeholder: (_, __) => const Center(child: CircularProgressIndicator(color: Colors.white)),
-              errorWidget: (_, __, ___) => Center(child: Icon(LucideIcons.image.localLucide, size: 100, color: Colors.white54)),
+              errorWidget: (_, __, ___) => Center(child: Icon(LucideIcons.image, size: 100, color: Colors.white54)),
             )
           : Center(
               child: story.mediaType == StoryMediaType.video
-                  ? Icon(LucideIcons.play.localLucide, size: 100, color: Colors.white54)
-                  : Icon(LucideIcons.image.localLucide, size: 100, color: Colors.white54),
+                  ? Icon(LucideIcons.play, size: 100, color: Colors.white54)
+                  : Icon(LucideIcons.image, size: 100, color: Colors.white54),
             ),
     );
   }

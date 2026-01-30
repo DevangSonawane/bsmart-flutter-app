@@ -1,6 +1,5 @@
 import 'package:flutter/material.dart';
 import '../services/advertiser_service.dart';
-import '../theme/instagram_theme.dart';
 
 class AdvertiserAnalyticsScreen extends StatefulWidget {
   final String adId;
@@ -29,7 +28,7 @@ class _AdvertiserAnalyticsScreenState extends State<AdvertiserAnalyticsScreen> {
   @override
   Widget build(BuildContext context) {
     final analytics = _advertiserService.getAdAnalytics(widget.adId);
-    final ad = _advertiserService.getAdvertiserAds('advertiser-1')
+    _advertiserService.getAdvertiserAds('advertiser-1')
         .firstWhere((a) => a.id == widget.adId, orElse: () => throw Exception('Ad not found'));
 
     if (analytics == null) {

@@ -4,7 +4,6 @@ import '../models/feed_post_model.dart';
 import '../models/story_model.dart';
 import '../services/feed_service.dart';
 import '../services/wallet_service.dart';
-import '../services/boost_service.dart';
 import '../services/user_account_service.dart';
 import '../models/user_account_model.dart';
 import '../theme/instagram_theme.dart';
@@ -492,7 +491,6 @@ class _InstagramFeedScreenState extends State<InstagramFeedScreen> {
   }
 
   void _showMoreOptions(BuildContext context, FeedPost post) {
-    final boostService = BoostService();
     final accountService = UserAccountService();
     final currentAccount = accountService.getCurrentAccount();
     final canBoost = currentAccount.accountType != AccountType.regular;

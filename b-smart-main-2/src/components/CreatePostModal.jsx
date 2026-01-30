@@ -1,7 +1,7 @@
 import React, { useState, useRef, useCallback, useEffect } from 'react';
 import { useSelector } from 'react-redux';
 import { supabase } from '../lib/supabase';
-import { Image, Video, X, ArrowLeft, Maximize2, Search, Copy, ZoomIn, Plus, ChevronLeft, ChevronRight, MapPin, UserPlus, ChevronDown, ChevronUp, Smile } from 'lucide-react';
+import { Image, Video, X, ArrowLeft, Maximize2, Search, Copy, ZoomIn, Plus, ChevronLeft, ChevronRight, MapPin, UserPlus, ChevronDown, ChevronUp, Smile, Sun, Moon, Droplet, Thermometer, Cloud, Circle, Sliders } from 'lucide-react';
 import Cropper from 'react-easy-crop';
 
 // Filter Definitions
@@ -77,10 +77,17 @@ async function getCroppedImg(imageSrc, pixelCrop) {
   })
 }
 
-const CreatePostModal = ({ isOpen, onClose }) => {
+const CreatePostModal = ({ isOpen, onClose, initialType = 'post' }) => {
   const [isDragging, setIsDragging] = useState(false);
   const [step, setStep] = useState('select'); // 'select', 'crop', 'edit', 'share'
   const { userObject } = useSelector((state) => state.auth);
+  const [postType, setPostType] = useState(initialType);
+
+  useEffect(() => {
+    if (isOpen) {
+      setPostType(initialType);
+    }
+  }, [isOpen, initialType]);
 
   // Media State
   const [media, setMedia] = useState([]);
@@ -110,6 +117,16 @@ const CreatePostModal = ({ isOpen, onClose }) => {
   const [showZoomSlider, setShowZoomSlider] = useState(false);
   const [showMultiSelect, setShowMultiSelect] = useState(false);
   const [activeTab, setActiveTab] = useState('filters'); // 'filters', 'adjustments'
+  const [activeAdjustment, setActiveAdjustment] = useState(null);
+
+  const ADJUSTMENT_ICONS = {
+    'Brightness': Sun,
+    'Contrast': Moon,
+    'Saturation': Droplet,
+    'Temperature': Thermometer,
+    'Fade': Cloud,
+    'Vignette': Circle
+  };
 
   const fileInputRef = useRef(null);
 
@@ -308,7 +325,8 @@ const CreatePostModal = ({ isOpen, onClose }) => {
             media: processedMedia,
             tags,
             hide_likes_count: hideLikes,
-            turn_off_commenting: turnOffCommenting
+            turn_off_commenting: turnOffCommenting,
+            type: postType
           })
           .select()
           .single();
@@ -464,53 +482,50 @@ const CreatePostModal = ({ isOpen, onClose }) => {
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/65 p-4">
-      <button
-        onClick={handleClose}
-        className="absolute top-4 right-4 text-white hover:text-gray-200"
-      >
-        <X size={24} />
+    <div className="fixed inset-0 z-[60] bg-black/60 backdrop-blur-sm flex items-center justify-center p-0 md:p-8">
+      {/* Close Button (Top Right) */}
+      <button onClick={handleClose} className="absolute top-4 right-4 text-white z-50 md:block hidden">
+        <X size={32} />
       </button>
 
-      <div className={`bg-white rounded-xl w-full ${step !== 'select' ? 'max-w-4xl h-[85vh] max-h-[850px]' : 'max-w-lg h-[70vh] max-h-[600px]'} overflow-hidden flex flex-col animate-in fade-in zoom-in duration-200 transition-all`}>
+      {/* Main Container */}
+      <div className={`bg-white dark:bg-[#262626] w-full h-full md:w-auto md:h-auto md:max-w-[1100px] md:max-h-[85vh] md:rounded-xl overflow-hidden flex flex-col transition-all duration-300 shadow-2xl ${step === 'share' ? 'md:aspect-auto' : 'md:aspect-[1.5]'}`}>
+
         {/* Header */}
-        <div className="border-b border-gray-200 py-3 px-4 flex items-center justify-between relative z-10 bg-white">
-          {step !== 'select' ? (
+        <div className="h-[50px] border-b border-gray-200 dark:border-gray-800 flex items-center justify-between px-4 bg-white dark:bg-[#262626] sticky top-0 z-40">
+          {step === 'select' ? (
             <>
-              <button onClick={handleBack} className="text-gray-900 hover:text-gray-600">
-                <ArrowLeft size={24} />
-              </button>
-              <h2 className="font-semibold text-base absolute left-1/2 -translate-x-1/2">
-                {step === 'crop' ? 'Crop' : step === 'edit' ? 'Edit' : 'Create new post'}
-              </h2>
-              <button
-                onClick={handleNextStep}
-                className={`text-[#0095f6] hover:text-[#00376b] font-semibold text-sm ${isSubmitting ? 'opacity-50 cursor-not-allowed' : ''}`}
-                disabled={isSubmitting}
-              >
-                {step === 'share' ? (isSubmitting ? 'Sharing...' : 'Share') : 'Next'}
+              <h2 className="font-semibold text-base w-full text-center dark:text-white">Create new {postType === 'reel' ? 'reel' : 'post'}</h2>
+              <button onClick={handleClose} className="absolute right-4 text-black dark:text-white md:hidden">
+                <X size={24} />
               </button>
             </>
           ) : (
-            <h2 className="font-semibold text-base w-full text-center">Create new post</h2>
+            <>
+              <button onClick={handleBack} className="text-black dark:text-white"><ArrowLeft size={24} /></button>
+              <h2 className="font-semibold text-base dark:text-white">{step === 'crop' ? 'Crop' : step === 'edit' ? 'Edit' : 'Create new post'}</h2>
+              <button onClick={handleNextStep} className="text-blue-500 font-semibold text-sm hover:text-blue-700 dark:hover:text-blue-400 transition-colors">
+                {step === 'share' ? 'Share' : 'Next'}
+              </button>
+            </>
           )}
         </div>
 
         {/* Content */}
         {step === 'select' ? (
           <div
-            className={`flex-1 flex flex-col items-center justify-center p-8 transition-colors ${isDragging ? 'bg-blue-50' : 'bg-white'}`}
+            className={`flex-1 flex flex-col items-center justify-center p-8 transition-colors ${isDragging ? 'bg-blue-50 dark:bg-blue-900/20' : 'bg-white dark:bg-[#262626]'}`}
             onDragOver={handleDragOver}
             onDragLeave={handleDragLeave}
             onDrop={handleDrop}
           >
             <div className="relative mb-4">
               <div className="relative">
-                <Image size={64} className="text-gray-800 rotate-[-6deg] translate-x-[-10px]" strokeWidth={1} />
-                <Video size={64} className="text-gray-800 absolute top-0 left-0 rotate-[6deg] translate-x-[10px] bg-white rounded-lg" strokeWidth={1} />
+                <Image size={64} className="text-gray-800 dark:text-gray-200 rotate-[-6deg] translate-x-[-10px]" strokeWidth={1} />
+                <Video size={64} className="text-gray-800 dark:text-gray-200 absolute top-0 left-0 rotate-[6deg] translate-x-[10px] bg-white dark:bg-[#262626] rounded-lg" strokeWidth={1} />
               </div>
             </div>
-            <h3 className="text-xl font-light mb-6 text-gray-800">Drag photos and videos here</h3>
+            <h3 className="text-xl font-light mb-6 text-gray-800 dark:text-gray-200">Drag photos and videos here</h3>
             <button
               onClick={handleButtonClick}
               className="bg-[#0095f6] hover:bg-[#1877f2] text-white px-4 py-1.5 rounded-md text-sm font-semibold transition-colors"
@@ -519,7 +534,7 @@ const CreatePostModal = ({ isOpen, onClose }) => {
             </button>
           </div>
         ) : step === 'crop' ? (
-          <div className="flex-1 bg-[#f0f0f0] relative flex items-center justify-center overflow-hidden">
+          <div className="flex-1 bg-[#f0f0f0] dark:bg-[#121212] relative flex items-center justify-center overflow-hidden">
             {currentMedia && (
               <div className="relative w-full h-full">
                 <Cropper
@@ -545,7 +560,7 @@ const CreatePostModal = ({ isOpen, onClose }) => {
                   objectFit="contain"
                   showGrid={false}
                   style={{
-                    containerStyle: { background: '#f0f0f0' },
+                    containerStyle: { background: 'transparent' },
                     cropAreaStyle: { border: '1px solid rgba(255, 255, 255, 0.5)' }
                   }}
                 />
@@ -555,10 +570,10 @@ const CreatePostModal = ({ isOpen, onClose }) => {
             {media.length > 1 && (
               <>
                 {currentIndex > 0 && (
-                  <button onClick={() => setCurrentIndex(prev => prev - 1)} className="absolute left-4 top-1/2 -translate-y-1/2 z-20 w-8 h-8 rounded-full bg-white/90 hover:bg-white text-gray-800 shadow-md flex items-center justify-center"><ChevronLeft size={20} /></button>
+                  <button onClick={() => setCurrentIndex(prev => prev - 1)} className="absolute left-4 top-1/2 -translate-y-1/2 z-20 w-8 h-8 rounded-full bg-white/90 dark:bg-black/80 hover:bg-white dark:hover:bg-black text-gray-800 dark:text-white shadow-md flex items-center justify-center"><ChevronLeft size={20} /></button>
                 )}
                 {currentIndex < media.length - 1 && (
-                  <button onClick={() => setCurrentIndex(prev => prev + 1)} className="absolute right-4 top-1/2 -translate-y-1/2 z-20 w-8 h-8 rounded-full bg-white/90 hover:bg-white text-gray-800 shadow-md flex items-center justify-center"><ChevronRight size={20} /></button>
+                  <button onClick={() => setCurrentIndex(prev => prev + 1)} className="absolute right-4 top-1/2 -translate-y-1/2 z-20 w-8 h-8 rounded-full bg-white/90 dark:bg-black/80 hover:bg-white dark:hover:bg-black text-gray-800 dark:text-white shadow-md flex items-center justify-center"><ChevronRight size={20} /></button>
                 )}
               </>
             )}
@@ -604,9 +619,9 @@ const CreatePostModal = ({ isOpen, onClose }) => {
           </div>
         ) : step === 'edit' ? (
           /* EDIT STEP */
-          <div className="flex-1 flex overflow-hidden">
+          <div className="flex-1 flex flex-col md:flex-row overflow-hidden">
             {/* Left: Image Preview */}
-            <div className="flex-[2] bg-[#f0f0f0] flex items-center justify-center relative">
+            <div className="relative bg-[#f0f0f0] dark:bg-[#121212] flex items-center justify-center w-full flex-1 md:h-auto md:flex-[2]">
               {currentMedia && (
                 <img
                   src={currentMedia.croppedUrl || currentMedia.url}
@@ -630,19 +645,19 @@ const CreatePostModal = ({ isOpen, onClose }) => {
             </div>
 
             {/* Right: Tools */}
-            <div className="flex-1 bg-white border-l border-gray-200 flex flex-col min-w-[300px]">
+            <div className="bg-white dark:bg-black border-t md:border-t-0 md:border-l border-gray-200 dark:border-gray-800 flex flex-col w-full md:w-auto md:min-w-[300px]">
               {/* User Profile Header (optional, usually here in instagram web) */}
 
               {/* Tabs */}
-              <div className="flex border-b border-gray-200">
+              <div className="flex border-b border-gray-200 dark:border-gray-800">
                 <button
-                  className={`flex-1 py-3 text-sm font-semibold transition-colors ${activeTab === 'filters' ? 'text-black border-b border-black' : 'text-gray-400 hover:text-gray-600'}`}
+                  className={`flex-1 py-3 text-sm font-semibold transition-colors ${activeTab === 'filters' ? 'text-black dark:text-white border-b border-black dark:border-white' : 'text-gray-400 hover:text-gray-600 dark:hover:text-gray-300'}`}
                   onClick={() => setActiveTab('filters')}
                 >
                   Filters
                 </button>
                 <button
-                  className={`flex-1 py-3 text-sm font-semibold transition-colors ${activeTab === 'adjustments' ? 'text-black border-b border-black' : 'text-gray-400 hover:text-gray-600'}`}
+                  className={`flex-1 py-3 text-sm font-semibold transition-colors ${activeTab === 'adjustments' ? 'text-black dark:text-white border-b border-black dark:border-white' : 'text-gray-400 hover:text-gray-600 dark:hover:text-gray-300'}`}
                   onClick={() => setActiveTab('adjustments')}
                 >
                   Adjustments
@@ -650,16 +665,16 @@ const CreatePostModal = ({ isOpen, onClose }) => {
               </div>
 
               {/* Tab Content */}
-              <div className="flex-1 overflow-y-auto p-4 scrollbar-hide">
+              <div className="overflow-y-auto p-4 scrollbar-hide">
                 {activeTab === 'filters' ? (
-                  <div className="grid grid-cols-3 gap-4">
+                  <div className="flex overflow-x-auto gap-4 pb-2 snap-x">
                     {FILTERS.map((filter) => (
                       <div
                         key={filter.name}
-                        className="cursor-pointer group text-center"
+                        className="cursor-pointer group text-center min-w-[80px] snap-center"
                         onClick={() => applyFilter(filter.name)}
                       >
-                        <div className={`aspect-square rounded-md overflow-hidden mb-2 border-2 transition-all ${currentMedia.filter === filter.name ? 'border-[#0095f6]' : 'border-transparent group-hover:border-gray-300'}`}>
+                        <div className={`aspect-square rounded-md overflow-hidden mb-2 border-2 transition-all ${currentMedia.filter === filter.name ? 'border-[#0095f6]' : 'border-transparent group-hover:border-gray-300 dark:group-hover:border-gray-600'}`}>
                           <img
                             src={currentMedia.croppedUrl || currentMedia.url}
                             className="w-full h-full object-cover"
@@ -667,32 +682,71 @@ const CreatePostModal = ({ isOpen, onClose }) => {
                             alt={filter.name}
                           />
                         </div>
-                        <span className={`text-xs ${currentMedia.filter === filter.name ? 'font-semibold text-[#0095f6]' : 'text-gray-500'}`}>
+                        <span className={`text-xs ${currentMedia.filter === filter.name ? 'font-semibold text-[#0095f6]' : 'text-gray-500 dark:text-gray-400'}`}>
                           {filter.name}
                         </span>
                       </div>
                     ))}
                   </div>
                 ) : (
-                  <div className="flex flex-col gap-6">
-                    {ADJUSTMENTS.map((adj) => (
-                      <div key={adj.name} className="flex flex-col gap-2">
-                        <div className="flex justify-between items-center">
-                          <span className="text-sm font-medium text-gray-700">{adj.name}</span>
-                          <span className="text-xs text-gray-500">
-                            {currentMedia.adjustments[adj.property] || 0}
+                  <div className="flex flex-col h-full">
+                    {activeAdjustment ? (
+                      <div className="flex flex-col gap-6 animate-fade-in">
+                        <div className="flex items-center gap-3 mb-2">
+                          <button onClick={() => setActiveAdjustment(null)} className="p-1 hover:bg-gray-100 dark:hover:bg-gray-800 rounded-full dark:text-white">
+                            <ArrowLeft size={20} />
+                          </button>
+                          <span className="font-semibold text-sm dark:text-white">{activeAdjustment.name}</span>
+                          <span className="ml-auto text-xs font-mono bg-gray-100 dark:bg-gray-800 dark:text-gray-200 px-2 py-1 rounded">
+                            {currentMedia.adjustments[activeAdjustment.property] || 0}
                           </span>
                         </div>
-                        <input
-                          type="range"
-                          min={adj.min}
-                          max={adj.max}
-                          value={currentMedia.adjustments[adj.property] || 0}
-                          onChange={(e) => updateAdjustment(adj.property, parseInt(e.target.value))}
-                          className="w-full h-1 bg-gray-200 rounded-lg appearance-none cursor-pointer accent-black"
-                        />
+
+                        <div className="px-2">
+                          <input
+                            type="range"
+                            min={activeAdjustment.min}
+                            max={activeAdjustment.max}
+                            value={currentMedia.adjustments[activeAdjustment.property] || 0}
+                            onChange={(e) => updateAdjustment(activeAdjustment.property, parseInt(e.target.value))}
+                            className="w-full h-1 bg-gray-200 dark:bg-gray-700 rounded-lg appearance-none cursor-pointer accent-black dark:accent-white"
+                          />
+                          <div className="flex justify-between mt-2 text-xs text-gray-400">
+                            <span>{activeAdjustment.min}</span>
+                            <span>{activeAdjustment.max}</span>
+                          </div>
+                        </div>
+
+                        <button
+                          onClick={() => updateAdjustment(activeAdjustment.property, 0)}
+                          className="text-xs text-red-500 font-medium self-center mt-4 hover:underline"
+                        >
+                          Reset
+                        </button>
                       </div>
-                    ))}
+                    ) : (
+                      <div className="grid grid-cols-3 gap-4">
+                        {ADJUSTMENTS.map((adj) => {
+                          const Icon = ADJUSTMENT_ICONS[adj.name] || Sliders;
+                          const value = currentMedia.adjustments[adj.property] || 0;
+                          const isActive = value !== 0;
+
+                          return (
+                            <div
+                              key={adj.name}
+                              className={`flex flex-col items-center gap-2 p-3 rounded-xl cursor-pointer transition-all hover:bg-gray-50 dark:hover:bg-gray-900 ${isActive ? 'bg-blue-50 dark:bg-blue-900/30' : ''}`}
+                              onClick={() => setActiveAdjustment(adj)}
+                            >
+                              <div className={`w-10 h-10 rounded-full flex items-center justify-center border ${isActive ? 'border-blue-500 text-blue-500 bg-white dark:bg-black' : 'border-gray-200 dark:border-gray-700 text-gray-700 dark:text-gray-300'}`}>
+                                <Icon size={20} />
+                              </div>
+                              <span className={`text-xs font-medium ${isActive ? 'text-blue-600 dark:text-blue-400' : 'text-gray-600 dark:text-gray-400'}`}>{adj.name}</span>
+                              {isActive && <span className="text-[10px] text-blue-400 font-mono">{value > 0 ? `+${value}` : value}</span>}
+                            </div>
+                          )
+                        })}
+                      </div>
+                    )}
                   </div>
                 )}
               </div>
@@ -700,9 +754,9 @@ const CreatePostModal = ({ isOpen, onClose }) => {
           </div>
         ) : (
           /* SHARE STEP */
-          <div className="flex-1 flex overflow-hidden">
+          <div className="flex-1 flex flex-col md:flex-row overflow-hidden">
             {/* Left: Final Image Preview */}
-            <div className="flex-[2] bg-[#f0f0f0] flex items-center justify-center relative select-none">
+            <div className="relative bg-[#f0f0f0] dark:bg-[#121212] flex items-center justify-center select-none w-full h-[40%] md:h-auto md:flex-[2]">
               {currentMedia && (
                 <div className="relative w-full h-full flex items-center justify-center" onClick={handleImageClick}>
                   <img
@@ -730,10 +784,10 @@ const CreatePostModal = ({ isOpen, onClose }) => {
 
                   {/* Tag Search Popover */}
                   {showTagSearch && (
-                    <div className="absolute z-50 bg-white rounded-lg shadow-xl w-64 overflow-hidden" style={{ left: '50%', top: '50%', transform: 'translate(-50%, -50%)' }}>
-                      <div className="p-3 border-b border-gray-100 flex items-center justify-between">
-                        <span className="font-semibold text-sm">Tag People</span>
-                        <button onClick={(e) => { e.stopPropagation(); setShowTagSearch(false); }}><X size={18} /></button>
+                    <div className="absolute z-50 bg-white dark:bg-gray-800 rounded-lg shadow-xl w-64 overflow-hidden" style={{ left: '50%', top: '50%', transform: 'translate(-50%, -50%)' }}>
+                      <div className="p-3 border-b border-gray-100 dark:border-gray-700 flex items-center justify-between">
+                        <span className="font-semibold text-sm dark:text-white">Tag People</span>
+                        <button onClick={(e) => { e.stopPropagation(); setShowTagSearch(false); }} className="dark:text-white"><X size={18} /></button>
                       </div>
                       <div className="p-2">
                         <div className="relative">
@@ -741,7 +795,7 @@ const CreatePostModal = ({ isOpen, onClose }) => {
                           <input
                             type="text"
                             placeholder="Search user"
-                            className="w-full bg-gray-100 rounded-md py-1.5 pl-9 pr-3 text-sm outline-none focus:ring-1 focus:ring-gray-300"
+                            className="w-full bg-gray-100 dark:bg-gray-700 rounded-md py-1.5 pl-9 pr-3 text-sm outline-none focus:ring-1 focus:ring-gray-300 dark:text-white dark:placeholder-gray-400"
                             value={searchQuery}
                             onChange={(e) => setSearchQuery(e.target.value)}
                             onClick={(e) => e.stopPropagation()}
@@ -756,10 +810,10 @@ const CreatePostModal = ({ isOpen, onClose }) => {
                           searchResults.map(user => (
                             <div
                               key={user.id}
-                              className="flex items-center gap-3 p-3 hover:bg-gray-50 cursor-pointer"
+                              className="flex items-center gap-3 p-3 hover:bg-gray-50 dark:hover:bg-gray-700 cursor-pointer"
                               onClick={(e) => { e.stopPropagation(); handleTagUser(user); }}
                             >
-                              <div className="w-8 h-8 bg-gray-200 rounded-full overflow-hidden flex-shrink-0">
+                              <div className="w-8 h-8 bg-gray-200 dark:bg-gray-600 rounded-full overflow-hidden flex-shrink-0">
                                 {user.avatar_url ? (
                                   <img src={user.avatar_url} className="w-full h-full object-cover" alt={user.username} />
                                 ) : (
@@ -767,8 +821,8 @@ const CreatePostModal = ({ isOpen, onClose }) => {
                                 )}
                               </div>
                               <div className="flex flex-col overflow-hidden">
-                                <span className="text-sm font-semibold truncate">{user.username}</span>
-                                <span className="text-xs text-gray-500 truncate">{user.full_name}</span>
+                                <span className="text-sm font-semibold truncate dark:text-white">{user.username}</span>
+                                <span className="text-xs text-gray-500 dark:text-gray-400 truncate">{user.full_name}</span>
                               </div>
                             </div>
                           ))
@@ -794,23 +848,23 @@ const CreatePostModal = ({ isOpen, onClose }) => {
             </div>
 
             {/* Right: Share Details */}
-            <div className="flex-1 bg-white border-l border-gray-200 flex flex-col min-w-[340px] overflow-y-auto">
+            <div className="flex-1 bg-white dark:bg-black border-t md:border-t-0 md:border-l border-gray-200 dark:border-gray-800 flex flex-col w-full md:w-auto md:min-w-[340px] overflow-y-auto">
               {/* User Info */}
               <div className="flex items-center gap-3 p-4">
-                <div className="w-8 h-8 bg-gray-200 rounded-full overflow-hidden">
+                <div className="w-8 h-8 bg-gray-200 dark:bg-gray-700 rounded-full overflow-hidden">
                   {userObject?.avatar_url ? (
                     <img src={userObject.avatar_url} className="w-full h-full object-cover" alt={userObject.username} />
                   ) : (
                     <div className="w-full h-full bg-gradient-to-tr from-yellow-400 to-purple-600"></div>
                   )}
                 </div>
-                <span className="font-semibold text-sm">{userObject?.username || 'User'}</span>
+                <span className="font-semibold text-sm dark:text-white">{userObject?.username || 'User'}</span>
               </div>
 
               {/* Caption */}
-              <div className="px-4 pb-4 border-b border-gray-100 relative">
+              <div className="px-4 pb-4 border-b border-gray-100 dark:border-gray-800 relative">
                 <textarea
-                  className="w-full min-h-[150px] resize-none outline-none text-sm placeholder-gray-400"
+                  className="w-full min-h-[150px] resize-none outline-none text-sm placeholder-gray-400 bg-transparent dark:text-white"
                   placeholder="Write a caption..."
                   value={caption}
                   onChange={(e) => setCaption(e.target.value)}
@@ -818,16 +872,16 @@ const CreatePostModal = ({ isOpen, onClose }) => {
                 />
                 <div className="flex items-center justify-between mt-2">
                   <div className="relative">
-                    <button onClick={() => setShowEmojiPicker(!showEmojiPicker)} className="text-gray-400 hover:text-gray-600"><Smile size={20} /></button>
+                    <button onClick={() => setShowEmojiPicker(!showEmojiPicker)} className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-200"><Smile size={20} /></button>
                     {showEmojiPicker && (
-                      <div className="absolute bottom-full left-0 mb-2 bg-white rounded-lg shadow-xl border border-gray-100 p-2 w-64 z-50">
-                        <div className="text-xs font-semibold text-gray-500 mb-2 px-1">Most popular</div>
+                      <div className="absolute bottom-full left-0 mb-2 bg-white dark:bg-gray-800 rounded-lg shadow-xl border border-gray-100 dark:border-gray-700 p-2 w-64 z-50">
+                        <div className="text-xs font-semibold text-gray-500 dark:text-gray-400 mb-2 px-1">Most popular</div>
                         <div className="grid grid-cols-7 gap-1">
                           {POPULAR_EMOJIS.map(emoji => (
                             <button
                               key={emoji}
                               onClick={() => handleEmojiClick(emoji)}
-                              className="w-8 h-8 flex items-center justify-center text-xl hover:bg-gray-100 rounded"
+                              className="w-8 h-8 flex items-center justify-center text-xl hover:bg-gray-100 dark:hover:bg-gray-700 rounded"
                             >
                               {emoji}
                             </button>
@@ -842,44 +896,44 @@ const CreatePostModal = ({ isOpen, onClose }) => {
 
               {/* Settings Rows */}
               <div className="flex flex-col">
-                <div className="flex items-center justify-between px-4 py-3 border-b border-gray-100 cursor-pointer hover:bg-gray-50">
-                  <span className="text-sm text-gray-700">Add Tag</span>
-                  <UserPlus size={20} className="text-gray-800" />
+                <div className="flex items-center justify-between px-4 py-3 border-b border-gray-100 dark:border-gray-800 cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-900">
+                  <span className="text-sm text-gray-700 dark:text-gray-300">Add Tag</span>
+                  <UserPlus size={20} className="text-gray-800 dark:text-gray-200" />
                 </div>
 
                 {/* Advanced Settings Accordion */}
-                <div className="border-b border-gray-100">
+                <div className="border-b border-gray-100 dark:border-gray-800">
                   <div
-                    className="flex items-center justify-between px-4 py-3 cursor-pointer hover:bg-gray-50"
+                    className="flex items-center justify-between px-4 py-3 cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-900"
                     onClick={() => setIsAdvancedSettingsOpen(!isAdvancedSettingsOpen)}
                   >
-                    <span className="text-sm text-gray-800 font-medium">Advanced Settings</span>
-                    {isAdvancedSettingsOpen ? <ChevronUp size={20} className="text-gray-600" /> : <ChevronDown size={20} className="text-gray-600" />}
+                    <span className="text-sm text-gray-800 dark:text-gray-200 font-medium">Advanced Settings</span>
+                    {isAdvancedSettingsOpen ? <ChevronUp size={20} className="text-gray-600 dark:text-gray-400" /> : <ChevronDown size={20} className="text-gray-600 dark:text-gray-400" />}
                   </div>
                   {isAdvancedSettingsOpen && (
                     <div className="px-4 pb-4 flex flex-col gap-4">
                       <div className="flex flex-col gap-2">
                         <div className="flex items-center justify-between">
-                          <span className="text-sm text-gray-800">Hide like and view counts on this post</span>
+                          <span className="text-sm text-gray-800 dark:text-gray-200">Hide like and view counts on this post</span>
                           <div className="relative inline-flex items-center cursor-pointer" onClick={() => setHideLikes(!hideLikes)}>
                             <input type="checkbox" className="sr-only peer" checked={hideLikes} readOnly />
-                            <div className="w-11 h-6 bg-gray-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-blue-600"></div>
+                            <div className="w-11 h-6 bg-gray-200 dark:bg-gray-600 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-blue-600"></div>
                           </div>
                         </div>
-                        <p className="text-xs text-gray-500">
+                        <p className="text-xs text-gray-500 dark:text-gray-400">
                           Only you will see the total number of likes and views on this post. You can change this later by going to the ... menu at the top of the post. To hide like counts on other people's posts, go to your account settings. <span className="text-blue-500 cursor-pointer">Learn more</span>
                         </p>
                       </div>
 
                       <div className="flex flex-col gap-2">
                         <div className="flex items-center justify-between">
-                          <span className="text-sm text-gray-800">Turn off commenting</span>
+                          <span className="text-sm text-gray-800 dark:text-gray-200">Turn off commenting</span>
                           <div className="relative inline-flex items-center cursor-pointer" onClick={() => setTurnOffCommenting(!turnOffCommenting)}>
                             <input type="checkbox" className="sr-only peer" checked={turnOffCommenting} readOnly />
-                            <div className="w-11 h-6 bg-gray-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-blue-600"></div>
+                            <div className="w-11 h-6 bg-gray-200 dark:bg-gray-600 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-blue-600"></div>
                           </div>
                         </div>
-                        <p className="text-xs text-gray-500">
+                        <p className="text-xs text-gray-500 dark:text-gray-400">
                           You can change this later by going to the ... menu at the top of your post.
                         </p>
                       </div>

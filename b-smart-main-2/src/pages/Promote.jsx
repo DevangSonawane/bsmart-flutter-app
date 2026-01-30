@@ -222,38 +222,38 @@ const Promote = () => {
         {/* Right Side Actions - Outside Video (Desktop Only) */}
         <div className="hidden md:flex flex-col gap-5 ml-4 justify-end h-full pb-4">
           <div className="flex flex-col items-center gap-1 group cursor-pointer">
-            <div className="w-10 h-10 rounded-full bg-white border border-gray-200 shadow-sm flex items-center justify-center hover:bg-gray-50 transition-colors group-hover:scale-110">
-              <Heart size={22} className="text-black" />
+            <div className="w-10 h-10 rounded-full bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 shadow-sm flex items-center justify-center hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors group-hover:scale-110">
+              <Heart size={22} className="text-black dark:text-white" />
             </div>
-            <span className="text-xs font-medium text-gray-900">{promotes[currentIndex].likes}</span>
+            <span className="text-xs font-medium text-gray-900 dark:text-white">{promotes[currentIndex].likes}</span>
           </div>
 
           <div className="flex flex-col items-center gap-1 group cursor-pointer">
-            <div className="w-10 h-10 rounded-full bg-white border border-gray-200 shadow-sm flex items-center justify-center hover:bg-gray-50 transition-colors group-hover:scale-110">
-              <MessageCircle size={22} className="text-black" />
+            <div className="w-10 h-10 rounded-full bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 shadow-sm flex items-center justify-center hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors group-hover:scale-110">
+              <MessageCircle size={22} className="text-black dark:text-white" />
             </div>
-            <span className="text-xs font-medium text-gray-900">{promotes[currentIndex].comments}</span>
+            <span className="text-xs font-medium text-gray-900 dark:text-white">{promotes[currentIndex].comments}</span>
           </div>
 
           <div className="flex flex-col items-center gap-1 group cursor-pointer">
-            <div className="w-10 h-10 rounded-full bg-white border border-gray-200 shadow-sm flex items-center justify-center hover:bg-gray-50 transition-colors group-hover:scale-110">
-              <Send size={22} className="text-black -rotate-12" />
-            </div>
-          </div>
-
-          <div className="flex flex-col items-center gap-1 group cursor-pointer">
-            <div className="w-10 h-10 rounded-full bg-white border border-gray-200 shadow-sm flex items-center justify-center hover:bg-gray-50 transition-colors group-hover:scale-110">
-              <Bookmark size={22} className="text-black" />
+            <div className="w-10 h-10 rounded-full bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 shadow-sm flex items-center justify-center hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors group-hover:scale-110">
+              <Send size={22} className="text-black dark:text-white -rotate-12" />
             </div>
           </div>
 
           <div className="flex flex-col items-center gap-1 group cursor-pointer">
-            <div className="w-10 h-10 rounded-full bg-white border border-gray-200 shadow-sm flex items-center justify-center hover:bg-gray-50 transition-colors group-hover:scale-110">
-              <MoreHorizontal size={22} className="text-black" />
+            <div className="w-10 h-10 rounded-full bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 shadow-sm flex items-center justify-center hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors group-hover:scale-110">
+              <Bookmark size={22} className="text-black dark:text-white" />
             </div>
           </div>
 
-          <div className="w-8 h-8 border-2 border-gray-200 rounded-md overflow-hidden mt-2 cursor-pointer shadow-sm">
+          <div className="flex flex-col items-center gap-1 group cursor-pointer">
+            <div className="w-10 h-10 rounded-full bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 shadow-sm flex items-center justify-center hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors group-hover:scale-110">
+              <MoreHorizontal size={22} className="text-black dark:text-white" />
+            </div>
+          </div>
+
+          <div className="w-8 h-8 border-2 border-gray-200 dark:border-gray-800 rounded-md overflow-hidden mt-2 cursor-pointer shadow-sm">
             <img
               src={`https://i.pravatar.cc/150?u=${promotes[currentIndex].username}`}
               className="w-full h-full object-cover"

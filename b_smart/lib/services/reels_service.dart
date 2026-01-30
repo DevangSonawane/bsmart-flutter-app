@@ -117,6 +117,7 @@ class ReelsService {
     ];
   }
 
+  /// When backend has posts with media_type=reel, fetchReels uses them; otherwise mock is shown.
   Future<void> _init() async {
     try {
       final fetched = await fetchReels(limit: 20, offset: 0);
@@ -140,8 +141,7 @@ class ReelsService {
           .eq('media_type', 'reel')
           .order('created_at', ascending: false)
           .range(offset, offset + limit - 1);
-      if (res == null) return [];
-      final items = List<Map<String, dynamic>>.from(res as List);
+      final items = List<Map<String, dynamic>>.from(res);
       final list = items.map((item) {
         final user = item['users'] as Map<String, dynamic>?;
         final media = item['media'] as List<dynamic>? ?? [];

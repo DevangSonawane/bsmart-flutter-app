@@ -103,7 +103,7 @@ class _AdvertiserCreateAdScreenState extends State<AdvertiserCreateAdScreen> {
 
     try {
       final budget = double.parse(_budgetController.text);
-      final ad = await _advertiserService.createAd(
+      await _advertiserService.createAd(
         advertiserId: 'advertiser-1',
         category: _selectedCategory!,
         companyName: _companyNameController.text,

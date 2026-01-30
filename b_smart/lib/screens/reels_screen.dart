@@ -3,13 +3,11 @@ import 'package:flutter/material.dart';
 import 'package:video_player/video_player.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
-import 'package:b_smart/core/lucide_local.dart';
 import '../models/reel_model.dart';
 import '../services/reels_service.dart';
 import '../services/user_account_service.dart';
 import '../models/user_account_model.dart';
 import '../theme/instagram_theme.dart';
-import 'profile_screen.dart';
 import 'reel_comments_screen.dart';
 import 'reel_remix_screen.dart';
 import 'boost_post_screen.dart';
@@ -215,7 +213,7 @@ class _ReelsScreenState extends State<ReelsScreen> {
           mainAxisSize: MainAxisSize.min,
           children: [
             ListTile(
-              leading: Icon(LucideIcons.link.localLucide, color: InstagramTheme.textBlack),
+              leading: Icon(LucideIcons.link, color: InstagramTheme.textBlack),
               title: Text(
                 'Copy Link',
                 style: Theme.of(context).textTheme.titleMedium,
@@ -235,7 +233,7 @@ class _ReelsScreenState extends State<ReelsScreen> {
               },
             ),
             ListTile(
-              leading: Icon(LucideIcons.send.localLucide, color: InstagramTheme.textBlack),
+              leading: Icon(LucideIcons.send, color: InstagramTheme.textBlack),
               title: Text(
                 'Share via...',
                 style: Theme.of(context).textTheme.titleMedium,
@@ -281,7 +279,7 @@ class _ReelsScreenState extends State<ReelsScreen> {
           children: [
             if (reel.isSponsored)
               ListTile(
-                leading: Icon(LucideIcons.info.localLucide, color: InstagramTheme.textBlack),
+                leading: Icon(LucideIcons.info, color: InstagramTheme.textBlack),
                 title: Text(
                   'View Ad Details',
                   style: Theme.of(context).textTheme.titleMedium,
@@ -293,7 +291,7 @@ class _ReelsScreenState extends State<ReelsScreen> {
               ),
             if (reel.remixEnabled)
               ListTile(
-                leading: Icon(LucideIcons.shuffle.localLucide, color: InstagramTheme.textBlack),
+                leading: Icon(LucideIcons.shuffle, color: InstagramTheme.textBlack),
                 title: Text(
                   'Remix this Reel',
                   style: Theme.of(context).textTheme.titleMedium,
@@ -305,7 +303,7 @@ class _ReelsScreenState extends State<ReelsScreen> {
               ),
             if (reel.audioReuseEnabled)
               ListTile(
-                leading: Icon(LucideIcons.music2.localLucide, color: InstagramTheme.textBlack),
+                leading: Icon(LucideIcons.music2, color: InstagramTheme.textBlack),
                 title: Text(
                   'Use this Audio',
                   style: Theme.of(context).textTheme.titleMedium,
@@ -316,7 +314,7 @@ class _ReelsScreenState extends State<ReelsScreen> {
                 },
               ),
             ListTile(
-              leading: Icon(LucideIcons.trendingUp.localLucide, color: InstagramTheme.textBlack),
+              leading: Icon(LucideIcons.trendingUp, color: InstagramTheme.textBlack),
               title: Text(
                 'Boost Reel',
                 style: Theme.of(context).textTheme.titleMedium,
@@ -349,7 +347,7 @@ class _ReelsScreenState extends State<ReelsScreen> {
               },
             ),
             ListTile(
-              leading: Icon(LucideIcons.ban.localLucide, color: InstagramTheme.textBlack),
+              leading: Icon(LucideIcons.ban, color: InstagramTheme.textBlack),
               title: Text(
                 'Not Interested',
                 style: Theme.of(context).textTheme.titleMedium,
@@ -369,7 +367,7 @@ class _ReelsScreenState extends State<ReelsScreen> {
               },
             ),
             ListTile(
-              leading: Icon(LucideIcons.flag.localLucide, color: InstagramTheme.errorRed),
+              leading: Icon(LucideIcons.flag, color: InstagramTheme.errorRed),
               title: Text(
                 'Report',
                 style: Theme.of(context).textTheme.titleMedium?.copyWith(
@@ -415,7 +413,7 @@ class _ReelsScreenState extends State<ReelsScreen> {
                 ),
               ),
               ...reel.productTags!.map((tag) => ListTile(
-                leading: Icon(LucideIcons.shoppingBag.localLucide, color: InstagramTheme.primaryPink),
+                leading: Icon(LucideIcons.shoppingBag, color: InstagramTheme.primaryPink),
                 title: Text(
                   tag.name,
                   style: Theme.of(context).textTheme.titleMedium,
@@ -594,7 +592,7 @@ class _ReelsScreenState extends State<ReelsScreen> {
         child: Center(
           child: reel.videoUrl.isNotEmpty
               ? const CircularProgressIndicator()
-              : Icon(LucideIcons.imageOff.localLucide, size: 64, color: Colors.white54),
+              : Icon(LucideIcons.imageOff, size: 64, color: Colors.white54),
         ),
       );
     }
@@ -614,7 +612,7 @@ class _ReelsScreenState extends State<ReelsScreen> {
             Container(
               color: Colors.black.withValues(alpha: 0.35),
               child: Center(
-                child: Icon(LucideIcons.pause.localLucide, size: 60, color: Colors.white),
+                child: Icon(LucideIcons.pause, size: 60, color: Colors.white),
               ),
             ),
         ],
@@ -628,39 +626,39 @@ class _ReelsScreenState extends State<ReelsScreen> {
       mainAxisSize: MainAxisSize.min,
       children: [
         _buildActionButton(
-          icon: _isMuted ? LucideIcons.volumeX.localLucide : LucideIcons.volume2.localLucide,
+          icon: _isMuted ? LucideIcons.volumeX : LucideIcons.volume2,
           label: 'Mute',
           onTap: _toggleMute,
         ),
         const SizedBox(height: 24),
         _buildActionButton(
-          icon: LucideIcons.heart.localLucide,
+          icon: LucideIcons.heart,
           label: _formatCount(reel.likes),
           color: reel.isLiked ? InstagramTheme.errorRed : InstagramTheme.textBlack,
           onTap: _handleLike,
         ),
         const SizedBox(height: 24),
         _buildActionButton(
-          icon: LucideIcons.messageCircle.localLucide,
+          icon: LucideIcons.messageCircle,
           label: _formatCount(reel.comments),
           onTap: _handleComment,
         ),
         const SizedBox(height: 24),
         _buildActionButton(
-          icon: LucideIcons.send.localLucide,
+          icon: LucideIcons.send,
           label: _formatCount(reel.shares),
           onTap: _handleShare,
         ),
         const SizedBox(height: 24),
         _buildActionButton(
-          icon: LucideIcons.bookmark.localLucide,
+          icon: LucideIcons.bookmark,
           label: 'Save',
           color: reel.isSaved ? InstagramTheme.primaryPink : InstagramTheme.textBlack,
           onTap: _handleSave,
         ),
         const SizedBox(height: 24),
         _buildActionButton(
-          icon: LucideIcons.ellipsis.localLucide,
+          icon: LucideIcons.ellipsis,
           label: 'More',
           onTap: _handleMore,
         ),
@@ -704,11 +702,7 @@ class _ReelsScreenState extends State<ReelsScreen> {
           children: [
             GestureDetector(
               onTap: () {
-                Navigator.of(context).push(
-                  MaterialPageRoute(
-                    builder: (context) => const ProfileScreen(),
-                  ),
-                );
+                Navigator.of(context).pushNamed('/profile/${reel.userId}');
               },
                 child: CircleAvatar(
                   radius: 20,
@@ -739,11 +733,7 @@ class _ReelsScreenState extends State<ReelsScreen> {
                       Flexible(
                         child: GestureDetector(
                           onTap: () {
-                            Navigator.of(context).push(
-                              MaterialPageRoute(
-                                builder: (context) => const ProfileScreen(),
-                              ),
-                            );
+                            Navigator.of(context).pushNamed('/profile/${reel.userId}');
                           },
                           child: Text(
                             reel.userName,
@@ -878,7 +868,7 @@ class _ReelsScreenState extends State<ReelsScreen> {
             child: Row(
               children: [
                 Icon(
-                  LucideIcons.music2.localLucide,
+                  LucideIcons.music2,
                   color: InstagramTheme.textBlack,
                   size: 14,
                 ),
@@ -961,7 +951,7 @@ class _ReelsScreenState extends State<ReelsScreen> {
                   ),
                 child: tag.imageUrl != null
                       ? CachedNetworkImage(imageUrl: tag.imageUrl!, width: 40, height: 40, fit: BoxFit.cover)
-                      : Icon(LucideIcons.shoppingBag.localLucide, color: InstagramTheme.textBlack),
+                      : Icon(LucideIcons.shoppingBag, color: InstagramTheme.textBlack),
                 ),
                 const SizedBox(width: 8),
                 Column(

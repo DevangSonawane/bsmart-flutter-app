@@ -1,6 +1,5 @@
 import 'package:flutter/material.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
-import 'package:b_smart/core/lucide_local.dart';
 import '../../../theme/instagram_theme.dart';
 import '../../../widgets/clay_container.dart';
 import '../../../services/auth/auth_service.dart';
@@ -192,7 +191,7 @@ class _LoginScreenState extends State<LoginScreen>
                             ),
                             child: Row(
                               children: [
-                                Icon(LucideIcons.circleCheck.localLucide, color: Colors.green.shade700, size: 20),
+                                Icon(LucideIcons.circleCheck, color: Colors.green.shade700, size: 20),
                                 const SizedBox(width: 8),
                                 Expanded(child: Text(successMessage, style: TextStyle(color: Colors.green.shade800, fontSize: 13))),
                               ],
@@ -207,7 +206,7 @@ class _LoginScreenState extends State<LoginScreen>
                           borderRadius: 50,
                           child: Center(
                             child: Icon(
-                              LucideIcons.bot.localLucide,
+                              LucideIcons.bot,
                               size: 48,
                               color: InstagramTheme.primaryPink,
                             ),
@@ -256,7 +255,7 @@ class _LoginScreenState extends State<LoginScreen>
                           decoration: InputDecoration(
                             labelText: 'Username',
                             hintText: 'Enter your username',
-                            prefixIcon: Icon(LucideIcons.mail.localLucide),
+                            prefixIcon: Icon(LucideIcons.mail),
                           ),
                           validator: (value) {
                             if (value == null || value.isEmpty) {
@@ -273,7 +272,7 @@ class _LoginScreenState extends State<LoginScreen>
                           decoration: InputDecoration(
                             labelText: 'Email',
                             hintText: 'Enter your email',
-                            prefixIcon: Icon(LucideIcons.mail.localLucide),
+                            prefixIcon: Icon(LucideIcons.mail),
                           ),
                           validator: Validators.validateEmail,
                         )
@@ -286,7 +285,7 @@ class _LoginScreenState extends State<LoginScreen>
                             decoration: InputDecoration(
                               labelText: 'Phone Number',
                               hintText: '+1234567890',
-                              prefixIcon: Icon(LucideIcons.phone.localLucide),
+                              prefixIcon: Icon(LucideIcons.phone),
                             ),
                             validator: Validators.validatePhone,
                           )
@@ -314,7 +313,7 @@ class _LoginScreenState extends State<LoginScreen>
                                   labelText: 'Enter OTP',
                                   hintText: '000000',
                                   counterText: '',
-                                  prefixIcon: Icon(LucideIcons.lock.localLucide),
+                                  prefixIcon: Icon(LucideIcons.lock),
                                 ),
                                 validator: Validators.validateOTP,
                               ),
@@ -330,12 +329,11 @@ class _LoginScreenState extends State<LoginScreen>
                           decoration: InputDecoration(
                             labelText: 'Password',
                             hintText: 'Enter your password',
-                            prefixIcon: Icon(LucideIcons.lock.localLucide),
+                            prefixIcon: Icon(LucideIcons.lock),
                             suffixIcon: IconButton(
                               icon: Icon(
                                 _isPasswordVisible
-                                    ? LucideIcons.eye.localLucide
-                                    : LucideIcons.eyeOff.localLucide,
+                                    ? LucideIcons.eye                                    : LucideIcons.eyeOff,
                                 color: InstagramTheme.textGrey,
                               ),
                               onPressed: () {

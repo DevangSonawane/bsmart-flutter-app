@@ -7,11 +7,12 @@ class WalletService {
   factory WalletService() => _instance;
 
   final SupabaseClient _supabase = Supabase.instance.client;
-  AccountDetails? _accountDetails; // Cached account details
+  AccountDetails? _accountDetails;
 
   WalletService._internal();
 
-  // Get current coin balance from Supabase
+  // Get current coin balance from Supabase.
+  // Uses maybeSingle() so missing wallet row (e.g. new user) returns 0 instead of throwing.
   Future<int> getCoinBalance() async {
     final user = _supabase.auth.currentUser;
     if (user == null) return 0;
@@ -21,17 +22,15 @@ class WalletService {
           .from('wallets')
           .select('balance')
           .eq('user_id', user.id)
-          .single();
-          
+          .maybeSingle();
+      if (response == null) return 0;
+
       final balance = response['balance'];
       if (balance is int) return balance;
       if (balance is double) return balance.toInt();
-      // Supabase numeric might be returned as num
       if (balance is num) return balance.toInt();
       return 0;
-    } catch (e) {
-      // If wallet doesn't exist, try to create it?
-      // The trigger should have created it.
+    } catch (_) {
       return 0;
     }
   }
@@ -55,8 +54,7 @@ class WalletService {
           .eq('user_id', user.id)
           .order('created_at', ascending: false);
 
-      if (res == null) return [];
-      final items = List<Map<String, dynamic>>.from(res as List);
+      final items = List<Map<String, dynamic>>.from(res);
 
       return items.map((item) {
         LedgerTransactionType type = LedgerTransactionType.adReward;
@@ -119,32 +117,26 @@ class WalletService {
     return [];
   }
   
-  // Method to update balance (e.g. for rewards)
-  // In a real app, this should be done via Edge Function or Database Function for security.
+  // Method to update balance (e.g. after a ledger transaction).
+  // Prevents balance from going negative. Uses upsert so wallet row is created if missing.
   Future<void> updateBalance(int amount, String description) async {
     final user = _supabase.auth.currentUser;
     if (user == null) return;
-    
-    // We need to use RPC or a transaction to ensure atomicity, 
-    // but for now we'll read-then-write (optimistic) or just use an RPC if we had one.
-    // Since we don't have an RPC for 'increment_balance', we'll just update.
-    
-    // BETTER: Use an RPC function. But I can't create one easily? 
-    // Wait, I can create RPCs with mcp_supabase_apply_migration if I really need to.
-    // But user said "dont create any table". Creating a function is probably okay/necessary for wallet safety.
-    // For now, I'll do read-modify-write.
-    
+
     try {
-       final currentBalance = await getCoinBalance();
-       final newBalance = currentBalance + amount;
-       
-       await _supabase.from('wallets').update({
-         'balance': newBalance,
-         'updated_at': DateTime.now().toIso8601String(),
-       }).eq('user_id', user.id);
-       
+      final currentBalance = await getCoinBalance();
+      final newBalance = currentBalance + amount;
+      if (newBalance < 0) {
+        throw StateError('Insufficient balance: cannot go below 0');
+      }
+
+      final now = DateTime.now().toIso8601String();
+      await _supabase.from('wallets').upsert({
+        'user_id': user.id,
+        'balance': newBalance,
+        'updated_at': now,
+      }, onConflict: 'user_id');
     } catch (e) {
-      print('Error updating balance: $e');
       rethrow;
     }
   }
@@ -155,73 +147,101 @@ class WalletService {
     return balance >= amount;
   }
 
-  // Send gift coins to another user
+  // Send gift coins to another user.
+  // Tries RPC first; fallback: record ledger entries (giftSent / giftReceived) then update both wallets.
   Future<bool> sendGiftCoins(int amount, String recipientId, String recipientName) async {
-    // 1. Check balance
     if (!await hasSufficientBalance(amount)) return false;
-    
-    // 2. Deduct from sender
-    // We update balance = balance - amount
+
+    final me = _supabase.auth.currentUser;
+    if (me == null) return false;
+
     try {
-      // Note: In a real app, this should be an atomic transaction (RPC) that also
-      // increments the recipient's balance.
-      // Try RPC first for atomic transfer if available
-      final me = _supabase.auth.currentUser;
-      if (me != null) {
-        try {
-          final rpcRes = await _supabase.rpc('transfer_coins', params: {
-            'sender_id': me.id,
-            'recipient_id': recipientId,
-            'amount': amount,
-          });
-          // If RPC succeeded, assume transfer completed
-          return true;
-        } catch (_) {
-          // RPC not available or failed - fallback to read-modify-write with best-effort
-          await updateBalance(-amount, 'Gift to $recipientName');
-          // Ideally we should credit recipient; attempt best-effort add to recipient balance
-          try {
-            // Fetch recipient balance
-            final resp = await _supabase.from('wallets').select('balance').eq('user_id', recipientId).maybeSingle();
-            final cur = resp?['balance'];
-            int recipientBal = 0;
-            if (cur is int) recipientBal = cur;
-            else if (cur is double) recipientBal = cur.toInt();
-            else if (cur is num) recipientBal = cur.toInt();
-            await _supabase.from('wallets').update({'balance': recipientBal + amount}).eq('user_id', recipientId);
-          } catch (_) {
-            // best-effort only
-          }
-          return true;
-        }
+      try {
+        await _supabase.rpc('transfer_coins', params: {
+          'sender_id': me.id,
+          'recipient_id': recipientId,
+          'amount': amount,
+        });
+        return true;
+      } catch (_) {
+        // RPC not available: ledger-first then update both wallets
       }
-      return false;
-    } catch (e) {
-      print('Error sending gift: $e');
+
+      final now = DateTime.now().toIso8601String();
+      await _supabase.from('transactions').insert([
+        {
+          'user_id': me.id,
+          'type': 'giftSent',
+          'amount': -amount,
+          'status': 'completed',
+          'description': 'Gift to $recipientName',
+          'related_id': recipientId,
+          'created_at': now,
+        },
+        {
+          'user_id': recipientId,
+          'type': 'giftReceived',
+          'amount': amount,
+          'status': 'completed',
+          'description': 'Gift from ${me.email ?? me.id}',
+          'related_id': me.id,
+          'created_at': now,
+        },
+      ]);
+
+      await updateBalance(-amount, 'Gift to $recipientName');
+
+      final resp = await _supabase.from('wallets').select('balance').eq('user_id', recipientId).maybeSingle();
+      int recipientBal = 0;
+      if (resp != null) {
+        final cur = resp['balance'];
+        if (cur is int) recipientBal = cur;
+        else if (cur is double) recipientBal = cur.toInt();
+        else if (cur is num) recipientBal = cur.toInt();
+      }
+      await _supabase.from('wallets').upsert({
+        'user_id': recipientId,
+        'balance': recipientBal + amount,
+        'updated_at': now,
+      }, onConflict: 'user_id');
+      return true;
+    } catch (_) {
       return false;
     }
   }
 
-  // Add coins via ledger (for ads/rewards)
+  // Add coins via ledger (for ads/rewards).
+  // Ledger-first: insert transaction then update balance (per docs: no direct balance add without ledger).
   Future<bool> addCoinsViaLedger({
     required int amount,
     required String description,
     required String adId,
     Map<String, dynamic>? metadata,
   }) async {
+    final user = _supabase.auth.currentUser;
+    if (user == null) return false;
+
     try {
+      await _supabase.from('transactions').insert({
+        'user_id': user.id,
+        'type': 'adReward',
+        'amount': amount,
+        'status': 'completed',
+        'description': description,
+        'related_id': adId,
+        'metadata': metadata,
+        'created_at': DateTime.now().toIso8601String(),
+      });
       await updateBalance(amount, description);
       return true;
-    } catch (e) {
-      print('Error adding coins: $e');
+    } catch (_) {
       return false;
     }
   }
 
   // Get account details (Stub - requires new table/column)
   AccountDetails? getAccountDetails() {
-    // Return null or dummy data as we don't have storage for this yet
-    return null; 
+    return _accountDetails;
   }
 
   // Save account details (Stub)

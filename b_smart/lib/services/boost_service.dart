@@ -1,6 +1,5 @@
 import '../models/boost_model.dart';
 import '../models/user_account_model.dart';
-import '../services/content_moderation_service.dart';
 import '../services/user_account_service.dart';
 
 class BoostService {
@@ -9,7 +8,6 @@ class BoostService {
 
   List<PostBoost> _boosts = [];
   final Map<String, BoostAnalytics> _analytics = {};
-  final ContentModerationService _moderationService = ContentModerationService();
   final UserAccountService _accountService = UserAccountService();
 
   // Pricing per hour
@@ -164,23 +162,9 @@ class BoostService {
     // Simulate payment processing
     await Future.delayed(const Duration(seconds: 1));
 
-    // Check if payment would succeed (simulated)
-    final paymentSuccess = true; // In real app, would call payment gateway
+    // In real app, would call payment gateway here. For now, assume success.
 
-    if (!paymentSuccess) {
-      // Edge Case 1.2: Payment failed - don't activate boost
-      final index = _boosts.indexWhere((b) => b.id == boostId);
-      if (index != -1) {
-        _boosts[index] = boost.copyWith(
-          paymentStatus: BoostPaymentStatus.failed,
-          status: BoostStatus.cancelled,
-          cancellationReason: 'Payment failed',
-        );
-      }
-      return false;
-    }
-
-    // Edge Case 1.1: Payment successful - activate boost immediately
+    // Activate boost immediately
     final index = _boosts.indexWhere((b) => b.id == boostId);
     if (index != -1) {
       _boosts[index] = boost.copyWith(
@@ -252,7 +236,6 @@ class BoostService {
 
   // Check and auto-end expired boosts (Edge Case 2.1)
   void checkAndEndExpiredBoosts() {
-    final now = DateTime.now();
     for (int i = 0; i < _boosts.length; i++) {
       final boost = _boosts[i];
       if (boost.isActive && boost.isExpired) {

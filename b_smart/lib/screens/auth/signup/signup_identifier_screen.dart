@@ -1,6 +1,5 @@
 import 'package:flutter/material.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
-import 'package:b_smart/core/lucide_local.dart';
 import '../../../theme/instagram_theme.dart';
 import '../../../widgets/clay_container.dart';
 import '../../../services/auth/auth_service.dart';
@@ -168,7 +167,7 @@ class _SignupIdentifierScreenState extends State<SignupIdentifierScreen>
                           borderRadius: 50,
                           child: Center(
                             child: Icon(
-                              LucideIcons.bot.localLucide,
+                              LucideIcons.bot,
                               size: 48,
                               color: InstagramTheme.primaryPink,
                             ),
@@ -196,7 +195,7 @@ class _SignupIdentifierScreenState extends State<SignupIdentifierScreen>
                             child: _buildMethodTab(
                               'Email',
                               IdentifierType.email,
-                              LucideIcons.mail.localLucide,
+                              LucideIcons.mail,
                             ),
                           ),
                           const SizedBox(width: 12),
@@ -220,7 +219,7 @@ class _SignupIdentifierScreenState extends State<SignupIdentifierScreen>
                           decoration: InputDecoration(
                             labelText: 'Email',
                             hintText: 'Enter your email',
-                            prefixIcon: Icon(LucideIcons.mail.localLucide),
+                            prefixIcon: Icon(LucideIcons.mail),
                           ),
                           validator: Validators.validateEmail,
                         ),
@@ -232,12 +231,11 @@ class _SignupIdentifierScreenState extends State<SignupIdentifierScreen>
                           decoration: InputDecoration(
                             labelText: 'Password',
                             hintText: 'Create a password',
-                            prefixIcon: Icon(LucideIcons.lock.localLucide),
+                            prefixIcon: Icon(LucideIcons.lock),
                             suffixIcon: IconButton(
                               icon: Icon(
                                 _isPasswordVisible
-                                    ? LucideIcons.eye.localLucide
-                                    : LucideIcons.eyeOff.localLucide,
+                                    ? LucideIcons.eye                                    : LucideIcons.eyeOff,
                                 color: InstagramTheme.textGrey,
                               ),
                               onPressed: () {
@@ -257,7 +255,7 @@ class _SignupIdentifierScreenState extends State<SignupIdentifierScreen>
                           decoration: InputDecoration(
                             labelText: 'Phone Number',
                             hintText: '+1234567890',
-                            prefixIcon: Icon(LucideIcons.phone.localLucide),
+                            prefixIcon: Icon(LucideIcons.phone),
                           ),
                           validator: Validators.validatePhone,
                         ),
@@ -312,7 +310,7 @@ class _SignupIdentifierScreenState extends State<SignupIdentifierScreen>
                         height: 56,
                         child: OutlinedButton.icon(
                           onPressed: _isLoading ? null : _handleGoogleSignup,
-                          icon: Icon(LucideIcons.mail.localLucide, size: 28),
+                          icon: Icon(LucideIcons.mail, size: 28),
                           label: const Text('Continue with Google'),
                           style: OutlinedButton.styleFrom(
                             side: const BorderSide(color: InstagramTheme.borderGrey),

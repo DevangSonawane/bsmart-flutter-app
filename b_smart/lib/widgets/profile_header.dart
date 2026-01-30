@@ -30,6 +30,8 @@ class ProfileHeader extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final fgColor = theme.colorScheme.onSurface;
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 12.0),
       child: Column(
@@ -48,8 +50,8 @@ class ProfileHeader extends StatelessWidget {
                 child: CircleAvatar(
                   radius: 40,
                   backgroundImage: avatarUrl != null ? CachedNetworkImageProvider(avatarUrl!) : null,
-                  backgroundColor: Colors.white,
-                  child: avatarUrl == null ? Text(username.isNotEmpty ? username[0].toUpperCase() : '', style: const TextStyle(fontSize: 24, color: Colors.black)) : null,
+                  backgroundColor: theme.cardColor,
+                  child: avatarUrl == null ? Text(username.isNotEmpty ? username[0].toUpperCase() : '', style: TextStyle(fontSize: 24, color: fgColor)) : null,
                 ),
               ),
               const SizedBox(width: 24),
@@ -58,9 +60,9 @@ class ProfileHeader extends StatelessWidget {
                 child: Row(
                   mainAxisAlignment: MainAxisAlignment.spaceEvenly,
                   children: [
-                    _statColumn(posts, 'posts'),
-                    _statColumn(followers, 'followers'),
-                    _statColumn(following, 'following'),
+                    _statColumn(context, posts, 'posts'),
+                    _statColumn(context, followers, 'followers'),
+                    _statColumn(context, following, 'following'),
                   ],
                 ),
               ),
@@ -69,11 +71,11 @@ class ProfileHeader extends StatelessWidget {
           const SizedBox(height: 12),
           Text(
             fullName?.trim().isNotEmpty == true ? fullName!.trim() : username,
-            style: Theme.of(context).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w600, color: Colors.black87),
+            style: theme.textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w600, color: fgColor),
           ),
           if (bio != null && bio!.trim().isNotEmpty) ...[
             const SizedBox(height: 4),
-            Text(bio!, style: const TextStyle(fontSize: 14, color: Colors.black87)),
+            Text(bio!, style: TextStyle(fontSize: 14, color: fgColor)),
           ],
           const SizedBox(height: 12),
           Row(
@@ -120,10 +122,10 @@ class ProfileHeader extends StatelessWidget {
                 width: 44,
                 height: 44,
                 decoration: BoxDecoration(
-                  color: Colors.grey[100],
+                  color: theme.brightness == Brightness.dark ? const Color(0xFF2D2D2D) : Colors.grey.shade100,
                   borderRadius: BorderRadius.circular(10),
                 ),
-                child: const Icon(Icons.add),
+                child: Icon(Icons.add, color: fgColor),
               )
             ],
           ),
@@ -132,12 +134,15 @@ class ProfileHeader extends StatelessWidget {
     );
   }
 
-  Widget _statColumn(int count, String label) {
+  Widget _statColumn(BuildContext context, int count, String label) {
+    final theme = Theme.of(context);
+    final fgColor = theme.colorScheme.onSurface;
+    final mutedColor = theme.textTheme.bodyMedium?.color ?? Colors.black54;
     return Column(
       children: [
-        Text(count.toString(), style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 20)),
+        Text(count.toString(), style: TextStyle(fontWeight: FontWeight.bold, fontSize: 20, color: fgColor)),
         const SizedBox(height: 4),
-        Text(label, style: const TextStyle(color: Colors.black54, fontSize: 12)),
+        Text(label, style: TextStyle(color: mutedColor, fontSize: 12)),
       ],
     );
   }

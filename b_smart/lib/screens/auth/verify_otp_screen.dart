@@ -1,7 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
-import 'package:b_smart/core/lucide_local.dart';
 import '../../theme/design_tokens.dart';
 import 'login/login_screen.dart';
 import '../home_dashboard.dart';
@@ -112,7 +111,7 @@ class _VerifyOtpScreenState extends State<VerifyOtpScreen> {
             children: [
               TextButton.icon(
                 onPressed: () => Navigator.of(context).pushReplacementNamed('/signup'),
-                icon: Icon(LucideIcons.arrowLeft.localLucide, size: 20),
+                icon: Icon(LucideIcons.arrowLeft, size: 20),
                 label: const Text('Back to Signup'),
                 style: TextButton.styleFrom(foregroundColor: Colors.grey.shade700),
               ),
@@ -122,7 +121,7 @@ class _VerifyOtpScreenState extends State<VerifyOtpScreen> {
                 width: 64,
                 height: 64,
                 decoration: BoxDecoration(color: DesignTokens.instaPink.withOpacity(0.15), shape: BoxShape.circle),
-                child: Icon(LucideIcons.shieldCheck.localLucide, size: 32, color: DesignTokens.instaPink),
+                child: Icon(LucideIcons.shieldCheck, size: 32, color: DesignTokens.instaPink),
               ),
               const SizedBox(height: 24),
               const Text('Verify your email', textAlign: TextAlign.center, style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold)),
