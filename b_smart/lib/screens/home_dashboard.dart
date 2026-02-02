@@ -181,6 +181,79 @@ class _HomeDashboardState extends State<HomeDashboard> {
     );
   }
 
+  Widget _buildLocationSelector({required bool isDark}) {
+    return InkWell(
+      borderRadius: BorderRadius.circular(14),
+      onTap: () {
+        // TODO: hook up location picker.
+      },
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+        decoration: BoxDecoration(
+          color: isDark ? const Color(0xFF1E1E1E) : Colors.white,
+          borderRadius: BorderRadius.circular(14),
+          border: Border.all(color: isDark ? const Color(0xFF2A2A2A) : Colors.grey.shade200),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withValues(alpha: isDark ? 0.2 : 0.06),
+              blurRadius: 10,
+              offset: const Offset(0, 4),
+            ),
+          ],
+        ),
+        child: Row(
+          children: [
+            Container(
+              height: 28,
+              width: 28,
+              decoration: BoxDecoration(
+                color: isDark ? const Color(0xFF2A2A2A) : Colors.grey.shade100,
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: Icon(
+                LucideIcons.mapPin,
+                size: 16,
+                color: isDark ? Colors.white70 : Colors.black87,
+              ),
+            ),
+            const SizedBox(width: 10),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    'HOME',
+                    style: TextStyle(
+                      color: isDark ? Colors.grey.shade400 : Colors.grey.shade600,
+                      fontWeight: FontWeight.w600,
+                      letterSpacing: 0.6,
+                      fontSize: 11,
+                    ),
+                  ),
+                  const SizedBox(height: 2),
+                  Text(
+                    'Plot No.20, 2nd Floor, Shivaram Nivas',
+                    style: TextStyle(
+                      color: isDark ? Colors.white : Colors.black87,
+                      fontWeight: FontWeight.w600,
+                      fontSize: 13,
+                    ),
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(width: 8),
+            Icon(
+              LucideIcons.chevronDown,
+              color: isDark ? Colors.grey.shade400 : Colors.grey.shade600,
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
   List<StoryGroup> _buildStoryGroupsFromUsers(List<Map<String, dynamic>> users) {
     final now = DateTime.now();
     return users.map((u) {
@@ -330,6 +403,11 @@ class _HomeDashboardState extends State<HomeDashboard> {
                     child: Row(
                       mainAxisSize: MainAxisSize.min,
                       children: [
+                        IconButton(
+                          onPressed: () => Navigator.of(context).pushNamed('/search'),
+                          icon: Icon(LucideIcons.search, size: 24, color: appBarFg),
+                        ),
+                        const SizedBox(width: 8),
                         GestureDetector(
                           onTap: () => Navigator.of(context).pushNamed('/wallet'),
                           child: Container(
@@ -354,7 +432,7 @@ class _HomeDashboardState extends State<HomeDashboard> {
                             ),
                           ),
                         ),
-                        const SizedBox(width: 8),
+                        const SizedBox(width: 4),
                         Stack(
                           clipBehavior: Clip.none,
                           children: [
@@ -362,7 +440,6 @@ class _HomeDashboardState extends State<HomeDashboard> {
                             Positioned(right: 8, top: 8, child: Container(width: 8, height: 8, decoration: BoxDecoration(color: DesignTokens.instaPink, shape: BoxShape.circle, border: Border.all(color: isDark ? const Color(0xFFE8E8E8) : Colors.white, width: 1.5)))),
                           ],
                         ),
-                        IconButton(onPressed: () => Navigator.of(context).pushNamed('/notifications'), icon: Icon(LucideIcons.messageCircle, size: 24, color: appBarFg)),
                         GestureDetector(
                           onTap: () => Navigator.of(context).pushNamed('/profile'),
                           child: Padding(
@@ -412,6 +489,10 @@ class _HomeDashboardState extends State<HomeDashboard> {
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
+                        Padding(
+                          padding: const EdgeInsets.fromLTRB(16, 12, 16, 4),
+                          child: _buildLocationSelector(isDark: isDark),
+                        ),
                         StoriesRow(
                           users: _storyUsers,
                           onYourStoryTap: () {},
@@ -434,7 +515,7 @@ class _HomeDashboardState extends State<HomeDashboard> {
                             );
                           },
                         ),
-                        const SizedBox(height: 88),
+                        const SizedBox(height: 16),
                       ],
                     ),
                   ),
@@ -645,4 +726,3 @@ class _FloatingWallet extends StatelessWidget {
     );
   }
 }
-

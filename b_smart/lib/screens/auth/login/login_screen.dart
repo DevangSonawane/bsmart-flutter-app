@@ -3,17 +3,8 @@ import 'package:lucide_icons_flutter/lucide_icons.dart';
 import '../../../theme/instagram_theme.dart';
 import '../../../widgets/clay_container.dart';
 import '../../../services/auth/auth_service.dart';
-import '../../../utils/validators.dart';
 import '../../home_dashboard.dart';
 import '../signup/signup_identifier_screen.dart';
-import '../../../models/auth/signup_session_model.dart';
-
-enum LoginMethod {
-  username,
-  email,
-  phone,
-  google,
-}
 
 class LoginScreen extends StatefulWidget {
   const LoginScreen({super.key});
@@ -25,17 +16,10 @@ class LoginScreen extends StatefulWidget {
 class _LoginScreenState extends State<LoginScreen>
     with SingleTickerProviderStateMixin {
   final _formKey = GlobalKey<FormState>();
-  final _usernameController = TextEditingController();
-  final _emailController = TextEditingController();
-  final _phoneController = TextEditingController();
+  final _identifierController = TextEditingController();
   final _passwordController = TextEditingController();
-  final _otpController = TextEditingController();
-
-  LoginMethod _selectedMethod = LoginMethod.email;
   bool _isPasswordVisible = false;
   bool _isLoading = false;
-  bool _isOTPSent = false;
-  SignupSession? _phoneLoginSession;
 
   late AnimationController _animationController;
   late Animation<double> _fadeAnimation;
@@ -57,11 +41,8 @@ class _LoginScreenState extends State<LoginScreen>
 
   @override
   void dispose() {
-    _usernameController.dispose();
-    _emailController.dispose();
-    _phoneController.dispose();
+    _identifierController.dispose();
     _passwordController.dispose();
-    _otpController.dispose();
     _animationController.dispose();
     super.dispose();
   }
@@ -74,39 +55,12 @@ class _LoginScreenState extends State<LoginScreen>
     setState(() => _isLoading = true);
 
     try {
-      if (_selectedMethod == LoginMethod.phone && !_isOTPSent) {
-        // Send OTP for phone login
-        final session = await _authService.loginWithPhone(_phoneController.text.trim());
-        setState(() {
-          _isOTPSent = true;
-          _phoneLoginSession = session;
-        });
-        return;
-      }
-
-      if (_selectedMethod == LoginMethod.phone && _isOTPSent && _phoneLoginSession != null) {
-        // Complete phone login with OTP
-        await _authService.completePhoneLogin(
-          _phoneLoginSession!.sessionToken,
-          _otpController.text.trim(),
-        );
-        _navigateToHome();
-        return;
-      }
-
-      // Email, Username, or Google login
-      if (_selectedMethod == LoginMethod.email) {
-        await _authService.loginWithEmail(
-          _emailController.text.trim(),
-          _passwordController.text,
-        );
-      } else if (_selectedMethod == LoginMethod.username) {
-        await _authService.loginWithUsername(
-          _usernameController.text.trim(),
-          _passwordController.text,
-        );
-      } else if (_selectedMethod == LoginMethod.google) {
-        await _authService.loginWithGoogle();
+      final identifier = _identifierController.text.trim();
+      final password = _passwordController.text;
+      if (identifier.contains('@')) {
+        await _authService.loginWithEmail(identifier, password);
+      } else {
+        await _authService.loginWithUsername(identifier, password);
       }
 
       _navigateToHome();
@@ -198,21 +152,6 @@ class _LoginScreenState extends State<LoginScreen>
                             ),
                           ),
                         ),
-                      // Logo
-                      Center(
-                        child: ClayContainer(
-                          width: 100,
-                          height: 100,
-                          borderRadius: 50,
-                          child: Center(
-                            child: Icon(
-                              LucideIcons.bot,
-                              size: 48,
-                              color: InstagramTheme.primaryPink,
-                            ),
-                          ),
-                        ),
-                      ),
                       const SizedBox(height: 32),
                       Text(
                         'b Smart',
@@ -226,145 +165,66 @@ class _LoginScreenState extends State<LoginScreen>
                         style: Theme.of(context).textTheme.bodyMedium,
                       ),
                       const SizedBox(height: 64),
-
-                      // Method Selection Tabs
-                      if (!_isOTPSent || _selectedMethod != LoginMethod.phone)
-                        Row(
-                          children: [
-                            Expanded(
-                              child: _buildMethodTab('Username', LoginMethod.username),
-                            ),
-                            const SizedBox(width: 8),
-                            Expanded(
-                              child: _buildMethodTab('Email', LoginMethod.email),
-                            ),
-                            const SizedBox(width: 8),
-                            Expanded(
-                              child: _buildMethodTab('Phone', LoginMethod.phone),
-                            ),
-                          ],
+                      TextFormField(
+                        controller: _identifierController,
+                        style: const TextStyle(color: InstagramTheme.textBlack),
+                        decoration: const InputDecoration(
+                          labelText: 'Username',
+                          hintText: 'Email, Phone, or Username',
+                          prefixIcon: Icon(LucideIcons.user),
                         ),
-                      if (!_isOTPSent || _selectedMethod != LoginMethod.phone)
-                        const SizedBox(height: 24),
-
-                      // Username/Email/Phone Input
-                      if (_selectedMethod == LoginMethod.username && (!_isOTPSent || _selectedMethod != LoginMethod.phone))
-                        TextFormField(
-                          controller: _usernameController,
-                          style: const TextStyle(color: InstagramTheme.textBlack),
-                          decoration: InputDecoration(
-                            labelText: 'Username',
-                            hintText: 'Enter your username',
-                            prefixIcon: Icon(LucideIcons.mail),
-                          ),
-                          validator: (value) {
-                            if (value == null || value.isEmpty) {
-                              return 'Please enter your username';
-                            }
-                            return null;
-                          },
-                        )
-                      else if (_selectedMethod == LoginMethod.email && (!_isOTPSent || _selectedMethod != LoginMethod.phone))
-                        TextFormField(
-                          controller: _emailController,
-                          keyboardType: TextInputType.emailAddress,
-                          style: const TextStyle(color: InstagramTheme.textBlack),
-                          decoration: InputDecoration(
-                            labelText: 'Email',
-                            hintText: 'Enter your email',
-                            prefixIcon: Icon(LucideIcons.mail),
-                          ),
-                          validator: Validators.validateEmail,
-                        )
-                      else if (_selectedMethod == LoginMethod.phone)
-                        if (!_isOTPSent)
-                          TextFormField(
-                            controller: _phoneController,
-                            keyboardType: TextInputType.phone,
-                            style: const TextStyle(color: InstagramTheme.textBlack),
-                            decoration: InputDecoration(
-                              labelText: 'Phone Number',
-                              hintText: '+1234567890',
-                              prefixIcon: Icon(LucideIcons.phone),
+                        validator: (value) {
+                          if (value == null || value.isEmpty) {
+                            return 'Please enter your email, phone, or username';
+                          }
+                          return null;
+                        },
+                      ),
+                      const SizedBox(height: 20),
+                      // Password Field
+                      TextFormField(
+                        controller: _passwordController,
+                        obscureText: !_isPasswordVisible,
+                        style: const TextStyle(color: InstagramTheme.textBlack),
+                        decoration: InputDecoration(
+                          labelText: 'Password',
+                          hintText: 'Enter your password',
+                          prefixIcon: const Icon(LucideIcons.lock),
+                          suffixIcon: IconButton(
+                            icon: Icon(
+                              _isPasswordVisible
+                                  ? LucideIcons.eye
+                                  : LucideIcons.eyeOff,
+                              color: InstagramTheme.textGrey,
                             ),
-                            validator: Validators.validatePhone,
-                          )
-                        else
-                          Column(
-                            children: [
-                              Text(
-                                'OTP sent to ${_phoneController.text}',
-                                textAlign: TextAlign.center,
-                                style: Theme.of(context).textTheme.bodyMedium,
-                              ),
-                              const SizedBox(height: 24),
-                              TextFormField(
-                                controller: _otpController,
-                                keyboardType: TextInputType.number,
-                                textAlign: TextAlign.center,
-                                style: const TextStyle(
-                                  color: InstagramTheme.textBlack,
-                                  fontSize: 24,
-                                  fontWeight: FontWeight.bold,
-                                  letterSpacing: 8,
-                                ),
-                                maxLength: 6,
-                                decoration: InputDecoration(
-                                  labelText: 'Enter OTP',
-                                  hintText: '000000',
-                                  counterText: '',
-                                  prefixIcon: Icon(LucideIcons.lock),
-                                ),
-                                validator: Validators.validateOTP,
-                              ),
-                            ],
-                          ),
-                      if ((_selectedMethod == LoginMethod.email || _selectedMethod == LoginMethod.username) && (!_isOTPSent || _selectedMethod != LoginMethod.phone)) ...[
-                        const SizedBox(height: 20),
-                        // Password Field
-                        TextFormField(
-                          controller: _passwordController,
-                          obscureText: !_isPasswordVisible,
-                          style: const TextStyle(color: InstagramTheme.textBlack),
-                          decoration: InputDecoration(
-                            labelText: 'Password',
-                            hintText: 'Enter your password',
-                            prefixIcon: Icon(LucideIcons.lock),
-                            suffixIcon: IconButton(
-                              icon: Icon(
-                                _isPasswordVisible
-                                    ? LucideIcons.eye                                    : LucideIcons.eyeOff,
-                                color: InstagramTheme.textGrey,
-                              ),
-                              onPressed: () {
-                                setState(() {
-                                  _isPasswordVisible = !_isPasswordVisible;
-                                });
-                              },
-                            ),
-                          ),
-                          validator: (value) {
-                            if (value == null || value.isEmpty) {
-                              return 'Please enter your password';
-                            }
-                            if (value.length < 6) {
-                              return 'Password must be at least 6 characters';
-                            }
-                            return null;
-                          },
-                        ),
-                        const SizedBox(height: 12),
-                        // Forgot Password
-                        Align(
-                          alignment: Alignment.centerRight,
-                          child: TextButton(
                             onPressed: () {
-                              Navigator.of(context).pushNamed('/forgot-password');
+                              setState(() {
+                                _isPasswordVisible = !_isPasswordVisible;
+                              });
                             },
-                            child: const Text('Forgot Password?'),
                           ),
                         ),
-                      ],
+                        validator: (value) {
+                          if (value == null || value.isEmpty) {
+                            return 'Please enter your password';
+                          }
+                          if (value.length < 6) {
+                            return 'Password must be at least 6 characters';
+                          }
+                          return null;
+                        },
+                      ),
+                      const SizedBox(height: 12),
+                      // Forgot Password
+                      Align(
+                        alignment: Alignment.centerRight,
+                        child: TextButton(
+                          onPressed: () {
+                            Navigator.of(context).pushNamed('/forgot-password');
+                          },
+                          child: const Text('Forgot Password?'),
+                        ),
+                      ),
                       const SizedBox(height: 40),
 
                       // Login Button
@@ -382,9 +242,7 @@ class _LoginScreenState extends State<LoginScreen>
                                         InstagramTheme.textWhite),
                                   ),
                                 )
-                              : Text(_isOTPSent && _selectedMethod == LoginMethod.phone
-                                  ? 'VERIFY & LOGIN'
-                                  : 'LOGIN'),
+                              : const Text('LOGIN'),
                         ),
                       ),
                       const SizedBox(height: 32),
@@ -461,42 +319,4 @@ class _LoginScreenState extends State<LoginScreen>
     );
   }
 
-  Widget _buildMethodTab(String label, LoginMethod method) {
-    final isSelected = _selectedMethod == method;
-    return GestureDetector(
-      onTap: () {
-        setState(() {
-          _selectedMethod = method;
-          _isOTPSent = false;
-          _phoneLoginSession = null;
-        });
-      },
-      child: Container(
-        padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 8),
-        decoration: BoxDecoration(
-          color: isSelected
-              ? InstagramTheme.primaryPink.withValues(alpha: 0.1)
-              : InstagramTheme.surfaceWhite,
-          borderRadius: BorderRadius.circular(8),
-          border: Border.all(
-            color: isSelected
-                ? InstagramTheme.primaryPink
-                : InstagramTheme.borderGrey,
-            width: isSelected ? 2 : 1,
-          ),
-        ),
-        child: Text(
-          label,
-          textAlign: TextAlign.center,
-          style: TextStyle(
-            color: isSelected
-                ? InstagramTheme.primaryPink
-                : InstagramTheme.textGrey,
-            fontWeight: isSelected ? FontWeight.w600 : FontWeight.normal,
-            fontSize: 12,
-          ),
-        ),
-      ),
-    );
-  }
 }

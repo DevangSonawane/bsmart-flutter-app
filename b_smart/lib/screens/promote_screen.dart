@@ -22,8 +22,8 @@ class _PromoteScreenState extends State<PromoteScreen> {
   List<Map<String, dynamic>> _promotes = [];
   final Map<int, VideoPlayerController> _controllers = {};
 
-  /// Height reserved for the floating bottom nav (match BottomNav: 8 + 64 + 8 padding + safe area).
-  static const double kBottomNavHeight = 5;
+  /// No extra padding needed with the standard bottom nav.
+  static const double kBottomNavHeight = 0;
 
   @override
   void initState() {

@@ -11,82 +11,27 @@ class BottomNav extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final barColor = theme.cardColor;
-    // Transparent Material so Scaffold doesn't draw a solid bar; only the pill floats.
-    return Material(
-      color: Colors.transparent,
-      child: SafeArea(
-        top: false,
-        bottom: false,
-        child: Padding(
-          padding: EdgeInsets.only(
-            left: 16,
-            right: 16,
-            top: 8,
-            bottom: 8 + MediaQuery.of(context).padding.bottom,
-          ),
-          child: Stack(
-            alignment: Alignment.center,
-            children: [
-            Container(
-              height: 64,
-              decoration: BoxDecoration(
-                color: barColor,
-                borderRadius: BorderRadius.circular(32),
-                boxShadow: [
-                  BoxShadow(color: Colors.black12, blurRadius: 8, offset: Offset(0, 2)),
-                ],
-              ),
-              child: Row(
-                mainAxisAlignment: MainAxisAlignment.spaceAround,
-                children: [
-                  _NavIcon(icon: LucideIcons.house, index: 0, currentIndex: currentIndex, onTap: onTap),
-                  _NavIcon(icon: LucideIcons.target, index: 1, currentIndex: currentIndex, onTap: onTap), // Ads
-                  SizedBox(width: 64), // space for center fab
-                  _NavIcon(icon: LucideIcons.megaphone, index: 3, currentIndex: currentIndex, onTap: onTap), // Promote
-                  _NavIcon(icon: LucideIcons.clapperboard, index: 4, currentIndex: currentIndex, onTap: onTap), // Reels
-                ],
-              ),
-            ),
-            Positioned(
-              child: GestureDetector(
-                onTap: () => onTap(2),
-                child: Container(
-                  width: 64,
-                  height: 64,
-                  decoration: BoxDecoration(
-                    shape: BoxShape.circle,
-                    gradient: DesignTokens.instaGradient,
-                    boxShadow: [BoxShadow(color: Colors.black26, blurRadius: 8)],
-                  ),
-                  child: Icon(LucideIcons.plus, color: Colors.white, size: 30),
-                ),
-              ),
-            ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-class _NavIcon extends StatelessWidget {
-  final IconData icon;
-  final int index;
-  final int currentIndex;
-  final ValueChanged<int> onTap;
-
-  const _NavIcon({required this.icon, required this.index, required this.currentIndex, required this.onTap});
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final active = currentIndex == index;
     final inactiveColor = theme.colorScheme.onSurface.withValues(alpha: 0.6);
-    return IconButton(
-      onPressed: () => onTap(index),
-      icon: Icon(icon, color: active ? DesignTokens.instaPink : inactiveColor),
+    return SafeArea(
+      top: false,
+      child: BottomNavigationBar(
+        currentIndex: currentIndex,
+        onTap: onTap,
+        type: BottomNavigationBarType.fixed,
+        showSelectedLabels: false,
+        showUnselectedLabels: false,
+        selectedItemColor: DesignTokens.instaPink,
+        unselectedItemColor: inactiveColor,
+        backgroundColor: theme.scaffoldBackgroundColor,
+        elevation: 0,
+        items: const [
+          BottomNavigationBarItem(icon: Icon(LucideIcons.house), label: 'Home'),
+          BottomNavigationBarItem(icon: Icon(LucideIcons.target), label: 'Ads'),
+          BottomNavigationBarItem(icon: Icon(Icons.add_box_outlined), label: 'Create'),
+          BottomNavigationBarItem(icon: Icon(LucideIcons.megaphone), label: 'Promote'),
+          BottomNavigationBarItem(icon: Icon(LucideIcons.clapperboard), label: 'Reels'),
+        ],
+      ),
     );
   }
 }

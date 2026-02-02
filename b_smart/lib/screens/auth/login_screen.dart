@@ -12,7 +12,7 @@ class LoginScreen extends StatefulWidget {
 }
 
 class _LoginScreenState extends State<LoginScreen> {
-  final _emailController = TextEditingController();
+  final _identifierController = TextEditingController();
   final _passwordController = TextEditingController();
   bool _loading = false;
   String? _error;
@@ -23,10 +23,11 @@ class _LoginScreenState extends State<LoginScreen> {
       _error = null;
     });
     try {
-      final user = await AuthService().loginWithEmail(
-        _emailController.text.trim(),
-        _passwordController.text,
-      );
+      final identifier = _identifierController.text.trim();
+      final password = _passwordController.text;
+      final user = identifier.contains('@')
+          ? await AuthService().loginWithEmail(identifier, password)
+          : await AuthService().loginWithUsername(identifier, password);
       // Dispatch to store
       StoreProvider.of<AppState>(context).dispatch(SetAuthenticated(user.id));
     } catch (e) {
@@ -51,8 +52,11 @@ class _LoginScreenState extends State<LoginScreen> {
         child: Column(
           children: [
             TextField(
-              controller: _emailController,
-              decoration: const InputDecoration(labelText: 'Email'),
+              controller: _identifierController,
+              decoration: const InputDecoration(
+                labelText: 'Username',
+                hintText: 'Email, Phone, or Username',
+              ),
             ),
             const SizedBox(height: 12),
             TextField(
@@ -72,4 +76,3 @@ class _LoginScreenState extends State<LoginScreen> {
     );
   }
 }
-

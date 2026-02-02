@@ -121,14 +121,22 @@ class _InstagramFeedScreenState extends State<InstagramFeedScreen> {
                 controller: _scrollController,
                 slivers: [
                   SliverAppBar(
-                    floating: true,
-                    pinned: false,
-                    snap: true,
+                    floating: false,
+                    pinned: true,
+                    snap: false,
                     backgroundColor: InstagramTheme.backgroundWhite,
                     elevation: 0,
-                    leading: _isHeaderVisible ? _buildProfileIcon() : null,
-                    title: _isHeaderVisible ? _buildSearchBar() : null,
-                    actions: _isHeaderVisible ? _buildHeaderActions() : null,
+                    toolbarHeight: 56,
+                    leading: _buildProfileIcon(),
+                    title: _buildSearchBar(),
+                    actions: _buildHeaderActions(),
+                    bottom: PreferredSize(
+                      preferredSize: const Size.fromHeight(72),
+                      child: Padding(
+                        padding: const EdgeInsets.fromLTRB(16, 8, 16, 8),
+                        child: _buildLocationSelector(),
+                      ),
+                    ),
                   ),
                   SliverToBoxAdapter(child: _buildStoriesSection()),
                   SliverList(
@@ -154,6 +162,77 @@ class _InstagramFeedScreenState extends State<InstagramFeedScreen> {
                 ],
               ),
             ),
+    );
+  }
+
+  Widget _buildLocationSelector() {
+    return InkWell(
+      borderRadius: BorderRadius.circular(14),
+      onTap: () {
+        // TODO: hook up location picker.
+      },
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+        decoration: BoxDecoration(
+          color: InstagramTheme.surfaceWhite,
+          borderRadius: BorderRadius.circular(14),
+          border: Border.all(color: InstagramTheme.borderGrey),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withValues(alpha: 0.05),
+              blurRadius: 10,
+              offset: const Offset(0, 4),
+            ),
+          ],
+        ),
+        child: Row(
+          children: [
+            Container(
+              height: 28,
+              width: 28,
+              decoration: BoxDecoration(
+                color: InstagramTheme.backgroundGrey,
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: const Icon(
+                Icons.location_on_outlined,
+                size: 16,
+                color: InstagramTheme.textBlack,
+              ),
+            ),
+            const SizedBox(width: 10),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    'HOME',
+                    style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                          color: InstagramTheme.textGrey,
+                          fontWeight: FontWeight.w600,
+                          letterSpacing: 0.6,
+                        ),
+                  ),
+                  const SizedBox(height: 2),
+                  Text(
+                    'Plot No.20, 2nd Floor, Shivaram Nivas',
+                    style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                          color: InstagramTheme.textBlack,
+                          fontWeight: FontWeight.w600,
+                        ),
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(width: 8),
+            const Icon(
+              Icons.keyboard_arrow_down_rounded,
+              color: InstagramTheme.textGrey,
+            ),
+          ],
+        ),
+      ),
     );
   }
 
@@ -233,21 +312,26 @@ class _InstagramFeedScreenState extends State<InstagramFeedScreen> {
             child: Row(
               mainAxisSize: MainAxisSize.min,
               children: [
-                const Icon(Icons.monetization_on, color: InstagramTheme.primaryPink, size: 16),
-                const SizedBox(width: 4),
-                FutureBuilder<int>(
-                  future: _walletService.getCoinBalance(),
-                  initialData: 0,
-                  builder: (context, snapshot) {
-                    return Text(
-                      '${snapshot.data ?? 0}',
-                      style: const TextStyle(
-                        fontWeight: FontWeight.bold,
-                        color: InstagramTheme.textBlack,
-                        fontSize: 12,
-                      ),
-                    );
-                  }
+                Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    const Icon(Icons.monetization_on, color: InstagramTheme.primaryPink, size: 16),
+                    const SizedBox(height: 2),
+                    FutureBuilder<int>(
+                      future: _walletService.getCoinBalance(),
+                      initialData: 0,
+                      builder: (context, snapshot) {
+                        return Text(
+                          '${snapshot.data ?? 0}',
+                          style: const TextStyle(
+                            fontWeight: FontWeight.bold,
+                            color: InstagramTheme.textBlack,
+                            fontSize: 11,
+                          ),
+                        );
+                      }
+                    ),
+                  ],
                 ),
               ],
             ),
