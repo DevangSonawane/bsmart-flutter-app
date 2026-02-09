@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_svg/flutter_svg.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 import '../../../theme/instagram_theme.dart';
 import '../../../widgets/clay_container.dart';
@@ -310,7 +311,11 @@ class _SignupIdentifierScreenState extends State<SignupIdentifierScreen>
                         height: 56,
                         child: OutlinedButton.icon(
                           onPressed: _isLoading ? null : _handleGoogleSignup,
-                          icon: Icon(LucideIcons.mail, size: 28),
+                          icon: SvgPicture.asset(
+                            'assets/images/google_logo.svg',
+                            width: 24,
+                            height: 24,
+                          ),
                           label: const Text('Continue with Google'),
                           style: OutlinedButton.styleFrom(
                             side: const BorderSide(color: InstagramTheme.borderGrey),
