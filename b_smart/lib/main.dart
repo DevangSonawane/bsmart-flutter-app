@@ -1,4 +1,4 @@
- import 'package:flutter/material.dart';
+import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
@@ -10,6 +10,8 @@ import 'theme/theme_scope.dart';
 import 'state/store.dart';
 import 'state/app_state.dart';
 import 'config/supabase_config.dart';
+import 'config/api_config.dart';
+import 'api/api.dart';
 import 'package:flutter_redux/flutter_redux.dart';
 import 'theme/design_tokens.dart';
 import 'routes.dart';
@@ -25,7 +27,19 @@ void main() async {
   } catch (e) {
     // ignore - .env may be absent in some environments
   }
+
+  // ── Initialize REST API config ──────────────────────────────────────────
+  {
+    String? apiBaseUrl;
+    try {
+      apiBaseUrl = dotenv.env['API_BASE_URL'];
+    } catch (_) {}
+    ApiConfig.init(baseUrl: apiBaseUrl);
+  }
+
   // Initialize SupabaseConfig from dotenv if available (safe access)
+  // Supabase is kept initialised for backward compatibility with screens
+  // that still access Supabase.instance.client directly.
   {
     String? url;
     String? anonKey;
@@ -50,7 +64,7 @@ void main() async {
     );
   }
 
-  // Initialize Supabase
+  // Initialize Supabase (kept for backward compatibility)
   await Supabase.initialize(
     url: SupabaseConfig.url,
     anonKey: SupabaseConfig.anonKey,
@@ -91,18 +105,22 @@ class _BSmartAppState extends State<BSmartApp> {
   }
 
   Future<void> _checkAuthStatus() async {
-    // Check current session from Supabase
-    final session = Supabase.instance.client.auth.currentSession;
+    // Check for stored JWT from the REST API first, then fall back to Supabase session.
+    final hasApiToken = await ApiClient().hasToken;
+    final hasSupabaseSession =
+        Supabase.instance.client.auth.currentSession != null;
+
     setState(() {
-      _isAuthenticated = session != null;
+      _isAuthenticated = hasApiToken || hasSupabaseSession;
       _isInitialized = true;
     });
 
-    // Listen for auth state changes
+    // Continue listening for Supabase auth state changes (backward compat).
     Supabase.instance.client.auth.onAuthStateChange.listen((data) {
       if (mounted) {
         setState(() {
-          _isAuthenticated = data.session != null;
+          _isAuthenticated =
+              _isAuthenticated || data.session != null;
         });
       }
     });

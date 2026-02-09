@@ -1,6 +1,5 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_svg/flutter_svg.dart';
-import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:flutter_redux/flutter_redux.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 import 'package:image_picker/image_picker.dart';
@@ -15,6 +14,7 @@ import '../models/feed_post_model.dart';
 import '../theme/design_tokens.dart';
 import '../state/app_state.dart';
 import '../state/profile_actions.dart';
+import '../utils/current_user.dart';
 
 /// Heroicons badge-check (same as React web app verified badge)
 const String _verifiedBadgeSvg = r'''
@@ -50,9 +50,8 @@ class _ProfileScreenState extends State<ProfileScreen> {
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
-    final currentId = widget.userId ?? Supabase.instance.client.auth.currentUser?.id;
-    final isMe = currentId != null &&
-        (widget.userId == null || widget.userId == Supabase.instance.client.auth.currentUser?.id);
+    // Only hydrate from Redux cache when viewing own profile (no explicit userId).
+    final isMe = widget.userId == null;
     if (!isMe || _usedCache) return;
     final store = StoreProvider.of<AppState>(context);
     final cached = store.state.profileState.profile;
@@ -65,49 +64,29 @@ class _ProfileScreenState extends State<ProfileScreen> {
   }
 
   Future<void> _load() async {
-    final currentId = widget.userId ?? Supabase.instance.client.auth.currentUser?.id;
-    if (currentId == null) return;
+    // Use REST API-backed CurrentUser helper for the authenticated user ID,
+    // falling back to Supabase only internally within ApiClient.
+    final targetId = widget.userId ?? await CurrentUser.id;
+    if (targetId == null) {
+      if (mounted) {
+        setState(() {
+          _loading = false;
+        });
+      }
+      return;
+    }
 
-    // Load profile, posts, followers, following, and wallet in parallel
-    final profileFuture = _svc.getUserById(currentId);
-    final postsFuture = _svc.getUserPosts(currentId, limit: _initialPostsLimit);
-    final followersFuture = Supabase.instance.client
-        .from('follows')
-        .select()
-        .eq('followed_id', currentId)
-        .then((res) => (res as List?)?.length ?? 0)
-        .catchError((_) => 0);
-    final followingFuture = Supabase.instance.client
-        .from('follows')
-        .select()
-        .eq('follower_id', currentId)
-        .then((res) => (res as List?)?.length ?? 0)
-        .catchError((_) => 0);
-    final walletFuture = Supabase.instance.client
-        .from('wallets')
-        .select('balance')
-        .eq('user_id', currentId)
-        .maybeSingle()
-        .then((w) {
-      final bal = w?['balance'];
-      if (bal is int) return bal;
-      if (bal is double) return bal.toInt();
-      return 0;
-    }).catchError((_) => 0);
+    // Load profile and posts in parallel from the REST API.
+    final profileFuture = _svc.getUserById(targetId);
+    final postsFuture = _svc.getUserPosts(targetId, limit: _initialPostsLimit);
 
     final results = await Future.wait([
       profileFuture,
       postsFuture,
-      followersFuture,
-      followingFuture,
-      walletFuture,
     ]);
 
     final profile = results[0] as Map<String, dynamic>?;
     final rawPosts = results[1] as List<Map<String, dynamic>>;
-    final followersCount = results[2] as int;
-    final followingCount = results[3] as int;
-    final walletBalance = results[4] as int;
 
     final posts = rawPosts.map((item) {
       final media = item['media'] as List<dynamic>? ?? [];
@@ -135,36 +114,39 @@ class _ProfileScreenState extends State<ProfileScreen> {
       final merged = {
         ...?profile,
         'posts_count': (profile?['posts_count'] as int?) ?? posts.length,
-        'followers_count': (profile?['followers_count'] as int?) ?? followersCount,
-        'following_count': (profile?['following_count'] as int?) ?? followingCount,
-        'wallet_balance': walletBalance,
+        // Followers / following / wallet fields are expected from the REST API
+        // payload; fall back to 0 if not provided.
+        'followers_count': (profile?['followers_count'] as int?) ?? 0,
+        'following_count': (profile?['following_count'] as int?) ?? 0,
+        'wallet_balance': (profile?['wallet_balance'] as int?) ?? 0,
       };
       setState(() {
         _profile = merged;
         _posts = posts;
-        _userReels = _reelsService.getReels().where((r) => r.userId == currentId).toList();
+        _userReels =
+            _reelsService.getReels().where((r) => r.userId == targetId).toList();
         _loading = false;
       });
       // Cache own profile in Redux for instant load next time
-      if (currentId == Supabase.instance.client.auth.currentUser?.id) {
+      if (widget.userId == null) {
         StoreProvider.of<AppState>(context).dispatch(SetProfile(merged));
       }
     }
   }
 
-  void _onEdit() {
-    final targetId = widget.userId ?? Supabase.instance.client.auth.currentUser?.id;
-    if (targetId == null) return;
+  void _onEdit() async {
+    final targetId = widget.userId ?? await CurrentUser.id;
+    if (!mounted || targetId == null) return;
     Navigator.of(context).push(MaterialPageRoute(builder: (ctx) {
       return EditProfileScreen(userId: targetId);
     })).then((_) => _load());
   }
 
   void _onFollow() async {
-    final me = Supabase.instance.client.auth.currentUser;
-    final targetId = widget.userId ?? Supabase.instance.client.auth.currentUser?.id;
-    if (me == null || targetId == null) return;
-    await _svc.toggleFollow(me.id, targetId);
+    final meId = await CurrentUser.id;
+    final targetId = widget.userId;
+    if (meId == null || targetId == null) return;
+    await _svc.toggleFollow(meId, targetId);
     _load();
   }
 
@@ -267,10 +249,10 @@ class _ProfileScreenState extends State<ProfileScreen> {
     final postsCount = (_profile?['posts_count'] as int?) ?? _posts.length;
     final followers = (_profile?['followers_count'] as int?) ?? 0;
     final following = (_profile?['following_count'] as int?) ?? 0;
-    final isMe = Supabase.instance.client.auth.currentUser?.id == (widget.userId ?? Supabase.instance.client.auth.currentUser?.id);
+    // When no explicit userId is provided we are viewing our own profile.
+    final isMe = widget.userId == null;
 
     final theme = Theme.of(context);
-    final isDark = theme.brightness == Brightness.dark;
     final fgColor = theme.colorScheme.onSurface;
     return DefaultTabController(
       length: 3,
@@ -490,16 +472,14 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
   Future<void> _save() async {
     setState(() => _loading = true);
     final updates = {
-      'id': widget.userId,
       'username': _usernameCtl.text.trim(),
       'full_name': _fullNameCtl.text.trim(),
       'bio': _bioCtl.text.trim(),
       'phone': _phoneCtl.text.trim(),
       if (_avatarUrl != null) 'avatar_url': _avatarUrl,
-      'updated_at': DateTime.now().toIso8601String(),
     };
     try {
-      await Supabase.instance.client.from('users').upsert(updates);
+      await _svc.updateUserProfile(widget.userId, updates);
       if (mounted) {
         setState(() => _loading = false);
         Navigator.of(context).pop();

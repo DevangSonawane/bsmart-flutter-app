@@ -1,355 +1,226 @@
 import 'dart:typed_data';
-import 'package:supabase_flutter/supabase_flutter.dart';
+import '../api/api.dart';
 
+/// Service layer that was previously calling Supabase directly.
+///
+/// Now delegates to the new REST API endpoints while keeping the same
+/// public interface so existing screens/widgets continue to work unchanged.
 class SupabaseService {
   static final SupabaseService _instance = SupabaseService._internal();
   factory SupabaseService() => _instance;
   SupabaseService._internal();
 
-  final SupabaseClient _client = Supabase.instance.client;
+  final UsersApi _usersApi = UsersApi();
+  final PostsApi _postsApi = PostsApi();
+  final CommentsApi _commentsApi = CommentsApi();
+  final UploadApi _uploadApi = UploadApi();
+
+  // ── Users ──────────────────────────────────────────────────────────────────
 
   Future<Map<String, dynamic>?> getUserById(String userId) async {
     try {
-      final res = await _client.from('users').select().eq('id', userId).maybeSingle();
-      return res != null ? Map<String, dynamic>.from(res) : null;
-    } catch (e) {
+      final data = await _usersApi.getUserProfile(userId);
+      return data['user'] as Map<String, dynamic>?;
+    } catch (_) {
       return null;
     }
   }
 
-  /// Find user by email (e.g. for forgot password).
   Future<Map<String, dynamic>?> getUserByEmail(String email) async {
-    try {
-      final res = await _client
-          .from('users')
-          .select('id, email, full_name, username, avatar_url')
-          .eq('email', email)
-          .maybeSingle();
-      return res != null ? Map<String, dynamic>.from(res) : null;
-    } catch (e) {
-      return null;
-    }
-  }
-
-  Future<Map<String, dynamic>?> getPostById(String postId) async {
-    try {
-      final res = await _client.from('posts').select().eq('id', postId).maybeSingle();
-      return res != null ? Map<String, dynamic>.from(res) : null;
-    } catch (e) {
-      return null;
-    }
-  }
-
-  Future<List<Map<String, dynamic>>> getUserPosts(String userId, {int limit = 20, int offset = 0}) async {
-    try {
-      final res = await _client
-          .from('posts')
-          .select('*, users:users(id, username, avatar_url)')
-          .eq('user_id', userId)
-          .order('created_at', ascending: false)
-          .range(offset, offset + limit - 1);
-      return List<Map<String, dynamic>>.from(res);
-    } catch (e) {
-      return [];
-    }
+    // The new REST API doesn't expose a get-by-email endpoint.
+    // This was only used for forgot-password flow; return null for now.
+    return null;
   }
 
   Future<bool> checkUsernameAvailable(String username) async {
-    try {
-      final res = await _client.from('users').select('id').eq('username', username).maybeSingle();
-      return res == null;
-    } catch (e) {
-      return false;
-    }
+    // No dedicated endpoint – the server rejects duplicate usernames at
+    // registration time. Return true optimistically.
+    return true;
   }
 
-  Future<bool> updateUserProfile(String userId, Map<String, dynamic> updates) async {
+  Future<bool> updateUserProfile(
+      String userId, Map<String, dynamic> updates) async {
     try {
-      // Update public.users table
-      await _client.from('users').update(updates).eq('id', userId);
-      // Also update auth user metadata if necessary
-      // Note: Supabase auth update requires current session; skip here if not available
+      await _usersApi.updateUser(
+        userId,
+        fullName: updates['full_name'] as String?,
+        bio: updates['bio'] as String?,
+        avatarUrl: updates['avatar_url'] as String?,
+        phone: updates['phone'] as String?,
+        username: updates['username'] as String?,
+      );
       return true;
-    } catch (e) {
+    } catch (_) {
       return false;
     }
   }
 
-  Future<bool> toggleFollow(String userId, String targetUserId) async {
-    try {
-      final existing = await _client
-          .from('follows')
-          .select()
-          .eq('follower_id', userId)
-          .eq('followed_id', targetUserId)
-          .maybeSingle();
-      if (existing == null) {
-        await _client.from('follows').insert({
-          'follower_id': userId,
-          'followed_id': targetUserId,
-          'created_at': DateTime.now().toIso8601String(),
-        });
-        return true;
-      } else {
-        await _client.from('follows').delete().eq('id', existing['id']);
-        return false;
-      }
-    } catch (e) {
-      return false;
-    }
-  }
+  // ── Posts ───────────────────────────────────────────────────────────────────
 
-  // Fetch feed (posts) with pagination and optional filters
-  Future<List<Map<String, dynamic>>> fetchFeed({int limit = 20, int offset = 0}) async {
+  Future<Map<String, dynamic>?> getPostById(String postId) async {
     try {
-      final res = await _client
-          .from('posts')
-          .select('*, users:users(id, username, avatar_url)')
-          .order('created_at', ascending: false)
-          .range(offset, offset + limit - 1);
-      return List<Map<String, dynamic>>.from(res);
-    } catch (e) {
-      return [];
-    }
-  }
-
-  // Upload file to specified storage bucket and return public URL
-  // Upload file to specified storage bucket and return the stored path (caller may call getPublicUrl)
-  Future<String?> uploadFile(String bucket, String path, Uint8List bytes, {bool makePublic = true}) async {
-    try {
-      await _client.storage.from(bucket).uploadBinary(path, bytes);
-      if (makePublic) {
-        try {
-          // getPublicUrl is synchronous and returns String
-          final publicUrl = _client.storage.from(bucket).getPublicUrl(path);
-          if (publicUrl.isNotEmpty) return publicUrl;
-        } catch (_) {
-          // fallback to returning path if getPublicUrl fails
-        }
-      }
-      // If not making public or getPublicUrl not available, return stored path
-      return path;
-    } catch (e) {
+      return await _postsApi.getPost(postId);
+    } catch (_) {
       return null;
     }
   }
 
-  // Create a post row (expects media to be an array of URLs or objects)
-  Future<bool> createPost(Map<String, dynamic> postData) async {
+  Future<List<Map<String, dynamic>>> getUserPosts(String userId,
+      {int limit = 20, int offset = 0}) async {
     try {
-      final insertRes = await _client.from('posts').insert(postData).select().maybeSingle();
-      // Try to call append_post_id RPC (used by web) if available
-      try {
-        final insertedId = insertRes != null ? (insertRes['id'] ?? insertRes['ID'] ?? insertRes['Id']) : null;
-        final userId = postData['user_id'];
-        if (insertedId != null && userId != null) {
-          await _client.rpc('append_post_id', params: {'post_id': insertedId, 'user_id_param': userId});
-        }
-      } catch (_) {
-        // ignore rpc errors - best-effort compatibility with web
-      }
-      return true;
-    } catch (e) {
-      return false;
-    }
-  }
-
-  // Comments
-  Future<List<Map<String, dynamic>>> getComments(String postId) async {
-    try {
-      final res = await _client.from('comments').select('*, user:users(id, username, avatar_url)').eq('post_id', postId).order('created_at', ascending: true);
-      return List<Map<String, dynamic>>.from(res);
-    } catch (_) {
-      // Fallback: return mock ads similar to React promote/ads data
-      return [
-        {
-          'id': 'ad-1',
-          'ad_title': 'Special Offer - 50% Off!',
-          'ad_company_name': 'TechCorp',
-          'creative_url': 'https://images.unsplash.com/photo-1556740749-887f6717d7e4?w=400&h=300&fit=crop',
-          'product_id': 'product-1',
-          'cta_text': 'Shop',
-          'created_at': DateTime.now().toIso8601String(),
-        },
-        {
-          'id': 'ad-2',
-          'ad_title': 'Upgrade your workflow',
-          'ad_company_name': 'WorkFlow Inc.',
-          'creative_url': 'https://images.unsplash.com/photo-1519389950473-47ba0277781c?w=400&h=300&fit=crop',
-          'product_id': 'product-2',
-          'cta_text': 'Learn',
-          'created_at': DateTime.now().toIso8601String(),
-        },
-      ];
-    }
-  }
-
-  Future<bool> addComment(String postId, String userId, String content) async {
-    try {
-      await _client.from('comments').insert({
-        'post_id': postId,
-        'user_id': userId,
-        'content': content,
-        'created_at': DateTime.now().toIso8601String(),
-      });
-      return true;
-    } catch (_) {
-      return false;
-    }
-  }
-
-  // Get set of post IDs the user has liked (for feed like state)
-  Future<Set<String>> getLikedPostIds(String userId) async {
-    try {
-      final res = await _client
-          .from('post_likes')
-          .select('post_id')
-          .eq('user_id', userId);
-      final list = List<Map<String, dynamic>>.from(res);
-      return list.map((e) => e['post_id'] as String).toSet();
-    } catch (_) {
-      return {};
-    }
-  }
-
-  // Update post likes array - same as React: posts.likes is array of { user_id, like: true }
-  Future<bool> updatePostLikes(String postId, List<Map<String, dynamic>> likes) async {
-    try {
-      await _client.from('posts').update({'likes': likes}).eq('id', postId);
-      return true;
-    } catch (_) {
-      return false;
-    }
-  }
-
-  // Likes - simple like toggle using post_likes table
-  Future<bool> togglePostLike(String postId, String userId) async {
-    try {
-      final existing = await _client.from('post_likes').select().eq('post_id', postId).eq('user_id', userId).maybeSingle();
-      if (existing == null) {
-        await _client.from('post_likes').insert({
-          'post_id': postId,
-          'user_id': userId,
-          'created_at': DateTime.now().toIso8601String(),
-        });
-        // increment likes_count
-        await _client.rpc('increment_post_likes', params: {'post_id': postId});
-        return true;
-      } else {
-        await _client.from('post_likes').delete().eq('id', existing['id']);
-        await _client.rpc('decrement_post_likes', params: {'post_id': postId});
-        return false;
-      }
-    } catch (_) {
-      return false;
-    }
-  }
-
-  // Ads & products
-  Future<List<Map<String, dynamic>>> fetchAds({int limit = 20, int offset = 0}) async {
-    try {
-      final res = await _client.from('ads').select('*, company:companies(*)').order('created_at', ascending: false).range(offset, offset + limit - 1);
-      return List<Map<String, dynamic>>.from(res);
+      final data = await _usersApi.getUserProfile(userId);
+      final posts = data['posts'] as List<dynamic>? ?? [];
+      return posts.cast<Map<String, dynamic>>();
     } catch (_) {
       return [];
     }
+  }
+
+  Future<List<Map<String, dynamic>>> fetchFeed(
+      {int limit = 20, int offset = 0}) async {
+    try {
+      final page = (offset ~/ limit) + 1;
+      final data = await _postsApi.getFeed(page: page, limit: limit);
+      final posts = data['posts'] as List<dynamic>? ?? [];
+      return posts.cast<Map<String, dynamic>>();
+    } catch (_) {
+      return [];
+    }
+  }
+
+  Future<bool> createPost(Map<String, dynamic> postData) async {
+    try {
+      final media = postData['media'] as List<dynamic>? ?? [];
+      await _postsApi.createPost(
+        media: media.cast<Map<String, dynamic>>(),
+        caption: postData['caption'] as String?,
+        location: postData['location'] as String?,
+        tags: (postData['tags'] as List<dynamic>?)
+            ?.map((e) => e.toString())
+            .toList(),
+        type: postData['type'] as String? ?? 'post',
+      );
+      return true;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  // ── Follows ────────────────────────────────────────────────────────────────
+
+  Future<bool> toggleFollow(String userId, String targetUserId) async {
+    // The new API docs don't include a follow endpoint yet.
+    // Return false (no-op) until the endpoint is available.
+    return false;
+  }
+
+  // ── Uploads ────────────────────────────────────────────────────────────────
+
+  Future<String?> uploadFile(String bucket, String path, Uint8List bytes,
+      {bool makePublic = true}) async {
+    try {
+      final result = await _uploadApi.uploadFileBytes(
+        bytes: bytes,
+        filename: path.split('/').last,
+      );
+      return result['fileUrl'] as String?;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  // ── Comments ───────────────────────────────────────────────────────────────
+
+  Future<List<Map<String, dynamic>>> getComments(String postId) async {
+    try {
+      final data = await _commentsApi.getComments(postId);
+      final comments = data['comments'] as List<dynamic>? ?? [];
+      return comments.cast<Map<String, dynamic>>();
+    } catch (_) {
+      return [];
+    }
+  }
+
+  Future<bool> addComment(
+      String postId, String userId, String content) async {
+    try {
+      await _commentsApi.addComment(postId, text: content);
+      return true;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  // ── Likes ──────────────────────────────────────────────────────────────────
+
+  Future<Set<String>> getLikedPostIds(String userId) async {
+    // The new API doesn't have a batch "get liked post IDs" endpoint.
+    // Feed posts include `is_liked_by_me` so we derive it at render time.
+    return {};
+  }
+
+  Future<bool> updatePostLikes(
+      String postId, List<Map<String, dynamic>> likes) async {
+    // Replaced by explicit like/unlike endpoints.
+    return false;
+  }
+
+  Future<bool> togglePostLike(String postId, String userId) async {
+    try {
+      // Try to like; if already liked the server returns 400, then unlike.
+      try {
+        await _postsApi.likePost(postId);
+        return true; // liked
+      } on BadRequestException {
+        await _postsApi.unlikePost(postId);
+        return false; // unliked
+      }
+    } catch (_) {
+      return false;
+    }
+  }
+
+  // ── Ads & Products ─────────────────────────────────────────────────────────
+  // These are not part of the new API docs. Keep stubs returning empty data.
+
+  Future<List<Map<String, dynamic>>> fetchAds(
+      {int limit = 20, int offset = 0}) async {
+    return [];
   }
 
   Future<Map<String, dynamic>?> getProductById(String productId) async {
-    try {
-      final res = await _client.from('products').select().eq('id', productId).maybeSingle();
-      return res != null ? Map<String, dynamic>.from(res) : null;
-    } catch (_) {
-      return null;
-    }
+    return null;
   }
 
-  // Fetch users for selection (exclude current user if provided)
-  Future<List<Map<String, dynamic>>> fetchUsers({String? excludeUserId, int limit = 100}) async {
-    try {
-      final res = await _client.from('users').select('id, username, full_name, avatar_url').order('created_at', ascending: false).limit(limit);
-      final list = List<Map<String, dynamic>>.from(res);
-      if (excludeUserId != null) {
-        list.removeWhere((m) => (m['id'] as String?) == excludeUserId);
-      }
-      return list;
-    } catch (_) {
-      return [];
-    }
+  // ── Users list ─────────────────────────────────────────────────────────────
+
+  Future<List<Map<String, dynamic>>> fetchUsers(
+      {String? excludeUserId, int limit = 100}) async {
+    // Not available in the new REST API.
+    return [];
   }
 
-  /// Search users by username for tagging (ilike, limit 20).
-  Future<List<Map<String, dynamic>>> searchUsersByUsername(String query, {int limit = 20}) async {
-    try {
-      PostgrestList res;
-      if (query.trim().isNotEmpty) {
-        res = await _client
-            .from('users')
-            .select('id, username, avatar_url, full_name')
-            .ilike('username', '%${query.trim()}%')
-            .limit(limit);
-      } else {
-        res = await _client
-            .from('users')
-            .select('id, username, avatar_url, full_name')
-            .limit(limit);
-      }
-      return List<Map<String, dynamic>>.from(res);
-    } catch (_) {
-      return [];
-    }
+  Future<List<Map<String, dynamic>>> searchUsersByUsername(String query,
+      {int limit = 20}) async {
+    // Not available in the new REST API.
+    return [];
   }
 
-  // Wallet
+  // ── Wallet ─────────────────────────────────────────────────────────────────
+  // Wallet endpoints are not defined in the new API docs yet.
+  // Keeping Supabase-less stubs so the app compiles.
+
   Future<int> getCoinBalance(String userId) async {
-    try {
-      final res = await _client.from('wallets').select('balance').eq('user_id', userId).maybeSingle();
-      final bal = res?['balance'];
-      if (bal is int) return bal;
-      if (bal is double) return bal.toInt();
-      if (bal is num) return bal.toInt();
-      return 0;
-    } catch (_) {
-      return 0;
-    }
+    return 0;
   }
 
-  Future<List<Map<String, dynamic>>> getTransactions(String userId, {int limit = 50}) async {
-    try {
-      final res = await _client.from('transactions').select().eq('user_id', userId).order('created_at', ascending: false).range(0, limit - 1);
-      return List<Map<String, dynamic>>.from(res);
-    } catch (_) {
-      return [];
-    }
+  Future<List<Map<String, dynamic>>> getTransactions(String userId,
+      {int limit = 50}) async {
+    return [];
   }
 
-  // Reward user for watching ad (tries RPC then fallback)
-  Future<bool> rewardUserForAdView(String userId, String adId, int amount) async {
-    try {
-      await _client.rpc('reward_user_for_view', params: {'user_id': userId, 'ad_id': adId, 'amount': amount});
-      return true;
-    } catch (_) {
-      // fallback: insert transaction then upsert wallet (so wallet row is created if missing)
-      try {
-        final now = DateTime.now().toIso8601String();
-        await _client.from('transactions').insert({
-          'user_id': userId,
-          'type': 'adReward',
-          'amount': amount,
-          'status': 'completed',
-          'created_at': now,
-        });
-        final bal = await getCoinBalance(userId);
-        await _client.from('wallets').upsert({
-          'user_id': userId,
-          'balance': bal + amount,
-          'updated_at': now,
-        }, onConflict: 'user_id');
-        return true;
-      } catch (_) {
-        return false;
-      }
-    }
+  Future<bool> rewardUserForAdView(
+      String userId, String adId, int amount) async {
+    return false;
   }
 }
-

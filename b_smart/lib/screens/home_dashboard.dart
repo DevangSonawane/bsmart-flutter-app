@@ -1,6 +1,5 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_redux/flutter_redux.dart';
-import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 import '../services/feed_service.dart';
 import '../services/supabase_service.dart';
@@ -19,6 +18,7 @@ import 'ads_screen.dart';
 import 'promote_screen.dart';
 import 'reels_screen.dart';
 import 'story_viewer_screen.dart';
+import '../utils/current_user.dart';
 
 class HomeDashboard extends StatefulWidget {
   final int? initialIndex;
@@ -54,7 +54,8 @@ class _HomeDashboardState extends State<HomeDashboard> {
 
   Future<void> _loadData() async {
     setState(() => _isLoading = true);
-    final currentUserId = Supabase.instance.client.auth.currentUser?.id;
+    // Use REST API-backed CurrentUser helper for the authenticated user ID.
+    final currentUserId = await CurrentUser.id;
     final currentProfile = currentUserId != null ? await _supabase.getUserById(currentUserId) : null;
     // Same as React Home.jsx: fetch all posts, users(id, username, avatar_url), order by created_at desc
     final fetched = await _feedService.fetchFeedFromBackend(currentUserId: currentUserId);
@@ -78,8 +79,8 @@ class _HomeDashboardState extends State<HomeDashboard> {
   }
 
   // Like toggle - same as React PostCard: update post.likes array on posts table
-  void _onLikePost(FeedPost post) {
-    final currentUserId = Supabase.instance.client.auth.currentUser?.id;
+  void _onLikePost(FeedPost post) async {
+    final currentUserId = await CurrentUser.id;
     if (currentUserId == null) return;
     final current = post.rawLikes ?? [];
     final newLikes = post.isLiked

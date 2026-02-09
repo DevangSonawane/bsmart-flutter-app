@@ -1,5 +1,5 @@
+import '../api/api.dart';
 import '../models/feed_post_model.dart';
-import 'package:supabase_flutter/supabase_flutter.dart' as sb;
 import '../models/story_model.dart';
 import '../models/user_model.dart';
 
@@ -9,6 +9,9 @@ class FeedService {
 
   FeedService._internal();
 
+  final PostsApi _postsApi = PostsApi();
+  final AuthApi _authApi = AuthApi();
+
   // Get personalized feed with ranking
   List<FeedPost> getPersonalizedFeed({
     List<String>? followedUserIds,
@@ -16,73 +19,77 @@ class FeedService {
     List<String>? searchHistory,
   }) {
     final allPosts = _generateFeedPosts();
-    
+
     // Rank posts based on relevance
     final rankedPosts = allPosts.map((post) {
       double score = 0.0;
-      
+
       // Follow relationship (high priority)
       if (followedUserIds != null && followedUserIds.contains(post.userId)) {
         score += 100.0;
       }
-      
+
       // Tagged posts (high priority)
       if (post.isTagged) {
         score += 80.0;
       }
-      
+
       // Engagement history (liked posts from followed users)
-      if (post.isLiked && followedUserIds != null && followedUserIds.contains(post.userId)) {
+      if (post.isLiked &&
+          followedUserIds != null &&
+          followedUserIds.contains(post.userId)) {
         score += 50.0;
       }
-      
+
       // Interest matching
       if (userInterests != null) {
         final matchingHashtags = post.hashtags
-            .where((tag) => userInterests.any((interest) => 
-                tag.toLowerCase().contains(interest.toLowerCase())))
+            .where((tag) => userInterests
+                .any((interest) =>
+                    tag.toLowerCase().contains(interest.toLowerCase())))
             .length;
         score += matchingHashtags * 10.0;
       }
-      
+
       // Search history matching
       if (searchHistory != null && post.caption != null) {
         final matchingKeywords = searchHistory
-            .where((keyword) => post.caption!.toLowerCase().contains(keyword.toLowerCase()))
+            .where((keyword) =>
+                post.caption!.toLowerCase().contains(keyword.toLowerCase()))
             .length;
         score += matchingKeywords * 5.0;
       }
-      
+
       // Recent posts get slight boost
-      final hoursSincePost = DateTime.now().difference(post.createdAt).inHours;
+      final hoursSincePost =
+          DateTime.now().difference(post.createdAt).inHours;
       score += (24 - hoursSincePost).clamp(0, 24) * 0.5;
-      
+
       return {'post': post, 'score': score};
     }).toList();
-    
+
     // Sort by score (highest first)
-    rankedPosts.sort((a, b) => (b['score'] as double).compareTo(a['score'] as double));
-    
+    rankedPosts.sort(
+        (a, b) => (b['score'] as double).compareTo(a['score'] as double));
+
     // Insert ads every 5 posts
     final finalFeed = <FeedPost>[];
     for (int i = 0; i < rankedPosts.length; i++) {
       finalFeed.add(rankedPosts[i]['post'] as FeedPost);
       if ((i + 1) % 5 == 0 && i < rankedPosts.length - 1) {
-        // Insert ad
         final ads = _getAds();
         if (ads.isNotEmpty) {
           finalFeed.add(ads[i % ads.length]);
         }
       }
     }
-    
+
     return finalFeed;
   }
 
   List<FeedPost> _generateFeedPosts() {
     final now = DateTime.now();
     return [
-      // Followed user posts
       FeedPost(
         id: 'post-1',
         userId: 'user-2',
@@ -112,7 +119,6 @@ class FeedService {
         isLiked: true,
         isFollowed: true,
       ),
-      // Tagged post
       FeedPost(
         id: 'post-3',
         userId: 'user-4',
@@ -127,7 +133,6 @@ class FeedService {
         isLiked: false,
         isTagged: true,
       ),
-      // Carousel post
       FeedPost(
         id: 'post-4',
         userId: 'user-5',
@@ -142,7 +147,6 @@ class FeedService {
         isLiked: false,
         isFollowed: true,
       ),
-      // Reel
       FeedPost(
         id: 'post-5',
         userId: 'user-6',
@@ -157,7 +161,6 @@ class FeedService {
         views: 5000,
         isLiked: true,
       ),
-      // Suggested public post
       FeedPost(
         id: 'post-6',
         userId: 'user-7',
@@ -210,83 +213,73 @@ class FeedService {
     ];
   }
 
-  // Fetch feed from Supabase - same logic as React Home.jsx: all posts, users(id, username, avatar_url).
-  // Likes: use post.likes array (React stores likes on post), likeCount = array.length, isLiked from array.
+  /// Fetch feed from the REST API backend.
+  ///
+  /// Replaces the previous Supabase-direct `fetchFeedFromBackend`.
   Future<List<FeedPost>> fetchFeedFromBackend({
     int limit = 50,
     int offset = 0,
     String? currentUserId,
   }) async {
     try {
-      final client = sb.Supabase.instance.client;
-      final res = await client
-          .from('posts')
-          .select('*, users:users(id, username, avatar_url)')
-          .order('created_at', ascending: false)
-          .range(offset, offset + limit - 1);
-
-      final items = List<Map<String, dynamic>>.from(res);
+      final page = (offset ~/ limit) + 1;
+      final data = await _postsApi.getFeed(page: page, limit: limit);
+      final items = (data['posts'] as List<dynamic>? ?? [])
+          .cast<Map<String, dynamic>>();
 
       return items.map((item) {
-        final user = item['users'] as Map<String, dynamic>?;
+        // The API nests the author info inside `user_id` as a populated object.
+        final user = item['user_id'] is Map
+            ? item['user_id'] as Map<String, dynamic>
+            : <String, dynamic>{};
+
         final media = item['media'] as List<dynamic>? ?? [];
         final mediaUrls = media.map((m) {
           if (m is String) return m;
           if (m is Map) {
-            final url = (m['image'] ?? m['url'])?.toString();
+            final url = (m['fileUrl'] ?? m['image'] ?? m['url'])?.toString();
             if (url != null && url.isNotEmpty) return url;
           }
           return m.toString();
         }).cast<String>().toList();
 
-        final mediaTypeStr = (item['media_type'] as String?) ?? 'image';
+        final typeStr = (item['type'] as String?) ?? 'post';
         PostMediaType mediaType = PostMediaType.image;
-        if (mediaTypeStr == 'video' || mediaTypeStr == 'reel') {
-          mediaType = mediaTypeStr == 'video' ? PostMediaType.video : PostMediaType.reel;
-        } else if (mediaTypeStr == 'carousel') {
+        if (typeStr == 'reel') {
+          mediaType = PostMediaType.reel;
+        } else if (mediaUrls.length > 1) {
           mediaType = PostMediaType.carousel;
         }
 
-        // React: likes are stored as array on post, likeCount = likes.length, isLiked = likes.some(like => like.user_id === userObject.id)
-        final rawLikesList = item['likes'] as List<dynamic>?;
-        List<Map<String, dynamic>>? rawLikes;
-        int likeCount = 0;
-        bool isLiked = false;
-        if (rawLikesList != null && rawLikesList.isNotEmpty) {
-          rawLikes = rawLikesList.map((e) => Map<String, dynamic>.from(e as Map)).toList();
-          likeCount = rawLikes.length;
-          if (currentUserId != null) {
-            isLiked = rawLikes.any((e) => e['user_id'] == currentUserId);
-          }
-        } else {
-          likeCount = item['likes_count'] as int? ?? 0;
-        }
-
         return FeedPost(
-          id: item['id'] as String,
-          userId: item['user_id'] as String,
-          userName: user?['username'] as String? ?? 'user',
-          fullName: user?['full_name'] as String?,
-          userAvatar: user?['avatar_url'] as String?,
-          isVerified: user?['is_verified'] as bool? ?? false,
+          id: item['_id'] as String? ?? item['id'] as String? ?? '',
+          userId: user['_id'] as String? ??
+              user['id'] as String? ??
+              (item['user_id'] is String ? item['user_id'] as String : ''),
+          userName: user['username'] as String? ?? 'user',
+          fullName: user['full_name'] as String?,
+          userAvatar: user['avatar_url'] as String?,
+          isVerified: user['is_verified'] as bool? ?? false,
           mediaType: mediaType,
           mediaUrls: mediaUrls,
           caption: item['caption'] as String?,
-          hashtags: ((item['hashtags'] as List<dynamic>?) ?? []).map((e) => e.toString()).toList(),
-          createdAt: DateTime.parse(item['created_at'] as String),
-          likes: likeCount,
-          comments: item['comments_count'] as int? ?? 0,
-          views: item['views_count'] as int? ?? 0,
-          isLiked: isLiked,
+          hashtags: ((item['tags'] as List<dynamic>?) ?? [])
+              .map((e) => e.toString())
+              .toList(),
+          createdAt: item['createdAt'] != null
+              ? DateTime.parse(item['createdAt'] as String)
+              : DateTime.now(),
+          likes: item['likes_count'] as int? ?? 0,
+          comments: item['comments'] is List
+              ? (item['comments'] as List).length
+              : (item['comments_count'] as int? ?? 0),
+          views: 0,
+          isLiked: item['is_liked_by_me'] as bool? ?? false,
           isSaved: false,
           isFollowed: false,
           isTagged: false,
           isShared: false,
-          isAd: item['is_ad'] as bool? ?? false,
-          adTitle: item['ad_title'] as String?,
-          adCompanyId: item['ad_company_id'] as String?,
-          adCompanyName: item['ad_company_name'] as String?,
-          rawLikes: rawLikes,
+          isAd: false,
         );
       }).toList();
     } catch (e) {
@@ -296,20 +289,36 @@ class FeedService {
 
   // Get stories for online users
   List<StoryGroup> getStories() {
-    // Stories should be fetched from backend; for now return empty list until backend exists
     return [];
   }
-  
+
   // Get current user for profile icon
   User getCurrentUser() {
-    final supaUser = sb.Supabase.instance.client.auth.currentUser;
-    // Try to map to User model minimally
+    // Will be populated after fetching /auth/me.
+    // Return a placeholder; the caller should use AuthService.fetchCurrentUser() instead.
     return User(
-      id: supaUser?.id ?? 'unknown',
-      name: supaUser?.userMetadata?['full_name'] ?? supaUser?.userMetadata?['username'] ?? 'User',
-      email: supaUser?.email ?? '',
-      avatarUrl: supaUser?.userMetadata?['avatar_url'],
+      id: 'unknown',
+      name: 'User',
+      email: '',
     );
+  }
+
+  /// Fetch the current user from the REST API.
+  Future<User> fetchCurrentUser() async {
+    try {
+      final data = await _authApi.me();
+      return User(
+        id: data['id'] as String? ?? data['_id'] as String? ?? 'unknown',
+        name: data['full_name'] as String? ??
+            data['username'] as String? ??
+            'User',
+        email: data['email'] as String? ?? '',
+        avatarUrl: data['avatar_url'] as String?,
+        username: data['username'] as String?,
+      );
+    } catch (_) {
+      return User(id: 'unknown', name: 'User', email: '');
+    }
   }
 
   // Like/Unlike post
