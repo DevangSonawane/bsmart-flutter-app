@@ -1,4 +1,3 @@
-import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:jwt_decoder/jwt_decoder.dart';
 import '../api/api.dart';
 
@@ -15,8 +14,7 @@ class CurrentUser {
   /// Get the current user ID.
   ///
   /// 1. Checks for a REST API JWT and decodes `user_id` (or `id` / `sub`).
-  /// 2. Falls back to `Supabase.instance.client.auth.currentUser?.id`.
-  /// 3. Returns `null` if not authenticated.
+  /// 2. Returns `null` if not authenticated.
   static Future<String?> get id async {
     // Try REST API JWT first
     final token = await ApiClient().getToken();
@@ -30,14 +28,8 @@ class CurrentUser {
       } catch (_) {}
     }
 
-    // Fallback to Supabase
-    return Supabase.instance.client.auth.currentUser?.id;
+    return null;
   }
-
-  /// Synchronous access to the Supabase user ID (for backward compat).
-  /// Prefer the async [id] getter in new code.
-  static String? get supabaseId =>
-      Supabase.instance.client.auth.currentUser?.id;
 
   /// Whether the user is authenticated via either backend.
   static Future<bool> get isAuthenticated async {

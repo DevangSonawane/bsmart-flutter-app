@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
+import 'package:lucide_icons_flutter/lucide_icons.dart';
 import '../services/wallet_service.dart';
 import '../services/notification_service.dart';
 import '../services/ad_service.dart';
@@ -475,7 +476,7 @@ class _WatchAdsScreenEnhancedState extends State<WatchAdsScreenEnhanced>
                             child: Row(
                               mainAxisSize: MainAxisSize.min,
                               children: [
-                                const Icon(Icons.monetization_on, size: 16, color: Colors.white),
+                                const Icon(LucideIcons.coins, size: 16, color: Colors.white),
                                 const SizedBox(width: 4),
                                 Text(
                                   '+${ad.coinReward}',

@@ -191,10 +191,17 @@ class ApiClient {
 
   dynamic _handleResponse(http.Response response) {
     final Map<String, dynamic>? body = _tryDecodeJson(response.body);
-    final message = body?['message'] as String? ??
-        body?['error'] as String? ??
-        response.reasonPhrase ??
-        'Unknown error';
+    
+    // Extract detailed error message
+    String? message = body?['message'] as String?;
+    final error = body?['error'] as String?;
+    
+    if (message == null) {
+      message = error ?? response.reasonPhrase ?? 'Unknown error';
+    } else if (error != null && message != error) {
+      // Append detailed error if available
+      message = '$message: $error';
+    }
 
     switch (response.statusCode) {
       case 200:

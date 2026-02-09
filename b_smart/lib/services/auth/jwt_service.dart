@@ -3,7 +3,6 @@ import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:jwt_decoder/jwt_decoder.dart';
 import '../../models/auth/jwt_token_model.dart';
 import '../../utils/constants.dart';
-import '../../config/supabase_config.dart';
 import 'package:http/http.dart' as http;
 import 'dart:convert';
 
@@ -145,56 +144,10 @@ class JWTService {
 
   // Refresh access token
   Future<JWTToken?> refreshAccessToken() async {
-    final currentToken = await getStoredTokens();
-    if (currentToken == null || currentToken.isRefreshTokenExpired) {
-      await clearTokens();
-      return null;
-    }
-
-    try {
-      // Call Supabase auth token endpoint with refresh token
-      final refreshToken = currentToken.refreshToken;
-      final uri = Uri.parse('${SupabaseConfig.url}/auth/v1/token');
-      final res = await http.post(
-        uri,
-        headers: {
-          'apikey': SupabaseConfig.anonKey,
-          'Authorization': 'Bearer ${SupabaseConfig.anonKey}',
-          'Content-Type': 'application/x-www-form-urlencoded',
-        },
-        body: 'grant_type=refresh_token&refresh_token=$refreshToken',
-      );
-
-      if (res.statusCode != 200) {
-        await clearTokens();
-        return null;
-      }
-
-      final data = json.decode(res.body) as Map<String, dynamic>;
-      final accessToken = data['access_token'] as String?;
-      final newRefreshToken = data['refresh_token'] as String?;
-      final expiresIn = data['expires_in'] as int? ?? 3600;
-
-      if (accessToken == null || newRefreshToken == null) {
-        await clearTokens();
-        return null;
-      }
-
-      final now = DateTime.now();
-      final token = JWTToken(
-        accessToken: accessToken,
-        refreshToken: newRefreshToken,
-        accessTokenExpiresAt: now.add(Duration(seconds: expiresIn)),
-        refreshTokenExpiresAt:
-            now.add(AuthConstants.refreshTokenExpiry), // use configured expiry
-      );
-
-      await storeTokens(token);
-      return token;
-    } catch (e) {
-      await clearTokens();
-      return null;
-    }
+    // TODO: Implement refresh token logic with new REST API if supported
+    // For now, we just return null to force re-login if token expires
+    await clearTokens();
+    return null;
   }
 
   // Clear all tokens

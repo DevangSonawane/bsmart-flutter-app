@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
-import 'package:supabase_flutter/supabase_flutter.dart';
+import 'package:lucide_icons_flutter/lucide_icons.dart';
+import '../utils/current_user.dart';
 import '../services/wallet_service.dart';
 import '../services/notification_service.dart';
 import '../services/supabase_service.dart';
@@ -37,10 +38,10 @@ class _GiftCoinsScreenState extends State<GiftCoinsScreen> {
     super.dispose();
   }
 
-  void _loadUsers() {
+  void _loadUsers() async {
     // Get list of users to gift (exclude current user)
-    final me = Supabase.instance.client.auth.currentUser;
-    _svc.fetchUsers(excludeUserId: me?.id).then((list) {
+    final myId = await CurrentUser.id;
+    _svc.fetchUsers(excludeUserId: myId).then((list) {
       if (mounted) setState(() => _users = list);
     });
   }
@@ -317,7 +318,7 @@ class _GiftCoinsScreenState extends State<GiftCoinsScreen> {
               keyboardType: TextInputType.number,
               decoration: InputDecoration(
                 hintText: 'Enter coins to gift',
-                prefixIcon: const Icon(Icons.monetization_on),
+                prefixIcon: const Icon(LucideIcons.coins),
                 suffixText: 'coins',
                 border: OutlineInputBorder(
                   borderRadius: BorderRadius.circular(12),

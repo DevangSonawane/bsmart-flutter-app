@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
+import 'package:lucide_icons_flutter/lucide_icons.dart';
 import 'dart:async';
-import 'package:supabase_flutter/supabase_flutter.dart';
+import '../utils/current_user.dart';
 import '../models/ad_model.dart';
 import '../models/ad_category_model.dart';
 import '../services/ad_category_service.dart';
@@ -25,8 +26,7 @@ class _AdsPageScreenState extends State<AdsPageScreen>
   final AdEligibilityService _eligibilityService = AdEligibilityService();
   final WalletService _walletService = WalletService();
   final NotificationService _notificationService = NotificationService();
-
-  final String _userId = Supabase.instance.client.auth.currentUser?.id ?? 'user-1';
+  String _userId = 'user-1';
 
   List<AdCategory> _categories = [];
   String _selectedCategoryId = 'all';
@@ -49,6 +49,14 @@ class _AdsPageScreenState extends State<AdsPageScreen>
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
+    _init();
+  }
+
+  Future<void> _init() async {
+    final uid = await CurrentUser.id;
+    if (mounted && uid != null) {
+      setState(() => _userId = uid);
+    }
     _loadCategoriesAndAds();
   }
 
@@ -850,7 +858,7 @@ class _AdsPageScreenState extends State<AdsPageScreen>
                         Expanded(
                           child: Row(
                             children: [
-                              const Icon(Icons.monetization_on, color: InstagramTheme.primaryPink, size: 20),
+                              const Icon(LucideIcons.coins, color: InstagramTheme.primaryPink, size: 20),
                               const SizedBox(width: 8),
                               Flexible(
                                 child: Text(

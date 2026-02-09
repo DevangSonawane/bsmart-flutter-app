@@ -1,7 +1,6 @@
 // ignore_for_file: unnecessary_type_check, dead_code
 
 import '../models/notification_model.dart';
-import 'package:supabase_flutter/supabase_flutter.dart';
 import 'dart:async';
 
 class NotificationService {
@@ -109,32 +108,8 @@ class NotificationService {
 
   // Initialize realtime subscription for a user
   void startRealtimeForUser(String userId) {
-    try {
-      final client = Supabase.instance.client;
-      // Subscribe to table stream for notifications (inserts/updates)
-      final stream = client.from('notifications').stream(primaryKey: ['id']).eq('user_id', userId);
-      _subscription = stream.listen((payload) {
-        try {
-          final List<dynamic> records = payload is List
-              ? payload as List<dynamic>
-              : (payload is Map ? [payload] : <dynamic>[]);
-          for (final record in records) {
-            if (record is! Map<String, dynamic>) continue;
-            final rec = record;
-            if (rec['user_id'] == userId) {
-              final item = NotificationItem.fromJson(rec);
-              addNotification(item);
-            }
-          }
-        } catch (e) {
-          // ignore
-        }
-      }, onError: (_) {
-        // ignore stream errors
-      });
-    } catch (e) {
-      // ignore - fallback to dummy notifications
-    }
+    // Realtime notifications are not yet supported in the REST API.
+    // Keeping this stub for future implementation.
   }
 
   // Get notifications stream (for real-time updates)

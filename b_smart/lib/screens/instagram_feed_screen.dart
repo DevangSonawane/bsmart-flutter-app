@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:lucide_icons_flutter/lucide_icons.dart';
 import 'dart:async';
 import '../models/feed_post_model.dart';
 import '../models/story_model.dart';
@@ -315,7 +316,7 @@ class _InstagramFeedScreenState extends State<InstagramFeedScreen> {
                 Column(
                   mainAxisSize: MainAxisSize.min,
                   children: [
-                    const Icon(Icons.monetization_on, color: InstagramTheme.primaryPink, size: 16),
+                    const Icon(LucideIcons.coins, color: InstagramTheme.primaryPink, size: 16),
                     const SizedBox(height: 2),
                     FutureBuilder<int>(
                       future: _walletService.getCoinBalance(),

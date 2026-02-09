@@ -1,5 +1,4 @@
 import 'package:flutter/widgets.dart';
-import 'package:supabase_flutter/supabase_flutter.dart';
 import 'screens/auth/login/login_screen.dart';
 import 'screens/auth/signup_screen.dart';
 import 'screens/auth/forgot_password_screen.dart';
@@ -35,8 +34,8 @@ final Map<String, WidgetBuilder> appRoutes = {
   '/wallet': (ctx) => const WalletScreen(),
   '/notifications': (ctx) => const NotificationsScreen(),
   '/edit-profile': (ctx) {
-    final userId = Supabase.instance.client.auth.currentUser?.id ?? '';
-    return EditProfileScreen(userId: userId);
+    // EditProfileScreen will fetch current user if userId is empty/null
+    return const EditProfileScreen(userId: '');
   },
 };
 

@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
-import 'package:supabase_flutter/supabase_flutter.dart';
+import '../../api/auth_api.dart';
 import '../theme/design_tokens.dart';
 import '../theme/theme_scope.dart';
 import 'auth/login/login_screen.dart';
@@ -19,7 +19,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
   Future<void> _logout() async {
     setState(() => _loggingOut = true);
     try {
-      await Supabase.instance.client.auth.signOut();
+      await AuthApi().logout();
       if (mounted) {
         Navigator.of(context).pushAndRemoveUntil(
           MaterialPageRoute(builder: (_) => const LoginScreen()),

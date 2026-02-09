@@ -1,4 +1,4 @@
-import 'package:supabase_flutter/supabase_flutter.dart';
+import '../api/posts_api.dart';
 
 /// Fetches promote (sponsored video) content. When backend has a
 /// promoted_videos (or similar) table, add the query here and remove fallback.
@@ -8,7 +8,7 @@ class PromoteService {
   factory PromoteService() => _instance;
   PromoteService._internal();
 
-  final SupabaseClient _client = Supabase.instance.client;
+  final PostsApi _postsApi = PostsApi();
 
   static List<Map<String, dynamic>> _defaultPromotes() {
     return [
@@ -46,20 +46,18 @@ class PromoteService {
   /// and map to this shape; on error or empty return default mock list.
   Future<List<Map<String, dynamic>>> fetchPromotes({int limit = 20}) async {
     try {
-      // When backend has promoted_videos (or posts with type=promote), use:
-      // final res = await _client.from('promoted_videos').select('*').order('created_at', ascending: false).limit(limit);
-      // Map rows to { id, username, videoUrl, likes, comments, description, brandName, rating, products }
-      // return List<Map<String, dynamic>>.from(res);
-      final res = await _client
-          .from('posts')
-          .select('id, user_id, media, caption, created_at, users:users(username)')
-          .eq('media_type', 'promote')
-          .order('created_at', ascending: false)
-          .limit(limit);
-      final items = List<Map<String, dynamic>>.from(res);
+      final res = await _postsApi.getFeed(limit: limit);
+      final allPosts = res['posts'] as List<dynamic>? ?? [];
+      
+      final items = allPosts.where((p) {
+        final type = p['type'] as String? ?? p['media_type'] as String? ?? 'post';
+        return type == 'promote';
+      }).toList();
+
       if (items.isEmpty) return _defaultPromotes();
+      
       return items.map((item) {
-        final user = item['users'] as Map<String, dynamic>?;
+        final user = item['users'] as Map<String, dynamic>? ?? item['user'] as Map<String, dynamic>?;
         final media = item['media'] as List<dynamic>? ?? [];
         Object? videoUrlObj;
         if (media.isNotEmpty) {
@@ -72,10 +70,10 @@ class PromoteService {
           'id': item['id'] as String? ?? '',
           'username': user?['username'] as String? ?? 'user',
           'videoUrl': videoUrl.isEmpty ? 'https://assets.mixkit.co/videos/preview/mixkit-working-on-a-new-project-4240-large.mp4' : videoUrl,
-          'likes': '0',
-          'comments': '0',
+          'likes': (item['likes_count'] as int? ?? 0).toString(),
+          'comments': (item['comments_count'] as int? ?? 0).toString(),
           'description': item['caption'] as String? ?? '',
-          'brandName': '',
+          'brandName': item['ad_company_name'] as String? ?? '',
           'rating': 4.0,
           'products': <Map<String, dynamic>>[],
         };

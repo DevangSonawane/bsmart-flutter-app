@@ -1,4 +1,4 @@
-import 'package:supabase_flutter/supabase_flutter.dart';
+import '../api/posts_api.dart';
 import '../models/reel_model.dart';
 
 class ReelsService {
@@ -10,7 +10,7 @@ class ReelsService {
     _init();
   }
 
-  final SupabaseClient _client = Supabase.instance.client;
+  final PostsApi _postsApi = PostsApi();
   final List<Reel> _cache = [];
 
   static List<Reel> _defaultMockReels() {
@@ -135,20 +135,23 @@ class ReelsService {
 
   Future<List<Reel>> fetchReels({int limit = 20, int offset = 0}) async {
     try {
-      final res = await _client
-          .from('posts')
-          .select('*, users:users(id, username, avatar_url)')
-          .eq('media_type', 'reel')
-          .order('created_at', ascending: false)
-          .range(offset, offset + limit - 1);
-      final items = List<Map<String, dynamic>>.from(res);
+      final page = (offset ~/ limit) + 1;
+      final res = await _postsApi.getFeed(page: page, limit: limit);
+      final allPosts = res['posts'] as List<dynamic>? ?? [];
+      
+      // Filter for reels client-side since API doesn't support type filtering yet
+      final items = allPosts.where((p) {
+        final type = p['type'] as String? ?? p['media_type'] as String? ?? 'post';
+        return type == 'reel';
+      }).toList();
+
       final list = items.map((item) {
-        final user = item['users'] as Map<String, dynamic>?;
+        final user = item['users'] as Map<String, dynamic>? ?? item['user'] as Map<String, dynamic>?;
         final media = item['media'] as List<dynamic>? ?? [];
         final videoUrl = media.isNotEmpty ? (media.first is String ? media.first : (media.first['url'] ?? '')) : '';
         return Reel(
           id: item['id'] as String,
-          userId: item['user_id'] as String,
+          userId: item['user_id'] as String? ?? user?['id'] as String? ?? '',
           userName: user?['username'] as String? ?? 'user',
           userAvatarUrl: user?['avatar_url'] as String?,
           videoUrl: videoUrl,
@@ -162,10 +165,10 @@ class ReelsService {
           comments: item['comments_count'] as int? ?? 0,
           shares: item['shares_count'] as int? ?? 0,
           views: item['views_count'] as int? ?? 0,
-          isLiked: false,
+          isLiked: item['is_liked_by_me'] as bool? ?? false,
           isSaved: false,
           isFollowing: false,
-          createdAt: DateTime.parse(item['created_at'] as String),
+          createdAt: DateTime.tryParse(item['created_at'] as String? ?? '') ?? DateTime.now(),
           isSponsored: item['is_ad'] as bool? ?? false,
           sponsorBrand: item['ad_company_name'] as String?,
           sponsorLogoUrl: null,
@@ -293,23 +296,11 @@ class ReelsService {
   }
 
   Future<void> incrementViews(String reelId) async {
-    try {
-      await _client.rpc('increment_views', params: {'post_id': reelId});
-    } catch (e) {
-      try {
-        final current = await _client.from('posts').select('views_count').eq('id', reelId).maybeSingle();
-        final curVal = current?['views_count'] as int? ?? 0;
-        await _client.from('posts').update({'views_count': curVal + 1}).eq('id', reelId);
-      } catch (_) {}
-    }
+    // API doesn't support view increment yet
   }
 
   Future<void> incrementShares(String reelId) async {
-    try {
-      final current = await _client.from('posts').select('shares_count').eq('id', reelId).maybeSingle();
-      final curVal = current?['shares_count'] as int? ?? 0;
-      await _client.from('posts').update({'shares_count': curVal + 1}).eq('id', reelId);
-    } catch (_) {}
+    // API doesn't support share increment yet
   }
 
   // Local cache helpers for UI interactions (optimistic)
@@ -317,9 +308,14 @@ class ReelsService {
     final idx = _cache.indexWhere((r) => r.id == reelId);
     if (idx != -1) {
       final r = _cache[idx];
-      _cache[idx] = r.copyWith(isLiked: !r.isLiked, likes: r.isLiked ? r.likes - 1 : r.likes + 1);
+      final newLiked = !r.isLiked;
+      _cache[idx] = r.copyWith(isLiked: newLiked, likes: newLiked ? r.likes + 1 : r.likes - 1);
       // async backend update
-      _client.rpc('toggle_reel_like', params: {'post_id': reelId});
+      if (newLiked) {
+        _postsApi.likePost(reelId);
+      } else {
+        _postsApi.unlikePost(reelId);
+      }
     }
   }
 
@@ -328,8 +324,7 @@ class ReelsService {
     if (idx != -1) {
       final r = _cache[idx];
       _cache[idx] = r.copyWith(isSaved: !r.isSaved);
-      // backend save action (best-effort)
-      _client.rpc('toggle_reel_save', params: {'post_id': reelId});
+      // backend save action (not supported in new API yet)
     }
   }
 
@@ -339,10 +334,6 @@ class ReelsService {
         _cache[i] = _cache[i].copyWith(isFollowing: !_cache[i].isFollowing);
       }
     }
-    // best-effort backend call
-    final me = Supabase.instance.client.auth.currentUser;
-    if (me != null) {
-      _client.rpc('toggle_follow', params: {'follower_id': me.id, 'followed_id': userId});
-    }
+    // backend follow action (not supported in new API yet)
   }
 }

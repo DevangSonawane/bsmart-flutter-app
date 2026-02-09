@@ -1,41 +1,22 @@
-import 'package:supabase_flutter/supabase_flutter.dart';
+import 'dart:async';
 
 class AdsService {
   static final AdsService _instance = AdsService._internal();
   factory AdsService() => _instance;
   AdsService._internal();
 
-  final SupabaseClient _client = Supabase.instance.client;
-
   Future<List<Map<String, dynamic>>> fetchAds({int limit = 20, int offset = 0}) async {
-    try {
-      final res = await _client
-          .from('ads')
-          .select('*, company:companies(*)')
-          .order('created_at', ascending: false)
-          .range(offset, offset + limit - 1);
-      return List<Map<String, dynamic>>.from(res);
-    } catch (e) {
-      return [];
-    }
+    // Return empty list as Ads API is not yet available
+    return [];
   }
 
   Future<Map<String, dynamic>?> getProductById(String productId) async {
-    try {
-      final res = await _client.from('products').select().eq('id', productId).maybeSingle();
-      return res != null ? Map<String, dynamic>.from(res) : null;
-    } catch (e) {
-      return null;
-    }
+    // Return null as Products API is not yet available
+    return null;
   }
 
   Future<bool> createAd(Map<String, dynamic> data) async {
-    try {
-      await _client.from('ads').insert(data);
-      return true;
-    } catch (e) {
-      return false;
-    }
+    // Return false as Ads API is not yet available
+    return false;
   }
 }
-

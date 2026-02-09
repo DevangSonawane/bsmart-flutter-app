@@ -1,9 +1,9 @@
 import 'package:flutter/material.dart';
-import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 import '../services/supabase_service.dart';
 import '../theme/design_tokens.dart';
+import '../utils/current_user.dart';
 
 /// Full-screen post detail page for mobile / deep link (/post/:postId).
 /// Reuses same data and UI as PostDetailModal but as a routed screen with AppBar.
@@ -56,7 +56,7 @@ class _PostDetailScreenState extends State<PostDetailScreen> {
     }
     final comments = await _svc.getComments(widget.postId);
     final likes = post['likes'] as List<dynamic>? ?? [];
-    final currentUserId = Supabase.instance.client.auth.currentUser?.id;
+    final currentUserId = await CurrentUser.id;
     final isLiked = currentUserId != null &&
         likes.any((e) => e is Map && e['user_id'] == currentUserId);
     if (mounted) {
@@ -73,7 +73,7 @@ class _PostDetailScreenState extends State<PostDetailScreen> {
 
   Future<void> _postComment() async {
     final content = _commentController.text.trim();
-    final userId = Supabase.instance.client.auth.currentUser?.id;
+    final userId = await CurrentUser.id;
     if (content.isEmpty || userId == null) return;
     setState(() => _postingComment = true);
     try {
@@ -327,15 +327,19 @@ class _PostDetailScreenState extends State<PostDetailScreen> {
                 IconButton(
                   icon: Icon(LucideIcons.heart, color: _isLiked ? Colors.red : theme.iconTheme.color),
                   onPressed: () async {
-                    final uid = Supabase.instance.client.auth.currentUser?.id;
+                    final uid = await CurrentUser.id;
                     if (uid == null || _post == null) return;
-                    final rawLikes = _post!['likes'] as List<dynamic>? ?? [];
-                    final current = rawLikes.map((e) => Map<String, dynamic>.from(e as Map)).toList();
-                    final newLikes = _isLiked
-                        ? current.where((e) => e['user_id'] != uid).toList()
-                        : [...current, {'user_id': uid, 'like': true}];
-                    final ok = await _svc.updatePostLikes(widget.postId, newLikes);
-                    if (ok && mounted) await _load();
+                    
+                    // Optimistic update
+                    setState(() => _isLiked = !_isLiked);
+
+                    final success = await _svc.togglePostLike(widget.postId, uid);
+                    // If server response differs from optimistic state, reload or correct it
+                    // togglePostLike returns true if liked, false if unliked
+                    if (mounted) {
+                      setState(() => _isLiked = success);
+                      await _load(); // Refresh count
+                    }
                   },
                 ),
                 IconButton(icon: Icon(LucideIcons.messageCircle, color: theme.iconTheme.color), onPressed: () {}),

@@ -404,8 +404,8 @@ class _SliverTabBarDelegate extends SliverPersistentHeaderDelegate {
 }
 
 class EditProfileScreen extends StatefulWidget {
-  final String userId;
-  const EditProfileScreen({Key? key, required this.userId}) : super(key: key);
+  final String? userId;
+  const EditProfileScreen({Key? key, this.userId}) : super(key: key);
 
   @override
   State<EditProfileScreen> createState() => _EditProfileScreenState();
@@ -421,6 +421,7 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
   bool _uploading = false;
   String? _avatarUrl;
   Map<String, dynamic>? _profile;
+  String? _effectiveUserId;
 
   @override
   void initState() {
@@ -429,7 +430,17 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
   }
 
   Future<void> _load() async {
-    final profile = await _svc.getUserById(widget.userId);
+    final uid = widget.userId != null && widget.userId!.isNotEmpty
+        ? widget.userId
+        : await CurrentUser.id;
+    
+    if (uid == null) {
+      if (mounted) Navigator.of(context).pop();
+      return;
+    }
+    _effectiveUserId = uid;
+
+    final profile = await _svc.getUserById(uid);
     if (mounted) {
       setState(() {
         _profile = profile;
@@ -451,15 +462,13 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
     try {
       final bytes = await xfile.readAsBytes();
       final ext = xfile.path.split('.').last;
-      final path = '${widget.userId}/${DateTime.now().millisecondsSinceEpoch}.$ext';
-      final url = await _svc.uploadFile('avatars', path, bytes);
-      if (url != null && mounted) {
+      final path = '$_effectiveUserId/${DateTime.now().millisecondsSinceEpoch}.$ext';
+      final res = await _svc.uploadFile('avatars', path, bytes);
+      if (mounted) {
         setState(() {
-          _avatarUrl = url;
+          _avatarUrl = res['fileUrl'] as String?;
           _uploading = false;
         });
-      } else {
-        if (mounted) setState(() => _uploading = false);
       }
     } catch (e) {
       if (mounted) {
@@ -479,7 +488,8 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
       if (_avatarUrl != null) 'avatar_url': _avatarUrl,
     };
     try {
-      await _svc.updateUserProfile(widget.userId, updates);
+      if (_effectiveUserId == null) throw 'User ID not found';
+      await _svc.updateUserProfile(_effectiveUserId!, updates);
       if (mounted) {
         setState(() => _loading = false);
         Navigator.of(context).pop();

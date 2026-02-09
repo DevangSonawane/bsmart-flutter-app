@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:image_picker/image_picker.dart';
 import '../models/media_model.dart';
 import '../services/create_service.dart';
 import 'create_edit_preview_screen.dart';
@@ -12,6 +13,7 @@ class CreateCameraScreen extends StatefulWidget {
 
 class _CreateCameraScreenState extends State<CreateCameraScreen> {
   final CreateService _createService = CreateService();
+  final ImagePicker _picker = ImagePicker();
   bool _isFrontCamera = false;
   bool _isFlashOn = false;
   bool _isRecording = false;
@@ -40,37 +42,77 @@ class _CreateCameraScreenState extends State<CreateCameraScreen> {
     });
   }
 
-  void _capturePhoto() {
-    // Simulate photo capture
-    final media = MediaItem(
-      id: 'media-${DateTime.now().millisecondsSinceEpoch}',
-      type: MediaType.image,
-      createdAt: DateTime.now(),
-    );
+  Future<void> _capturePhoto() async {
+    try {
+      final XFile? file = await _picker.pickImage(
+        source: ImageSource.camera,
+        preferredCameraDevice: _isFrontCamera ? CameraDevice.front : CameraDevice.rear,
+      );
+      
+      if (file != null) {
+        final media = MediaItem(
+          id: DateTime.now().millisecondsSinceEpoch.toString(),
+          type: MediaType.image,
+          filePath: file.path,
+          createdAt: DateTime.now(),
+        );
 
-    _navigateToEdit(media);
+        _navigateToEdit(media);
+      }
+    } catch (e) {
+      debugPrint('Error capturing photo: $e');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Error capturing photo: $e')),
+        );
+      }
+    }
+  }
+  
+  Future<void> _captureVideo() async {
+     try {
+      final XFile? file = await _picker.pickVideo(
+        source: ImageSource.camera,
+        preferredCameraDevice: _isFrontCamera ? CameraDevice.front : CameraDevice.rear,
+        maxDuration: const Duration(seconds: 60),
+      );
+      
+      if (file != null) {
+        // Get video duration if possible (ImagePicker doesn't provide it directly, 
+        // but CreateService.validateMedia checks it. 
+        // For now we assume it's valid or rely on server/later checks)
+        
+        final media = MediaItem(
+          id: DateTime.now().millisecondsSinceEpoch.toString(),
+          type: MediaType.video,
+          filePath: file.path,
+          createdAt: DateTime.now(),
+        );
+
+        _navigateToEdit(media);
+      }
+    } catch (e) {
+      debugPrint('Error capturing video: $e');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Error capturing video: $e')),
+        );
+      }
+    }
   }
 
   void _startRecording() {
+    // Legacy UI state
     setState(() {
       _isRecording = true;
     });
   }
 
   void _stopRecording() {
+    // Legacy UI state
     setState(() {
       _isRecording = false;
     });
-
-    // Simulate video recording
-    final media = MediaItem(
-      id: 'media-${DateTime.now().millisecondsSinceEpoch}',
-      type: MediaType.video,
-      duration: const Duration(seconds: 15),
-      createdAt: DateTime.now(),
-    );
-
-    _navigateToEdit(media);
   }
 
   void _navigateToEdit(MediaItem media) {
@@ -204,19 +246,32 @@ class _CreateCameraScreenState extends State<CreateCameraScreen> {
                           ),
                           child: const Icon(Icons.image, color: Colors.white),
                         ),
-                        onPressed: () {
-                          // Switch to upload tab - handled by parent CreateScreen
-                          ScaffoldMessenger.of(context).showSnackBar(
-                            const SnackBar(content: Text('Switch to Upload tab to select from gallery')),
-                          );
+                        onPressed: () async {
+                           try {
+                             final XFile? file = await _picker.pickImage(source: ImageSource.gallery);
+                             if (file != null) {
+                               final media = MediaItem(
+                                 id: DateTime.now().millisecondsSinceEpoch.toString(),
+                                 type: MediaType.image,
+                                 filePath: file.path,
+                                 createdAt: DateTime.now(),
+                               );
+                               if (!mounted) return;
+                               _navigateToEdit(media);
+                             }
+                           } catch (e) {
+                             if (!mounted) return;
+                             ScaffoldMessenger.of(context).showSnackBar(
+                               SnackBar(content: Text('Error picking file: $e')),
+                             );
+                           }
                         },
                       ),
 
                       // Capture Button
                       GestureDetector(
                         onTap: _capturePhoto,
-                        onLongPressStart: (_) => _startRecording(),
-                        onLongPressEnd: (_) => _stopRecording(),
+                        onLongPress: _captureVideo,
                         child: Container(
                           width: 70,
                           height: 70,

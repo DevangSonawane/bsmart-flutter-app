@@ -1,5 +1,5 @@
 import 'package:flutter/material.dart';
-import 'package:supabase_flutter/supabase_flutter.dart';
+import '../utils/current_user.dart';
 import '../models/boost_model.dart';
 import '../services/boost_service.dart';
 import 'boost_analytics_screen.dart';
@@ -20,7 +20,7 @@ class BoostPostScreen extends StatefulWidget {
 
 class _BoostPostScreenState extends State<BoostPostScreen> {
   final BoostService _boostService = BoostService();
-  final String _userId = Supabase.instance.client.auth.currentUser?.id ?? 'user-1';
+  String _userId = 'user-1';
 
   BoostDuration? _selectedDuration;
   BoostEligibilityResult? _eligibilityResult;
@@ -31,6 +31,14 @@ class _BoostPostScreenState extends State<BoostPostScreen> {
   @override
   void initState() {
     super.initState();
+    _init();
+  }
+
+  Future<void> _init() async {
+    final uid = await CurrentUser.id;
+    if (mounted && uid != null) {
+      setState(() => _userId = uid);
+    }
     _checkEligibility();
   }
 

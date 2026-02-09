@@ -1,6 +1,5 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'screens/auth/login/login_screen.dart';
 import 'screens/home_dashboard.dart';
@@ -9,7 +8,6 @@ import 'theme/theme_notifier.dart';
 import 'theme/theme_scope.dart';
 import 'state/store.dart';
 import 'state/app_state.dart';
-import 'config/supabase_config.dart';
 import 'config/api_config.dart';
 import 'api/api.dart';
 import 'package:flutter_redux/flutter_redux.dart';
@@ -36,39 +34,6 @@ void main() async {
     } catch (_) {}
     ApiConfig.init(baseUrl: apiBaseUrl);
   }
-
-  // Initialize SupabaseConfig from dotenv if available (safe access)
-  // Supabase is kept initialised for backward compatibility with screens
-  // that still access Supabase.instance.client directly.
-  {
-    String? url;
-    String? anonKey;
-    String? googleWebClientId;
-    String? googleAndroidClientId;
-    String? googleIosClientId;
-    try {
-      url = dotenv.env['SUPABASE_URL'];
-      anonKey = dotenv.env['SUPABASE_ANON_KEY'];
-      googleWebClientId = dotenv.env['GOOGLE_WEB_CLIENT_ID'];
-      googleAndroidClientId = dotenv.env['GOOGLE_ANDROID_CLIENT_ID'];
-      googleIosClientId = dotenv.env['GOOGLE_IOS_CLIENT_ID'];
-    } catch (_) {
-      // dotenv not initialized or unavailable; leave values null to use defaults
-    }
-    SupabaseConfig.init(
-      url: url,
-      anonKey: anonKey,
-      googleWebClientId: googleWebClientId,
-      googleAndroidClientId: googleAndroidClientId,
-      googleIosClientId: googleIosClientId,
-    );
-  }
-
-  // Initialize Supabase (kept for backward compatibility)
-  await Supabase.initialize(
-    url: SupabaseConfig.url,
-    anonKey: SupabaseConfig.anonKey,
-  );
 
   // Set preferred orientations
   await SystemChrome.setPreferredOrientations([
@@ -105,24 +70,12 @@ class _BSmartAppState extends State<BSmartApp> {
   }
 
   Future<void> _checkAuthStatus() async {
-    // Check for stored JWT from the REST API first, then fall back to Supabase session.
+    // Check for stored JWT from the REST API
     final hasApiToken = await ApiClient().hasToken;
-    final hasSupabaseSession =
-        Supabase.instance.client.auth.currentSession != null;
 
     setState(() {
-      _isAuthenticated = hasApiToken || hasSupabaseSession;
+      _isAuthenticated = hasApiToken;
       _isInitialized = true;
-    });
-
-    // Continue listening for Supabase auth state changes (backward compat).
-    Supabase.instance.client.auth.onAuthStateChange.listen((data) {
-      if (mounted) {
-        setState(() {
-          _isAuthenticated =
-              _isAuthenticated || data.session != null;
-        });
-      }
     });
   }
 

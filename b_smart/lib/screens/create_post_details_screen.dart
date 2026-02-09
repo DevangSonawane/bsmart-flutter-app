@@ -4,6 +4,9 @@ import '../models/content_moderation_model.dart';
 import '../services/create_service.dart';
 import '../services/content_moderation_service.dart';
 import 'content_moderation_dialog.dart';
+import '../api/posts_api.dart';
+import '../api/upload_api.dart';
+import '../utils/current_user.dart';
 
 class CreatePostDetailsScreen extends StatefulWidget {
   final MediaItem media;
@@ -94,6 +97,10 @@ class _CreatePostDetailsScreenState extends State<CreatePostDetailsScreen> {
     });
   }
 
+  void _goToLogin() {
+    Navigator.of(context).pushNamed('/login');
+  }
+
   Future<void> _handlePost() async {
     if (_captionController.text.trim().isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -102,9 +109,22 @@ class _CreatePostDetailsScreenState extends State<CreatePostDetailsScreen> {
       return;
     }
 
+    final userId = await CurrentUser.id;
+    if (userId == null) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: const Text('Please login to post'),
+            action: SnackBarAction(label: 'Login', onPressed: _goToLogin),
+          ),
+        );
+      }
+      return;
+    }
+
     // Check if user can post (strike system)
-    if (!_moderationService.canUserPost('user-1')) {
-      final strikes = _moderationService.getUserStrikes('user-1');
+    if (!_moderationService.canUserPost(userId)) {
+      final strikes = _moderationService.getUserStrikes(userId);
       showDialog(
         context: context,
         builder: (context) => AlertDialog(
@@ -147,7 +167,7 @@ class _CreatePostDetailsScreenState extends State<CreatePostDetailsScreen> {
       // Handle moderation result
       if (moderationResult.isBlocked) {
         // Add strike
-        _moderationService.addStrike('user-1', 'sexual_content');
+        _moderationService.addStrike(userId, 'sexual_content');
         
         // Show block dialog
         showDialog(
@@ -183,7 +203,7 @@ class _CreatePostDetailsScreenState extends State<CreatePostDetailsScreen> {
     }
   }
 
-  void _proceedWithPosting(ContentModerationResult moderationResult) {
+  void _proceedWithPosting(ContentModerationResult moderationResult) async {
     // Show posting dialog
     showDialog(
       context: context,
@@ -193,8 +213,34 @@ class _CreatePostDetailsScreenState extends State<CreatePostDetailsScreen> {
       ),
     );
 
-    // Simulate posting
-    Future.delayed(const Duration(seconds: 2), () {
+    try {
+      // 1. Upload media
+      final filePath = widget.media.filePath;
+      if (filePath == null) {
+         throw Exception('File path is missing');
+      }
+
+      final uploadRes = await UploadApi().uploadFile(filePath);
+      final fileName = uploadRes['fileName'] as String;
+
+      // 2. Create post
+      final mediaItem = {
+        'fileName': fileName,
+        'ratio': 1.0, // Default ratio
+        'filter': widget.selectedFilter ?? 'none',
+        'type': widget.media.type == MediaType.video ? 'video' : 'image',
+      };
+
+      await PostsApi().createPost(
+        media: [mediaItem],
+        caption: _captionController.text.trim(),
+        location: _location,
+        tags: _hashtags,
+        hideLikesCount: false,
+        turnOffCommenting: !_commentsEnabled,
+        type: widget.media.type == MediaType.video ? 'reel' : 'post',
+      );
+
       if (mounted) {
         Navigator.of(context).pop(); // Close loading
         Navigator.of(context).popUntil((route) => route.isFirst); // Go back to home
@@ -210,7 +256,17 @@ class _CreatePostDetailsScreenState extends State<CreatePostDetailsScreen> {
           ),
         );
       }
-    });
+    } catch (e) {
+      if (mounted) {
+        Navigator.of(context).pop(); // Close loading
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Failed to post: ${e.toString()}'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    }
   }
 
   @override

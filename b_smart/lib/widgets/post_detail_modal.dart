@@ -1,9 +1,9 @@
 import 'package:flutter/material.dart';
-import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 import '../services/supabase_service.dart';
 import '../theme/design_tokens.dart';
+import '../utils/current_user.dart';
 
 /// Modal matching React PostDetailModal: image left, details + comments right.
 class PostDetailModal extends StatefulWidget {
@@ -58,7 +58,7 @@ class _PostDetailModalState extends State<PostDetailModal> {
     final comments = await _svc.getComments(widget.postId);
     final rawLikes = post['likes'] as List<dynamic>? ?? [];
     final likesList = rawLikes.map((e) => Map<String, dynamic>.from(e as Map)).toList();
-    final currentUserId = Supabase.instance.client.auth.currentUser?.id;
+    final currentUserId = await CurrentUser.id;
     final isLiked = currentUserId != null && likesList.any((e) => e['user_id'] == currentUserId);
     if (mounted) {
       setState(() {
@@ -74,31 +74,51 @@ class _PostDetailModalState extends State<PostDetailModal> {
   }
 
   Future<void> _handleLike() async {
-    final userId = Supabase.instance.client.auth.currentUser?.id;
+    final userId = await CurrentUser.id;
     if (userId == null || _post == null) return;
-    final rawLikes = _post!['likes'] as List<dynamic>? ?? [];
-    final current = rawLikes.map((e) => Map<String, dynamic>.from(e as Map)).toList();
-    final newLikes = _isLiked
-        ? current.where((e) => e['user_id'] != userId).toList()
-        : [...current, {'user_id': userId, 'like': true}];
+    
+    // Optimistic update
+    final wasLiked = _isLiked;
     setState(() {
-      _isLiked = !_isLiked;
-      _likeCount = newLikes.length;
+      _isLiked = !wasLiked;
+      _likeCount = !wasLiked ? _likeCount + 1 : _likeCount - 1;
     });
-    final ok = await _svc.updatePostLikes(widget.postId, newLikes);
-    if (!ok && mounted) {
-      setState(() {
-        _isLiked = !_isLiked;
-        _likeCount = current.length;
-      });
-    } else if (ok && mounted) {
-      setState(() => _post = {..._post!, 'likes': newLikes});
+
+    final success = await _svc.togglePostLike(widget.postId, userId);
+    
+    // Revert if failed (togglePostLike returns true if liked, false if unliked, but we can't easily distinguish failure from "unliked successfully" without more info, 
+    // but based on SupabaseService implementation, it returns the *new state* effectively or false on error? 
+    // Wait, SupabaseService.togglePostLike returns true (liked) or false (unliked or error).
+    // If it returns false, it could be unliked OR error.
+    // Ideally we should trust the return value as the new state if it wasn't an error.
+    // But SupabaseService swallows errors and returns false.
+    // So if I liked it (expecting true) and got false, it might be an error or it was already liked and got unliked.
+    // Since togglePostLike handles the toggle logic on server (try like, if fail, unlike), 
+    // the return value IS the state.
+    
+    if (mounted) {
+       // Sync with server state
+       if (_isLiked != success) {
+          // If our optimistic state matches server state, great. 
+          // If not, update to match server state.
+          setState(() {
+            _isLiked = success;
+             // Adjust count based on correction
+             if (success) {
+                // We thought it was false, but it's true.
+                _likeCount++; 
+             } else {
+                // We thought it was true, but it's false.
+                _likeCount--;
+             }
+          });
+       }
     }
   }
 
   Future<void> _postComment() async {
     final content = _commentController.text.trim();
-    final userId = Supabase.instance.client.auth.currentUser?.id;
+    final userId = await CurrentUser.id;
     if (content.isEmpty || userId == null) return;
     setState(() => _postingComment = true);
     try {

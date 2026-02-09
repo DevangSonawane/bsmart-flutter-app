@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:lucide_icons_flutter/lucide_icons.dart';
 import '../services/wallet_service.dart';
 import '../theme/instagram_theme.dart';
 import '../widgets/clay_container.dart';
@@ -87,7 +88,7 @@ class _WalletScreenState extends State<WalletScreen> {
                     Row(
                       mainAxisAlignment: MainAxisAlignment.center,
                       children: [
-                        const Icon(Icons.monetization_on, 
+                        const Icon(LucideIcons.coins, 
                           color: InstagramTheme.primaryPink, size: 40),
                         const SizedBox(width: 8),
                         Text(

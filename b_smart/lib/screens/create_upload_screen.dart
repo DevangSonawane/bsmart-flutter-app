@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:image_picker/image_picker.dart';
 import '../models/media_model.dart';
 import '../services/create_service.dart';
 import 'create_edit_preview_screen.dart';
@@ -12,6 +13,7 @@ class CreateUploadScreen extends StatefulWidget {
 
 class _CreateUploadScreenState extends State<CreateUploadScreen> {
   final CreateService _createService = CreateService();
+  final ImagePicker _picker = ImagePicker();
   final List<MediaItem> _selectedMedia = [];
   List<MediaItem> _galleryMedia = [];
 
@@ -21,44 +23,67 @@ class _CreateUploadScreenState extends State<CreateUploadScreen> {
     _loadGalleryMedia();
   }
 
+  Future<void> _pickFromGallery() async {
+    await _pickMedia(MediaType.image);
+  }
+
+  Future<void> _pickVideoFromGallery() async {
+    await _pickMedia(MediaType.video);
+  }
+
+  Future<void> _pickMedia(MediaType type) async {
+    try {
+      final XFile? file;
+      if (type == MediaType.image) {
+        file = await _picker.pickImage(source: ImageSource.gallery);
+      } else {
+        file = await _picker.pickVideo(
+          source: ImageSource.gallery,
+          maxDuration: const Duration(seconds: 60),
+        );
+      }
+
+      if (file != null) {
+        final media = MediaItem(
+          id: DateTime.now().millisecondsSinceEpoch.toString(),
+          type: type,
+          filePath: file.path,
+          createdAt: DateTime.now(),
+          duration: type == MediaType.video ? const Duration(seconds: 15) : null, // Approx duration as we can't easily get it without video_player
+        );
+        
+        if (!mounted) return;
+        
+        // Validate media
+        if (!_createService.validateMedia(media)) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('Invalid media file')),
+          );
+          return;
+        }
+
+        // Navigate directly to edit screen
+        Navigator.of(context).push(
+          MaterialPageRoute(
+            builder: (context) => CreateEditPreviewScreen(
+              media: media,
+              selectedFilter: null,
+            ),
+          ),
+        );
+      }
+    } catch (e) {
+      debugPrint('Error picking file: $e');
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Error picking file: $e')),
+      );
+    }
+  }
+
   void _loadGalleryMedia() {
-    // Simulate gallery media
-    final now = DateTime.now();
+    // Gallery media is now handled by system picker
     setState(() {
-      _galleryMedia = [
-        MediaItem(
-          id: 'gallery-1',
-          type: MediaType.image,
-          createdAt: now.subtract(const Duration(days: 1)),
-        ),
-        MediaItem(
-          id: 'gallery-2',
-          type: MediaType.video,
-          duration: const Duration(seconds: 30),
-          createdAt: now.subtract(const Duration(days: 2)),
-        ),
-        MediaItem(
-          id: 'gallery-3',
-          type: MediaType.image,
-          createdAt: now.subtract(const Duration(days: 3)),
-        ),
-        MediaItem(
-          id: 'gallery-4',
-          type: MediaType.video,
-          duration: const Duration(seconds: 45),
-          createdAt: now.subtract(const Duration(days: 4)),
-        ),
-        MediaItem(
-          id: 'gallery-5',
-          type: MediaType.image,
-          createdAt: now.subtract(const Duration(days: 5)),
-        ),
-        MediaItem(
-          id: 'gallery-6',
-          type: MediaType.image,
-          createdAt: now.subtract(const Duration(days: 6)),
-        ),
-      ];
+      _galleryMedia = [];
     });
   }
 
@@ -117,13 +142,28 @@ class _CreateUploadScreenState extends State<CreateUploadScreen> {
             child: Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
-                const Text(
-                  'Select Media',
-                  style: TextStyle(
-                    color: Colors.white,
-                    fontSize: 18,
-                    fontWeight: FontWeight.bold,
-                  ),
+                Row(
+                  children: [
+                    const Text(
+                      'Select Media',
+                      style: TextStyle(
+                        color: Colors.white,
+                        fontSize: 18,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    IconButton(
+                      icon: const Icon(Icons.add_photo_alternate, color: Colors.blue),
+                      tooltip: 'Pick Image',
+                      onPressed: _pickFromGallery,
+                    ),
+                    IconButton(
+                      icon: const Icon(Icons.video_library, color: Colors.blue),
+                      tooltip: 'Pick Video',
+                      onPressed: _pickVideoFromGallery,
+                    ),
+                  ],
                 ),
                 if (_selectedMedia.isNotEmpty)
                   ElevatedButton(
@@ -139,7 +179,37 @@ class _CreateUploadScreenState extends State<CreateUploadScreen> {
 
           // Gallery Grid
           Expanded(
-            child: GridView.builder(
+            child: _galleryMedia.isEmpty 
+              ? Center(
+                  child: Column(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      const Icon(Icons.image_search, size: 64, color: Colors.grey),
+                      const SizedBox(height: 16),
+                      const Text(
+                        'No media found',
+                        style: TextStyle(color: Colors.grey),
+                      ),
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          TextButton.icon(
+                            icon: const Icon(Icons.photo),
+                            onPressed: _pickFromGallery,
+                            label: const Text('Pick Image'),
+                          ),
+                          const SizedBox(width: 16),
+                          TextButton.icon(
+                            icon: const Icon(Icons.videocam),
+                            onPressed: _pickVideoFromGallery,
+                            label: const Text('Pick Video'),
+                          ),
+                        ],
+                      ),
+                    ],
+                  ),
+                )
+              : GridView.builder(
               padding: const EdgeInsets.all(8),
               gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
                 crossAxisCount: 3,

@@ -3,9 +3,8 @@ import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 import 'package:image_picker/image_picker.dart';
-import 'package:supabase_flutter/supabase_flutter.dart';
-import 'package:path/path.dart' as p;
 import '../services/supabase_service.dart';
+import '../utils/current_user.dart';
 
 /// Single media item in the create-post flow (select → crop → edit → share).
 class _CreatePostMediaItem {
@@ -167,7 +166,7 @@ class _CreatePostScreenState extends State<CreatePostScreen> {
   String _editTab = 'filters';
 
   Future<void> _loadCurrentUserProfile() async {
-    final uid = Supabase.instance.client.auth.currentUser?.id;
+    final uid = await CurrentUser.id;
     if (uid == null) return;
     final profile = await _svc.getUserById(uid);
     if (mounted) setState(() => _currentUserProfile = profile);
@@ -322,7 +321,10 @@ class _CreatePostScreenState extends State<CreatePostScreen> {
 
   Future<void> _searchTagUsers(String query) async {
     setState(() => _isSearchingUsers = true);
-    final list = await _svc.searchUsersByUsername(query, limit: 20);
+    // TODO: Use REST API to search users
+    // final list = await _svc.searchUsersByUsername(query, limit: 20);
+    // Mock result for now
+    final list = <Map<String, dynamic>>[];
     if (mounted) setState(() {
       _tagSearchResults = list;
       _isSearchingUsers = false;
@@ -347,8 +349,8 @@ class _CreatePostScreenState extends State<CreatePostScreen> {
 
   Future<void> _submit() async {
     if (_isSubmitting || _media.isEmpty) return;
-    final user = Supabase.instance.client.auth.currentUser;
-    if (user == null) {
+    final userId = await CurrentUser.id;
+    if (userId == null) {
       ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Please log in to share.')));
       return;
     }
@@ -360,12 +362,11 @@ class _CreatePostScreenState extends State<CreatePostScreen> {
         final file = File(path);
         if (!await file.exists()) continue;
         final bytes = await file.readAsBytes();
-        final ext = p.extension(path).replaceFirst('.', '');
-        final filename = '${user.id}/${DateTime.now().millisecondsSinceEpoch}_${item.hashCode % 100000}.$ext';
+        final ext = path.split('.').last;
+        final filename = '$userId/${DateTime.now().millisecondsSinceEpoch}_${item.hashCode % 100000}.$ext';
         final uploaded = await _svc.uploadFile('post_images', filename, Uint8List.fromList(bytes));
-        if (uploaded == null) throw Exception('Upload failed');
         processedMedia.add({
-          'image': uploaded,
+          'fileName': uploaded['fileName'],
           'ratio': item.aspect,
           'zoom': 1.0,
           'filter': item.filter,
@@ -381,7 +382,7 @@ class _CreatePostScreenState extends State<CreatePostScreen> {
       }).toList();
 
       final postData = {
-        'user_id': user.id,
+        'user_id': userId,
         'caption': _captionCtl.text.trim(),
         'location': _location.isEmpty ? null : _location,
         'media': processedMedia,

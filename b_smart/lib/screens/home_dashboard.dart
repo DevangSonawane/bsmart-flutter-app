@@ -82,27 +82,32 @@ class _HomeDashboardState extends State<HomeDashboard> {
   void _onLikePost(FeedPost post) async {
     final currentUserId = await CurrentUser.id;
     if (currentUserId == null) return;
-    final current = post.rawLikes ?? [];
-    final newLikes = post.isLiked
-        ? current.where((e) => e['user_id'] != currentUserId).toList()
-        : [...current, {'user_id': currentUserId, 'like': true}];
-    // Optimistic update (same as React)
+    
+    // Optimistic update
     setState(() {
       final i = posts.indexWhere((p) => p.id == post.id);
       if (i != -1) {
         posts[i] = post.copyWith(
           isLiked: !post.isLiked,
-          likes: newLikes.length,
-          rawLikes: newLikes,
+          likes: post.isLiked ? post.likes - 1 : post.likes + 1,
         );
       }
     });
-    _supabase.updatePostLikes(post.id, newLikes).then((ok) {
-      if (!ok && mounted) {
-        // Revert on failure
+
+    _supabase.togglePostLike(post.id, currentUserId).then((liked) {
+      if (mounted) {
+        // Ensure state matches server response
         setState(() {
           final i = posts.indexWhere((p) => p.id == post.id);
-          if (i != -1) posts[i] = post;
+          if (i != -1) {
+            // Only update if different to avoid flicker
+            if (posts[i].isLiked != liked) {
+              posts[i] = posts[i].copyWith(
+                isLiked: liked,
+                likes: liked ? posts[i].likes + 1 : posts[i].likes - 1,
+              );
+            }
+          }
         });
       }
     });
@@ -184,69 +189,55 @@ class _HomeDashboardState extends State<HomeDashboard> {
 
   Widget _buildLocationSelector({required bool isDark}) {
     return InkWell(
-      borderRadius: BorderRadius.circular(14),
       onTap: () {
         // TODO: hook up location picker.
       },
       child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+        width: double.infinity,
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
         decoration: BoxDecoration(
-          color: isDark ? const Color(0xFF1E1E1E) : Colors.white,
-          borderRadius: BorderRadius.circular(14),
-          border: Border.all(color: isDark ? const Color(0xFF2A2A2A) : Colors.grey.shade200),
-          boxShadow: [
-            BoxShadow(
-              color: Colors.black.withValues(alpha: isDark ? 0.2 : 0.06),
-              blurRadius: 10,
-              offset: const Offset(0, 4),
-            ),
-          ],
+          color: isDark ? const Color(0xFF1E1E1E) : Colors.pink.shade50,
+          border: Border(
+            bottom: BorderSide(color: isDark ? const Color(0xFF2A2A2A) : Colors.pink.shade100),
+          ),
         ),
         child: Row(
           children: [
-            Container(
-              height: 28,
-              width: 28,
-              decoration: BoxDecoration(
-                color: isDark ? const Color(0xFF2A2A2A) : Colors.grey.shade100,
-                borderRadius: BorderRadius.circular(8),
-              ),
-              child: Icon(
-                LucideIcons.mapPin,
-                size: 16,
-                color: isDark ? Colors.white70 : Colors.black87,
-              ),
+            Icon(
+              LucideIcons.house,
+              size: 16,
+              color: isDark ? Colors.white70 : Colors.black87,
             ),
-            const SizedBox(width: 10),
+            const SizedBox(width: 8),
             Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    'HOME',
-                    style: TextStyle(
-                      color: isDark ? Colors.grey.shade400 : Colors.grey.shade600,
-                      fontWeight: FontWeight.w600,
-                      letterSpacing: 0.6,
-                      fontSize: 11,
+              child: Text.rich(
+                TextSpan(
+                  children: [
+                    TextSpan(
+                      text: 'HOME ',
+                      style: TextStyle(
+                        color: isDark ? Colors.white : Colors.black87,
+                        fontWeight: FontWeight.bold,
+                        fontSize: 13,
+                      ),
                     ),
-                  ),
-                  const SizedBox(height: 2),
-                  Text(
-                    'Plot No.20, 2nd Floor, Shivaram Nivas',
-                    style: TextStyle(
-                      color: isDark ? Colors.white : Colors.black87,
-                      fontWeight: FontWeight.w600,
-                      fontSize: 13,
+                    TextSpan(
+                      text: 'Plat No.20, 2nd Floor, Shivaram Nivas, Sri S...',
+                      style: TextStyle(
+                        color: isDark ? Colors.white70 : Colors.black54,
+                        fontSize: 13,
+                      ),
                     ),
-                    overflow: TextOverflow.ellipsis,
-                  ),
-                ],
+                  ],
+                ),
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
               ),
             ),
             const SizedBox(width: 8),
             Icon(
               LucideIcons.chevronDown,
+              size: 16,
               color: isDark ? Colors.grey.shade400 : Colors.grey.shade600,
             ),
           ],
@@ -490,16 +481,13 @@ class _HomeDashboardState extends State<HomeDashboard> {
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        Padding(
-                          padding: const EdgeInsets.fromLTRB(16, 12, 16, 4),
-                          child: _buildLocationSelector(isDark: isDark),
-                        ),
+                        _buildLocationSelector(isDark: isDark),
                         StoriesRow(
                           users: _storyUsers,
                           onYourStoryTap: () {},
                           onUserStoryTap: _storyGroups.isEmpty ? null : _onStoryTap,
                         ),
-                        const SizedBox(height: 8),
+                        // Reduced space between stories and posts
                         ListView.builder(
                           physics: const NeverScrollableScrollPhysics(),
                           shrinkWrap: true,

@@ -116,17 +116,13 @@ class SupabaseService {
 
   // ── Uploads ────────────────────────────────────────────────────────────────
 
-  Future<String?> uploadFile(String bucket, String path, Uint8List bytes,
+  Future<Map<String, dynamic>> uploadFile(String bucket, String path, Uint8List bytes,
       {bool makePublic = true}) async {
-    try {
-      final result = await _uploadApi.uploadFileBytes(
-        bytes: bytes,
-        filename: path.split('/').last,
-      );
-      return result['fileUrl'] as String?;
-    } catch (_) {
-      return null;
-    }
+    final result = await _uploadApi.uploadFileBytes(
+      bytes: bytes,
+      filename: path.split('/').last,
+    );
+    return result;
   }
 
   // ── Comments ───────────────────────────────────────────────────────────────
