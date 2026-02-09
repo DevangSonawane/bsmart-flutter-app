@@ -497,7 +497,12 @@ class _CreatePostScreenState extends State<CreatePostScreen> {
                     Text('Video (no crop)', style: TextStyle(color: Colors.grey[600])),
                   ],
                 )
-              : Image.file(File(item.sourcePath), fit: BoxFit.contain),
+              : item.aspect == 0.0
+                  ? Image.file(File(item.sourcePath), fit: BoxFit.contain)
+                  : AspectRatio(
+                      aspectRatio: item.aspect,
+                      child: Image.file(File(item.sourcePath), fit: BoxFit.cover),
+                    ),
         ),
         // Aspect ratio buttons
         Positioned(
@@ -796,7 +801,12 @@ class _CreatePostScreenState extends State<CreatePostScreen> {
         colorFilter: ColorFilter.matrix(presetMatrix),
         child: ColorFiltered(
           colorFilter: ColorFilter.matrix(adjustmentMatrix),
-          child: Image.file(file, fit: BoxFit.contain),
+          child: item.aspect == 0.0
+              ? Image.file(file, fit: BoxFit.contain)
+              : AspectRatio(
+                  aspectRatio: item.aspect,
+                  child: Image.file(file, fit: BoxFit.cover),
+                ),
         ),
       ),
     );

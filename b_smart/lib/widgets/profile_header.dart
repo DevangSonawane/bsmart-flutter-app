@@ -117,16 +117,6 @@ class ProfileHeader extends StatelessWidget {
                   ),
                 ),
               ),
-              const SizedBox(width: 8),
-              Container(
-                width: 44,
-                height: 44,
-                decoration: BoxDecoration(
-                  color: theme.brightness == Brightness.dark ? const Color(0xFF2D2D2D) : Colors.grey.shade100,
-                  borderRadius: BorderRadius.circular(10),
-                ),
-                child: Icon(Icons.add, color: fgColor),
-              )
             ],
           ),
         ],

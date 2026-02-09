@@ -15,6 +15,8 @@ import '../theme/design_tokens.dart';
 import '../state/app_state.dart';
 import '../state/profile_actions.dart';
 import '../utils/current_user.dart';
+import '../services/user_account_service.dart';
+import '../services/wallet_service.dart';
 
 /// Heroicons badge-check (same as React web app verified badge)
 const String _verifiedBadgeSvg = r'''
@@ -79,14 +81,20 @@ class _ProfileScreenState extends State<ProfileScreen> {
     // Load profile and posts in parallel from the REST API.
     final profileFuture = _svc.getUserById(targetId);
     final postsFuture = _svc.getUserPosts(targetId, limit: _initialPostsLimit);
+    final walletFuture = (widget.userId == null) ? WalletService().getCoinBalance() : Future.value(0);
+    
+    // Also fetch UserAccount info (e.g. followers, account type)
+    final userAccount = UserAccountService().getAccount(targetId);
 
     final results = await Future.wait([
       profileFuture,
       postsFuture,
+      walletFuture,
     ]);
 
     final profile = results[0] as Map<String, dynamic>?;
     final rawPosts = results[1] as List<Map<String, dynamic>>;
+    final walletBalance = results[2] as int;
 
     final posts = rawPosts.map((item) {
       final media = item['media'] as List<dynamic>? ?? [];
@@ -115,10 +123,12 @@ class _ProfileScreenState extends State<ProfileScreen> {
         ...?profile,
         'posts_count': (profile?['posts_count'] as int?) ?? posts.length,
         // Followers / following / wallet fields are expected from the REST API
-        // payload; fall back to 0 if not provided.
-        'followers_count': (profile?['followers_count'] as int?) ?? 0,
+        // payload; fall back to UserAccountService or 0 if not provided.
+        'followers_count': (profile?['followers_count'] as int?) ?? userAccount?.followers ?? 0,
         'following_count': (profile?['following_count'] as int?) ?? 0,
-        'wallet_balance': (profile?['wallet_balance'] as int?) ?? 0,
+        'wallet_balance': (profile?['wallet_balance'] as int?) ?? walletBalance,
+        'account_type': userAccount?.accountType.toString().split('.').last,
+        'engagement_score': userAccount?.engagementScore,
       };
       setState(() {
         _profile = merged;
