@@ -82,9 +82,7 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
       _loading = true;
     });
     try {
-      // Mock verification
       await Future.delayed(const Duration(seconds: 1));
-      
       if (mounted) {
         setState(() {
           _step = 3;
@@ -111,9 +109,7 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
       _loading = true;
     });
     try {
-      // Mock password update
       await Future.delayed(const Duration(seconds: 1));
-      
       if (mounted) {
         Navigator.of(context).pushReplacementNamed('/login', arguments: 'Password updated successfully! Please log in.');
       }

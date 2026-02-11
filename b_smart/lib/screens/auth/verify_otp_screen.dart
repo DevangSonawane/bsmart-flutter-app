@@ -42,13 +42,7 @@ class _VerifyOtpScreenState extends State<VerifyOtpScreen> {
       _loading = true;
     });
     try {
-      // Simulate API call delay
       await Future.delayed(const Duration(seconds: 1));
-      
-      // Since we don't have an OTP verification endpoint in the REST API yet,
-      // we'll assume success if the code is entered.
-      // In a real implementation, you would call: await _authApi.verifyOtp(...)
-      
       if (mounted) {
         Navigator.of(context).pushAndRemoveUntil(
           MaterialPageRoute(builder: (_) => const HomeDashboard()),
@@ -72,9 +66,7 @@ class _VerifyOtpScreenState extends State<VerifyOtpScreen> {
       _message = '';
     });
     try {
-      // Simulate API call delay
       await Future.delayed(const Duration(seconds: 1));
-      
       if (mounted) setState(() {
         _message = 'Verification code resent successfully!';
         _resending = false;

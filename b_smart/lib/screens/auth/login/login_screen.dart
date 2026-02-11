@@ -223,22 +223,22 @@ class _LoginScreenState extends State<LoginScreen>
                         ),
                       const SizedBox(height: 32),
                       Text(
-                        'b Smart',
+                        'Log In',
                         textAlign: TextAlign.center,
                         style: Theme.of(context).textTheme.displayLarge,
                       ),
                       const SizedBox(height: 12),
                       Text(
-                        'Welcome back',
+                        'Enter your credentials to access your account.',
                         textAlign: TextAlign.center,
                         style: Theme.of(context).textTheme.bodyMedium,
                       ),
-                      const SizedBox(height: 64),
+                      const SizedBox(height: 32),
                       TextFormField(
                         controller: _identifierController,
                         style: const TextStyle(color: InstagramTheme.textBlack),
                         decoration: const InputDecoration(
-                          labelText: 'Username',
+                          labelText: 'Identity',
                           hintText: 'Email, Phone, or Username',
                           prefixIcon: Icon(LucideIcons.user),
                         ),
@@ -369,13 +369,7 @@ class _LoginScreenState extends State<LoginScreen>
                             style: Theme.of(context).textTheme.bodyMedium,
                           ),
                           TextButton(
-                            onPressed: () {
-                              Navigator.of(context).push(
-                                MaterialPageRoute(
-                                  builder: (context) => const SignupIdentifierScreen(),
-                                ),
-                              );
-                            },
+                            onPressed: () => Navigator.of(context).pushNamed('/signup'),
                             child: const Text('Sign Up'),
                           ),
                         ],
