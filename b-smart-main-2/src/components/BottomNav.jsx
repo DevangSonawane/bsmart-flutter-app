@@ -1,96 +1,80 @@
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState } from 'react';
 import { Link, useLocation } from 'react-router-dom';
-import { Home, Megaphone, Clapperboard, Target, Plus, Image, Video } from 'lucide-react';
+import { useSelector } from 'react-redux';
+import { Home, Target, Clapperboard, Plus, Megaphone, Image, Video } from 'lucide-react';
 
 const BottomNav = ({ onOpenCreateModal }) => {
+  const [isMenuOpen, setIsMenuOpen] = useState(false);
   const location = useLocation();
-  const [isDropdownOpen, setIsDropdownOpen] = useState(false);
-  const dropdownRef = useRef(null);
+  // userObject is available if needed, but we are following the 5-icon layout request
+  // const { userObject } = useSelector((state) => state.auth);
 
-  useEffect(() => {
-    const handleClickOutside = (event) => {
-      if (dropdownRef.current && !dropdownRef.current.contains(event.target)) {
-        setIsDropdownOpen(false);
-      }
-    };
+  const isActive = (path) => location.pathname === path;
 
-    document.addEventListener('mousedown', handleClickOutside);
-    return () => {
-      document.removeEventListener('mousedown', handleClickOutside);
-    };
-  }, []);
+  // Active color: #fa3f5e (insta-pink-ish) to match the "red outline" description
+  const activeColor = "text-[#fa3f5e]";
+  const inactiveColor = "text-gray-500 dark:text-gray-400";
+
+  const handleCreateClick = () => {
+    setIsMenuOpen(!isMenuOpen);
+  };
+
+  const handleOptionClick = (type) => {
+    onOpenCreateModal(type);
+    setIsMenuOpen(false);
+  };
 
   return (
-    <div className="md:hidden fixed bottom-2 left-0 right-0 flex justify-center z-50">
-      <div className="w-full max-w-[95%]">
-        <div className="relative">
-          <div className="bg-white dark:bg-black px-4 py-4 rounded-full shadow-[0_8px_30px_rgb(0,0,0,0.12)] flex justify-between items-center border border-gray-100 dark:border-gray-800">
-            {/* Left Items: Home, Ads */}
-            <div className="flex-1 flex justify-around pr-8">
-              <Link to="/" className="flex justify-center">
-                <div className={`transition-colors ${location.pathname === '/' ? 'text-[#fa3f5e]' : 'text-gray-400 dark:text-gray-500'}`}>
-                  <Home size={22} strokeWidth={location.pathname === '/' ? 2.5 : 2} />
-                </div>
-              </Link>
-              <Link to="/ads" className="flex justify-center">
-                <div className={`transition-colors ${location.pathname === '/ads' ? 'text-[#fa3f5e]' : 'text-gray-400 dark:text-gray-500'}`}>
-                  <Target size={22} strokeWidth={location.pathname === '/ads' ? 2.5 : 2} />
-                </div>
-              </Link>
-            </div>
+    <div className="md:hidden fixed bottom-0 left-0 right-0 bg-white dark:bg-black border-t border-gray-200 dark:border-gray-800 flex justify-between items-center px-6 h-[60px] z-50 pb-2">
+      <Link to="/" className={`${isActive('/') ? activeColor : inactiveColor}`}>
+        <Home size={28} strokeWidth={isActive('/') ? 2.5 : 2} />
+      </Link>
 
-            {/* Right Items: Promote, Reels */}
-            <div className="flex-1 flex justify-around pl-8 gap-2">
-              <Link to="/promote" className="flex justify-center">
-                <div className={`transition-colors ${location.pathname === '/promote' ? 'text-[#fa3f5e]' : 'text-gray-400 dark:text-gray-500'}`}>
-                  <Megaphone size={22} strokeWidth={location.pathname === '/promote' ? 2.5 : 2} />
-                </div>
-              </Link>
-              <Link to="/reels" className="flex justify-center">
-                <div className={`transition-colors ${location.pathname === '/reels' ? 'text-[#fa3f5e]' : 'text-gray-400 dark:text-gray-500'}`}>
-                  <Clapperboard size={22} strokeWidth={location.pathname === '/reels' ? 2.5 : 2} />
-                </div>
-              </Link>
-            </div>
-          </div>
+      <Link to="/ads" className={`${isActive('/ads') ? activeColor : inactiveColor}`}>
+        <Target size={28} strokeWidth={isActive('/ads') ? 2.5 : 2} />
+      </Link>
 
-          {/* Center Button: Create */}
-          <div className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2" ref={dropdownRef}>
+      <div className="relative -top-6 flex flex-col items-center">
+        {/* Create Menu */}
+        {isMenuOpen && (
+          <div className="absolute bottom-16 mb-2 bg-white dark:bg-gray-800 rounded-xl shadow-xl p-2 w-48 flex flex-col gap-1 border border-gray-100 dark:border-gray-700 animate-in fade-in zoom-in duration-200">
             <button
-              onClick={() => setIsDropdownOpen(!isDropdownOpen)}
-              className="w-10 h-10 rounded-full bg-gradient-to-tr from-insta-yellow via-insta-orange to-insta-pink flex items-center justify-center shadow-xl border-[3px] border-gray-50 dark:border-black hover:scale-105 transition-transform"
+              onClick={() => handleOptionClick('post')}
+              className="flex items-center gap-3 w-full p-3 hover:bg-gray-50 dark:hover:bg-gray-700 rounded-lg transition-colors text-left"
             >
-              <Plus size={20} className={`text-white transition-transform duration-200 ${isDropdownOpen ? 'rotate-45' : ''}`} />
+              <Image size={20} className="text-purple-600" />
+              <span className="font-semibold text-gray-700 dark:text-gray-200">Create Post</span>
             </button>
-
-            {/* Dropdown Menu */}
-            {isDropdownOpen && (
-              <div className="absolute bottom-full mb-3 left-1/2 -translate-x-1/2 w-40 bg-white dark:bg-gray-900 rounded-xl shadow-xl border border-gray-100 dark:border-gray-800 overflow-hidden animate-fade-in-up origin-bottom">
-                <button
-                  onClick={() => {
-                    onOpenCreateModal('post');
-                    setIsDropdownOpen(false);
-                  }}
-                  className="w-full text-left px-4 py-3 hover:bg-gray-50 dark:hover:bg-gray-800 flex items-center gap-3 text-sm font-medium text-gray-700 dark:text-gray-200 border-b border-gray-50 dark:border-gray-800"
-                >
-                  <Image size={18} className="text-insta-purple" />
-                  Create Post
-                </button>
-                <button
-                  onClick={() => {
-                    onOpenCreateModal('reel');
-                    setIsDropdownOpen(false);
-                  }}
-                  className="w-full text-left px-4 py-3 hover:bg-gray-50 dark:hover:bg-gray-800 flex items-center gap-3 text-sm font-medium text-gray-700 dark:text-gray-200"
-                >
-                  <Video size={18} className="text-insta-pink" />
-                  Upload Reel
-                </button>
-              </div>
-            )}
+            <div className="h-px bg-gray-100 dark:bg-gray-700 mx-2" />
+            <button
+              onClick={() => handleOptionClick('reel')}
+              className="flex items-center gap-3 w-full p-3 hover:bg-gray-50 dark:hover:bg-gray-700 rounded-lg transition-colors text-left"
+            >
+              <Video size={20} className="text-pink-600" />
+              <span className="font-semibold text-gray-700 dark:text-gray-200">Upload Reel</span>
+            </button>
           </div>
-        </div>
+        )}
+
+        <button
+          onClick={handleCreateClick}
+          className="w-14 h-14 rounded-full bg-gradient-to-tr from-[#f09433] via-[#dc2743] to-[#bc1888] flex items-center justify-center shadow-lg border-4 border-white dark:border-black text-white transform transition-transform active:scale-95"
+        >
+          <Plus
+            size={32}
+            strokeWidth={3}
+            className={`transition-transform duration-300 ${isMenuOpen ? 'rotate-45' : 'rotate-0'}`}
+          />
+        </button>
       </div>
+
+      <Link to="/promote" className={`${isActive('/promote') ? activeColor : inactiveColor}`}>
+        <Megaphone size={28} strokeWidth={isActive('/promote') ? 2.5 : 2} />
+      </Link>
+
+      <Link to="/reels" className={`${isActive('/reels') ? activeColor : inactiveColor}`}>
+        <Clapperboard size={28} strokeWidth={isActive('/reels') ? 2.5 : 2} />
+      </Link>
     </div>
   );
 };

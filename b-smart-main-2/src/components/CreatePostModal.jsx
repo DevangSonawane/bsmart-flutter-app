@@ -1,7 +1,7 @@
 import React, { useState, useRef, useCallback, useEffect } from 'react';
 import { useSelector } from 'react-redux';
-import { supabase } from '../lib/supabase';
-import { Image, Video, X, ArrowLeft, Maximize2, Search, Copy, ZoomIn, Plus, ChevronLeft, ChevronRight, MapPin, UserPlus, ChevronDown, ChevronUp, Smile, Sun, Moon, Droplet, Thermometer, Cloud, Circle, Sliders } from 'lucide-react';
+import api from '../lib/api';
+import { Image, Images, Video, X, ArrowLeft, Maximize2, Search, Copy, ZoomIn, Plus, ChevronLeft, ChevronRight, MapPin, UserPlus, ChevronDown, ChevronUp, Smile, Sun, Moon, Droplet, Thermometer, Cloud, Circle, Sliders } from 'lucide-react';
 import Cropper from 'react-easy-crop';
 
 // Filter Definitions
@@ -161,48 +161,52 @@ const CreatePostModal = ({ isOpen, onClose, initialType = 'post' }) => {
   };
 
   const handleFiles = async (files) => {
-    const newMedia = await Promise.all(files
-      .filter(file => file.type.startsWith('image/') || file.type.startsWith('video/'))
-      .map(async (file) => {
-        const url = URL.createObjectURL(file);
-        let aspect = 1;
-        let originalAspect = null;
+    // Process files immediately
+    const validFiles = files.filter(file => file.type.startsWith('image/') || file.type.startsWith('video/'));
 
-        if (file.type.startsWith('image/')) {
-          try {
-            const img = await createImage(url);
-            originalAspect = img.width / img.height;
-            aspect = originalAspect;
-          } catch (e) {
-            console.error("Error loading image dimensions", e);
-          }
+    if (validFiles.length === 0) return;
+
+    const newMedia = await Promise.all(validFiles.map(async (file) => {
+      const url = URL.createObjectURL(file);
+      let aspect = 1;
+      let originalAspect = null;
+
+      if (file.type.startsWith('image/')) {
+        try {
+          const img = await createImage(url);
+          originalAspect = img.width / img.height;
+          aspect = originalAspect;
+        } catch (e) {
+          console.error("Error loading image dimensions", e);
         }
+      }
 
-        return {
-          id: Math.random().toString(36).substr(2, 9),
-          url,
-          type: file.type.startsWith('image/') ? 'image' : 'video',
-          crop: { x: 0, y: 0 },
-          zoom: 1,
-          aspect, // Initial aspect ratio matches image
-          originalAspect,
-          croppedAreaPixels: null,
-          filter: 'Original',
-          adjustments: {
-            brightness: 0,
-            contrast: 0,
-            saturate: 0,
-            sepia: 0,
-            opacity: 0,
-            vignette: 0
-          }
-        };
-      }));
+      return {
+        id: Math.random().toString(36).substr(2, 9),
+        url,
+        type: file.type.startsWith('image/') ? 'image' : 'video',
+        crop: { x: 0, y: 0 },
+        zoom: 1,
+        aspect,
+        originalAspect,
+        croppedAreaPixels: null,
+        filter: 'Original',
+        adjustments: {
+          brightness: 0,
+          contrast: 0,
+          saturate: 0,
+          sepia: 0,
+          opacity: 0,
+          vignette: 0
+        }
+      };
+    }));
 
     if (step === 'select') {
       setMedia(newMedia);
       setCurrentIndex(0);
-      setStep('crop');
+      // Force step transition
+      setTimeout(() => setStep('crop'), 0);
     } else {
       setMedia(prev => [...prev, ...newMedia]);
       setCurrentIndex(prev => prev + newMedia.length - 1);
@@ -281,66 +285,95 @@ const CreatePostModal = ({ isOpen, onClose, initialType = 'post' }) => {
       setIsSubmitting(true);
 
       try {
-        const { data: { user } } = await supabase.auth.getUser();
-        if (!user) {
+        if (!userObject) {
           alert("Please log in to share a post.");
           return;
         }
 
         // Upload images and prepare media array
         const processedMedia = await Promise.all(media.map(async (item) => {
-          // Fetch blob from blob URL
-          const response = await fetch(item.croppedUrl || item.url);
-          const blob = await response.blob();
+          // Fetch blob from blob URL or generate filtered blob
+          let blob;
+          try {
+            blob = await applyFiltersToImage(item);
+          } catch (e) {
+            console.error("Error applying filters, falling back to original", e);
+            const response = await fetch(item.croppedUrl || item.url);
+            blob = await response.blob();
+          }
 
           const fileExt = blob.type.split('/')[1] || 'jpg';
-          const fileName = `${user.id}/${Date.now()}_${Math.random().toString(36).substr(2, 9)}.${fileExt}`;
+          const fileName = `upload_${Date.now()}_${Math.random().toString(36).substr(2, 9)}.${fileExt}`;
+          const file = new File([blob], fileName, { type: blob.type });
 
-          const { error: uploadError } = await supabase.storage
-            .from('post_images')
-            .upload(fileName, blob);
+          const formData = new FormData();
+          formData.append('file', file);
 
-          if (uploadError) throw uploadError;
+          const uploadResponse = await api.post('/upload', formData, {
+            headers: {
+              'Content-Type': 'multipart/form-data',
+            },
+          });
 
-          const { data: { publicUrl } } = supabase.storage
-            .from('post_images')
-            .getPublicUrl(fileName);
+          const { fileUrl, fileName: serverFileName } = uploadResponse.data;
+
+          // Generate Filter CSS
+          const filterDef = FILTERS.find(f => f.name === item.filter);
+          const baseFilter = filterDef ? filterDef.style : '';
+          const adj = item.adjustments;
+          const brightness = `brightness(${100 + adj.brightness}%)`;
+          const contrast = `contrast(${100 + adj.contrast}%)`;
+          const saturate = `saturate(${100 + adj.saturate}%)`;
+          const sepia = adj.sepia !== 0 ? `sepia(${Math.abs(adj.sepia)}%)` : '';
+          const hue = adj.sepia < 0 ? `hue-rotate(-${Math.abs(adj.sepia)}deg)` : (adj.sepia > 0 ? `hue-rotate(${adj.sepia}deg)` : '');
+
+          const filterCss = `${baseFilter} ${brightness} ${contrast} ${saturate} ${sepia} ${hue}`.trim();
 
           return {
-            image: publicUrl,
-            ratio: item.aspect,
-            zoom: item.zoom,
-            filter: item.filter,
-            adjustments: item.adjustments
+            fileName: serverFileName || fileName,
+            type: item.type === 'video' ? 'video' : 'image',
+            fileUrl: fileUrl,
+            crop: {
+              mode: "original",
+              zoom: item.zoom,
+              x: item.crop.x,
+              y: item.crop.y
+            },
+            filter: {
+              name: item.filter,
+              css: filterCss
+            },
+            adjustments: {
+              brightness: item.adjustments.brightness,
+              contrast: item.adjustments.contrast,
+              saturation: item.adjustments.saturate,
+              temperature: item.adjustments.sepia,
+              fade: item.adjustments.opacity,
+              vignette: item.adjustments.vignette
+            }
           };
         }));
 
-        // Insert post
-        const { data: insertedPost, error: insertError } = await supabase
-          .from('posts')
-          .insert({
-            user_id: user.id,
-            caption,
-            location,
-            media: processedMedia,
-            tags,
-            hide_likes_count: hideLikes,
-            turn_off_commenting: turnOffCommenting,
-            type: postType
-          })
-          .select()
-          .single();
+        // Extract hashtags from caption
+        const hashtags = caption.match(/#[a-zA-Z0-9_]+/g) || [];
 
-        if (insertError) throw insertError;
+        const payload = {
+          caption,
+          location,
+          media: processedMedia,
+          tags: hashtags,
+          people_tags: tags.map(t => ({
+            user_id: t.user.id,
+            username: t.user.username,
+            x: t.x,
+            y: t.y
+          })),
+          hide_likes_count: hideLikes,
+          turn_off_commenting: turnOffCommenting,
+          type: postType
+        };
 
-        // Append post ID to user's posts array
-        const { error: updateError } = await supabase
-          .rpc('append_post_id', {
-            post_id: insertedPost.id,
-            user_id_param: user.id
-          });
-
-        if (updateError) console.error("Error updating user post list:", updateError);
+        await api.post('/posts', payload);
 
         handleClose();
         // clear state
@@ -385,21 +418,11 @@ const CreatePostModal = ({ isOpen, onClose, initialType = 'post' }) => {
   const fetchUsers = async (query) => {
     setIsSearchingUsers(true);
     try {
-      let queryBuilder = supabase
-        .from('users')
-        .select('id, username, avatar_url, full_name')
-        .limit(20);
-
-      if (query) {
-        queryBuilder = queryBuilder.ilike('username', `%${query}%`);
-      }
-
-      const { data, error } = await queryBuilder;
-
-      if (error) throw error;
+      const { data } = await api.get(`/users/search?q=${query}`);
       setSearchResults(data || []);
     } catch (error) {
       console.error('Error fetching users:', error);
+      setSearchResults([]);
     } finally {
       setIsSearchingUsers(false);
     }
@@ -479,6 +502,43 @@ const CreatePostModal = ({ isOpen, onClose, initialType = 'post' }) => {
     };
   };
 
+  const applyFiltersToImage = async (item) => {
+    const imageUrl = item.croppedUrl || item.url;
+    if (item.type === 'video') return await (await fetch(imageUrl)).blob();
+
+    return new Promise((resolve, reject) => {
+      const img = new window.Image();
+      img.crossOrigin = "anonymous";
+      img.onload = () => {
+        const canvas = document.createElement('canvas');
+        canvas.width = img.width;
+        canvas.height = img.height;
+        const ctx = canvas.getContext('2d');
+
+        // Apply filters
+        const filterStyle = getFilterStyle(item);
+        if (filterStyle.filter) {
+          ctx.filter = filterStyle.filter;
+        }
+        if (filterStyle.opacity !== undefined && filterStyle.opacity !== 1) {
+          ctx.globalAlpha = filterStyle.opacity;
+        }
+
+        ctx.drawImage(img, 0, 0, img.width, img.height);
+
+        canvas.toBlob((blob) => {
+          if (blob) {
+            resolve(blob);
+          } else {
+            reject(new Error('Canvas to Blob conversion failed'));
+          }
+        }, 'image/jpeg', 0.95);
+      };
+      img.onerror = (e) => reject(e);
+      img.src = imageUrl;
+    });
+  };
+
   if (!isOpen) return null;
 
   return (
@@ -489,24 +549,37 @@ const CreatePostModal = ({ isOpen, onClose, initialType = 'post' }) => {
       </button>
 
       {/* Main Container */}
-      <div className={`bg-white dark:bg-[#262626] w-full h-full md:w-auto md:h-auto md:max-w-[1100px] md:max-h-[85vh] md:rounded-xl overflow-hidden flex flex-col transition-all duration-300 shadow-2xl ${step === 'share' ? 'md:aspect-auto' : 'md:aspect-[1.5]'}`}>
+      <div className={`bg-white dark:bg-[#262626] md:max-h-[85vh] md:rounded-xl overflow-hidden flex flex-col transition-all duration-300 shadow-2xl ${step === 'select'
+        ? 'w-full h-full md:w-[500px] md:h-[550px]'
+        : step === 'crop'
+          ? 'w-full h-full md:w-[750px] md:h-[800px]'
+          : 'w-full h-full md:w-[1100px] md:h-[800px]'
+        }`}>
 
         {/* Header */}
-        <div className="h-[50px] border-b border-gray-200 dark:border-gray-800 flex items-center justify-between px-4 bg-white dark:bg-[#262626] sticky top-0 z-40">
+        <div className="h-[45px] border-b border-gray-200 dark:border-gray-800 flex items-center justify-between px-4 bg-white dark:bg-[#262626] sticky top-0 z-40">
           {step === 'select' ? (
             <>
-              <h2 className="font-semibold text-base w-full text-center dark:text-white">Create new {postType === 'reel' ? 'reel' : 'post'}</h2>
-              <button onClick={handleClose} className="absolute right-4 text-black dark:text-white md:hidden">
+              <div className="w-10"></div> {/* Spacer */}
+              <h2 className="font-semibold text-base text-center dark:text-white flex-1">Create new {postType === 'reel' ? 'reel' : 'post'}</h2>
+              <button onClick={handleClose} className="text-black dark:text-white md:hidden">
                 <X size={24} />
               </button>
+              <div className="w-10 md:block hidden"></div> {/* Spacer */}
             </>
           ) : (
             <>
-              <button onClick={handleBack} className="text-black dark:text-white"><ArrowLeft size={24} /></button>
-              <h2 className="font-semibold text-base dark:text-white">{step === 'crop' ? 'Crop' : step === 'edit' ? 'Edit' : 'Create new post'}</h2>
-              <button onClick={handleNextStep} className="text-blue-500 font-semibold text-sm hover:text-blue-700 dark:hover:text-blue-400 transition-colors">
-                {step === 'share' ? 'Share' : 'Next'}
-              </button>
+              <div className="w-20 flex justify-start">
+                <button onClick={handleBack} className="text-black dark:text-white p-1 hover:bg-gray-100 dark:hover:bg-gray-800 rounded-full transition-colors">
+                  <ArrowLeft size={24} />
+                </button>
+              </div>
+              <h2 className="font-semibold text-base text-center dark:text-white flex-1">{step === 'crop' ? 'Crop' : step === 'edit' ? 'Edit' : 'Create new post'}</h2>
+              <div className="w-20 flex justify-end">
+                <button onClick={handleNextStep} className="text-[#0095f6] hover:text-[#00376b] dark:hover:text-blue-400 font-semibold text-sm transition-colors">
+                  {step === 'share' ? 'Share' : 'Next'}
+                </button>
+              </div>
             </>
           )}
         </div>
@@ -519,16 +592,20 @@ const CreatePostModal = ({ isOpen, onClose, initialType = 'post' }) => {
             onDragLeave={handleDragLeave}
             onDrop={handleDrop}
           >
-            <div className="relative mb-4">
-              <div className="relative">
-                <Image size={64} className="text-gray-800 dark:text-gray-200 rotate-[-6deg] translate-x-[-10px]" strokeWidth={1} />
-                <Video size={64} className="text-gray-800 dark:text-gray-200 absolute top-0 left-0 rotate-[6deg] translate-x-[10px] bg-white dark:bg-[#262626] rounded-lg" strokeWidth={1} />
+            <div className="relative mb-6">
+              <div className="absolute inset-0 blur-xl rounded-full bg-gradient-to-tr from-purple-500/20 to-blue-500/20"></div>
+              <div className="relative flex items-center justify-center w-24 h-24 rounded-xl bg-gray-100 dark:bg-gray-800">
+                <Images size={56} className="text-gray-800 dark:text-white" />
               </div>
+              <svg aria-label="Icon to represent media such as images or videos" className="hidden" color="currentColor" fill="currentColor" height="77" role="img" viewBox="0 0 97.6 77.3" width="96">
+                <path d="M16.3 24h.3c2.8-.2 4.9-2.6 4.8-5.4-.2-2.8-2.6-4.9-5.4-4.8s-4.9 2.6-4.8 5.4c.1 2.7 2.4 4.8 5.1 4.8zm-2.4-7.2c.5-.6 1.3-1 2.1-1h.2c1.7 0 3.1 1.4 3.1 3.1 0 1.7-1.4 3.1-3.1 3.1-1.7 0-3.1-1.4-3.1-3.1 0-.8.3-1.5.8-2.1z" fill="currentColor"></path>
+                <path d="M84.7 18.4 58 16.9l-.2-3c-.3-5.7-5.2-10.1-11-9.8L12.9 6c-5.7.3-10.1 5.3-9.8 11L5 51v.8c.7 5.2 5.1 9.1 10.3 9.1h.6l21.7-1.2v.6c-.3 5.7 4 10.7 9.8 11l34 2h.6c5.5 0 10.1-4.3 10.4-9.8l2-34c.4-5.8-4-10.7-9.7-11.1zM7.2 10.8C8.7 9.1 10.8 8.1 13 8l34-1.9c4.6-.3 8.6 3.3 8.9 7.9l.2 2.8-5.3-.3c-5.7-.3-10.7 4-11 9.8l-.6 9.5-9.5 10.7c-.2.3-.6.4-1 .5-.4 0-.7-.1-1-.4l-7.8-7c-1.4-1.3-3.5-1.1-4.9.3L7 45.5c-1.7-3.5-1.5-7.5.9-10.8l1.4-1.8c.5-.7.4-1.6-.2-2.2-.7-.5-1.6-.4-2.2.2L6 32.1c-2.6-3.3-3.6-7.6-2.5-11.7.9-3.7 3.2-7 6.6-8.9l-.9-1.3c-.6-.7-.5-1.6.2-2.2.6-.5 1.5-.5 2.1.2l1.6 1.8c.8.8 1.9 1.2 3.1 1.2.4 0 .9-.1 1.3-.2.9-.2 1.5-1 1.5-1.9 0-1.1-.9-2-2-1.9zm-2.1 7.2c.4-.4.7-1 1-1.6.1-.2.2-.4.4-.5.3-.2.6-.3.9-.2.2.1.3.2.3.4 0 .2-.1.3-.2.4-.1.1-.2.2-.3.3-.3.4-.6.9-.9 1.3-.1.1-.1.2-.1.3 0 .1.1.2.2.2.1 0 .2 0 .3-.1 1.1-.7 2.3-1.2 3.6-1.4 2.8-.4 5.6.5 7.6 2.4s2.9 4.7 2.5 7.5c-.2 1.3-.8 2.5-1.5 3.5-.1.1-.2.2-.2.3 0 .1.1.2.2.2.1 0 .2 0 .3-.1 1.3-.8 2.7-1.3 4.2-1.5 1.5-.2 3.1-.1 4.5.4 1.5.5 2.8 1.4 3.8 2.6s1.6 2.6 1.9 4.1c.1.7.1 1.4 0 2.1-.1.4-.2.8-.3 1.2-.1.3-.1.5.1.7.2.2.5.2.7.1.5-.3.9-.7 1.3-1.1.8-.9 1.5-2 1.9-3.1.2-.4.4-.8.5-1.3 0-.1.1-.2.2-.3.1 0 .2 0 .3.1.5.4 1 .9 1.3 1.4.3.5.6 1.1.7 1.6.1.4.3.7.6.9.3.2.7.2 1-.1.4-.5.8-1 1.1-1.6.3-.5.5-1.1.7-1.7.1-.5.6-.9 1.1-.8.5.1.9.6.8 1.1-.2.8-.4 1.5-.8 2.2-.3.7-.8 1.4-1.3 2-.2.2-.3.5-.3.8 0 .3.2.5.5.6.8.2 1.5.6 2.2 1.1.7.5 1.3 1.1 1.8 1.8.2.3.5.5.9.5.1 0 .2 0 .3-.1.4-.2.6-.7.5-1.1-.3-.9-.7-1.7-1.3-2.5-.5-.8-1.2-1.5-1.9-2.1-.3-.2-.5-.6-.5-.9 0-.3.2-.6.5-.7.8-.3 1.6-.5 2.4-.6.8-.1 1.6-.1 2.4.1.4.1.7-.1.9-.5.1-.4-.1-.8-.5-.9-.9-.3-1.9-.4-2.8-.3-1 .1-1.9.3-2.8.7-.3.1-.6.1-.8-.2-.3-.3-.4-.7-.2-1 .5-.9 1.1-1.7 1.9-2.4.7-.6 1.6-1.1 2.5-1.4.4-.1.6-.5.5-.9-.1-.4-.5-.6-.9-.5-1.1.3-2.1.8-2.9 1.5-.9.7-1.6 1.6-2.1 2.6-.2.3-.5.4-.8.4-.1 0-.2 0-.3-.1-.4-.2-.6-.6-.5-1 .3-1.1.8-2.1 1.5-2.9.7-.9 1.6-1.6 2.6-2.1.4-.2.5-.6.3-1-.2-.4-.6-.5-1-.3-1.1.5-2.1 1.3-2.9 2.3-.8.9-1.4 2-1.8 3.2-.1.4-.5.6-.9.5-.4-.1-.6-.5-.5-.9.4-1.2 1-2.3 1.9-3.2.8-1 1.9-1.7 3-2.2.4-.2.6-.6.4-1-.2-.4-.6-.6-1-.4-1.3.5-2.4 1.3-3.4 2.4-.9 1.1-1.6 2.3-2 3.6-.1.4-.5.6-.9.5-.4-.1-.6-.5-.5-.9.5-1.3 1.2-2.5 2.2-3.6 1-1 2.2-1.8 3.5-2.3.4-.2.6-.6.4-1-.2-.4-.6-.6-1-.4-1.5.6-2.8 1.4-3.9 2.6-1.1 1.1-1.9 2.5-2.5 3.9-.2.4-.6.6-1 .4-.4-.2-.6-.6-.4-1 .7-1.6 1.6-3.1 2.9-4.3 1.2-1.2 2.7-2.1 4.3-2.7.4-.2.6-.6.4-1-.2-.4-.6-.6-1-.4-1.8.6-3.4 1.6-4.8 2.9-1.4 1.4-2.4 3-3 4.8-.1.4-.5.6-.9.5-.4-.1-.6-.5-.5-.9.7-2 1.9-3.7 3.4-5.2 1.6-1.4 3.4-2.5 5.5-3.2.4-.1.7.1.8.5.1.4-.1.7-.5.8-1.8.6-3.4 1.6-4.8 2.8-1.4 1.3-2.4 2.9-3 4.6-.1.4-.5.6-.9.5-.4-.1-.6-.5-.5-.9.7-1.9 1.8-3.6 3.2-5 .2-.2.4-.4.6-.6.3-.2.7-.2.9.1.2.3.2.7-.1.9zm-8.8 32.6-3.7 3.3c-.1.1-.2.2-.4.2-.2 0-.3-.1-.4-.2l-5.6-6.3c-.6-.7-1.7-.7-2.3 0L37.7 54h35.7l-15.1-17.8c-.7-.8-1.9-.8-2.6 0z" fill="currentColor"></path>
+              </svg>
             </div>
-            <h3 className="text-xl font-light mb-6 text-gray-800 dark:text-gray-200">Drag photos and videos here</h3>
+            <h3 className="text-xl font-normal mb-6 text-gray-800 dark:text-gray-200">Drag photos and videos here</h3>
             <button
               onClick={handleButtonClick}
-              className="bg-[#0095f6] hover:bg-[#1877f2] text-white px-4 py-1.5 rounded-md text-sm font-semibold transition-colors"
+              className="bg-[#0095f6] hover:bg-[#1877f2] text-white px-4 py-2 rounded-lg text-sm font-semibold transition-colors"
             >
               Select From Computer
             </button>
@@ -589,16 +666,16 @@ const CreatePostModal = ({ isOpen, onClose, initialType = 'post' }) => {
                 )}
                 <button onClick={() => { setShowRatioMenu(!showRatioMenu); setShowZoomSlider(false); setShowMultiSelect(false); }} className={`w-8 h-8 rounded-full ${showRatioMenu ? 'bg-white text-black' : 'bg-black/70 text-white'} hover:bg-white hover:text-black flex items-center justify-center transition-colors`}><Maximize2 size={16} /></button>
               </div>
+            </div>
+            <div className="absolute bottom-4 right-4 flex gap-3 z-30">
               <div className="relative">
                 {showZoomSlider && (
-                  <div className="absolute bottom-full left-0 mb-2 p-3 bg-black/80 backdrop-blur-sm rounded-lg shadow-xl w-32">
+                  <div className="absolute bottom-full right-0 mb-2 p-3 bg-black/80 backdrop-blur-sm rounded-lg shadow-xl w-32">
                     <input type="range" min={1} max={3} step={0.1} value={currentMedia.zoom} onChange={(e) => onZoomChange(Number(e.target.value))} className="w-full h-1 bg-gray-600 rounded-lg appearance-none cursor-pointer accent-white" />
                   </div>
                 )}
                 <button onClick={() => { setShowZoomSlider(!showZoomSlider); setShowRatioMenu(false); setShowMultiSelect(false); }} className={`w-8 h-8 rounded-full ${showZoomSlider ? 'bg-white text-black' : 'bg-black/70 text-white'} hover:bg-white hover:text-black flex items-center justify-center transition-colors`}><ZoomIn size={16} /></button>
               </div>
-            </div>
-            <div className="absolute bottom-4 right-4 z-30">
               <div className="relative">
                 {showMultiSelect && (
                   <div className="absolute bottom-full right-0 mb-2 p-3 bg-black/80 backdrop-blur-sm rounded-lg shadow-xl w-auto min-w-[200px] max-w-[300px]">
@@ -619,16 +696,28 @@ const CreatePostModal = ({ isOpen, onClose, initialType = 'post' }) => {
           </div>
         ) : step === 'edit' ? (
           /* EDIT STEP */
-          <div className="flex-1 flex flex-col md:flex-row overflow-hidden">
+          <div className="flex-1 flex lg:flex-row flex-col lg:overflow-hidden overflow-y-auto">
             {/* Left: Image Preview */}
-            <div className="relative bg-[#f0f0f0] dark:bg-[#121212] flex items-center justify-center w-full flex-1 md:h-auto md:flex-[2]">
+            <div className="relative bg-[#f0f0f0] dark:bg-[#121212] flex items-center justify-center w-full flex-1 h-auto">
               {currentMedia && (
-                <img
-                  src={currentMedia.croppedUrl || currentMedia.url}
-                  className="max-w-full max-h-full object-contain transition-all duration-200"
-                  style={getFilterStyle(currentMedia)}
-                  alt="Edit"
-                />
+                currentMedia.type === 'video' ? (
+                  <video
+                    src={currentMedia.croppedUrl || currentMedia.url}
+                    className="max-w-full max-h-full object-contain transition-all duration-200"
+                    style={getFilterStyle(currentMedia)}
+                    controls
+                    autoPlay
+                    loop
+                    muted
+                  />
+                ) : (
+                  <img
+                    src={currentMedia.croppedUrl || currentMedia.url}
+                    className="lg:max-w-full lg:max-h-full object-contain w-[400px] h-[500px]  transition-all duration-200"
+                    style={getFilterStyle(currentMedia)}
+                    alt="Edit"
+                  />
+                )
               )}
 
               {/* Navigation Arrows for Edit Step */}
@@ -645,108 +734,86 @@ const CreatePostModal = ({ isOpen, onClose, initialType = 'post' }) => {
             </div>
 
             {/* Right: Tools */}
-            <div className="bg-white dark:bg-black border-t md:border-t-0 md:border-l border-gray-200 dark:border-gray-800 flex flex-col w-full md:w-auto md:min-w-[300px]">
-              {/* User Profile Header (optional, usually here in instagram web) */}
-
+            <div className="bg-white dark:bg-black border-l border-gray-200 dark:border-gray-800 flex flex-col lg:w-[340px] w-full min-w-[340px] flex-none">
               {/* Tabs */}
               <div className="flex border-b border-gray-200 dark:border-gray-800">
                 <button
                   className={`flex-1 py-3 text-sm font-semibold transition-colors ${activeTab === 'filters' ? 'text-black dark:text-white border-b border-black dark:border-white' : 'text-gray-400 hover:text-gray-600 dark:hover:text-gray-300'}`}
                   onClick={() => setActiveTab('filters')}
                 >
-                  Filters
+                  Filter
                 </button>
                 <button
                   className={`flex-1 py-3 text-sm font-semibold transition-colors ${activeTab === 'adjustments' ? 'text-black dark:text-white border-b border-black dark:border-white' : 'text-gray-400 hover:text-gray-600 dark:hover:text-gray-300'}`}
                   onClick={() => setActiveTab('adjustments')}
                 >
-                  Adjustments
+                  Adjustment
                 </button>
               </div>
 
               {/* Tab Content */}
-              <div className="overflow-y-auto p-4 scrollbar-hide">
+              <div className="flex flex-col h-full overflow-y-scroll scrollbar-hide px-5 py-5">
                 {activeTab === 'filters' ? (
-                  <div className="flex overflow-x-auto gap-4 pb-2 snap-x">
+                  <div className="grid grid-cols-3 gap-4 ">
                     {FILTERS.map((filter) => (
                       <div
                         key={filter.name}
-                        className="cursor-pointer group text-center min-w-[80px] snap-center"
+                        className="flex flex-col items-center gap-2 cursor-pointer group"
                         onClick={() => applyFilter(filter.name)}
                       >
-                        <div className={`aspect-square rounded-md overflow-hidden mb-2 border-2 transition-all ${currentMedia.filter === filter.name ? 'border-[#0095f6]' : 'border-transparent group-hover:border-gray-300 dark:group-hover:border-gray-600'}`}>
-                          <img
-                            src={currentMedia.croppedUrl || currentMedia.url}
-                            className="w-full h-full object-cover"
-                            style={{ filter: filter.style }}
-                            alt={filter.name}
-                          />
+                        <div className={`w-full aspect-square rounded-md overflow-hidden border-2 transition-all ${currentMedia.filter === filter.name ? 'border-[#0095f6]' : 'border-transparent'}`}>
+                          {currentMedia.type === 'video' ? (
+                            <video
+                              src={currentMedia.croppedUrl || currentMedia.url}
+                              className="w-full h-full object-cover"
+                              style={{ filter: filter.style }}
+                              muted
+                            />
+                          ) : (
+                            <img
+                              src={currentMedia.croppedUrl || currentMedia.url}
+                              className="w-full h-full object-cover"
+                              style={{ filter: filter.style }}
+                              alt={filter.name}
+                            />
+                          )}
                         </div>
-                        <span className={`text-xs ${currentMedia.filter === filter.name ? 'font-semibold text-[#0095f6]' : 'text-gray-500 dark:text-gray-400'}`}>
+                        <span className={`text-xs font-semibold ${currentMedia.filter === filter.name ? 'text-[#0095f6]' : 'text-gray-500 dark:text-gray-400'}`}>
                           {filter.name}
                         </span>
                       </div>
                     ))}
                   </div>
                 ) : (
-                  <div className="flex flex-col h-full">
-                    {activeAdjustment ? (
-                      <div className="flex flex-col gap-6 animate-fade-in">
-                        <div className="flex items-center gap-3 mb-2">
-                          <button onClick={() => setActiveAdjustment(null)} className="p-1 hover:bg-gray-100 dark:hover:bg-gray-800 rounded-full dark:text-white">
-                            <ArrowLeft size={20} />
-                          </button>
-                          <span className="font-semibold text-sm dark:text-white">{activeAdjustment.name}</span>
-                          <span className="ml-auto text-xs font-mono bg-gray-100 dark:bg-gray-800 dark:text-gray-200 px-2 py-1 rounded">
-                            {currentMedia.adjustments[activeAdjustment.property] || 0}
-                          </span>
+                  <div className="flex flex-col gap-6 pb-4">
+                    {ADJUSTMENTS.map((adj) => (
+                      <div key={adj.name} className="flex flex-col gap-3">
+                        <div className="flex justify-between items-center">
+                          <span className="text-sm font-semibold dark:text-white">{adj.name}</span>
+                          {currentMedia.adjustments[adj.property] !== 0 && (
+                            <button
+                              onClick={() => updateAdjustment(adj.property, 0)}
+                              className="text-xs text-blue-500 font-semibold hover:text-blue-600"
+                            >
+                              Reset
+                            </button>
+                          )}
                         </div>
-
-                        <div className="px-2">
+                        <div className="flex items-center gap-3">
                           <input
                             type="range"
-                            min={activeAdjustment.min}
-                            max={activeAdjustment.max}
-                            value={currentMedia.adjustments[activeAdjustment.property] || 0}
-                            onChange={(e) => updateAdjustment(activeAdjustment.property, parseInt(e.target.value))}
-                            className="w-full h-1 bg-gray-200 dark:bg-gray-700 rounded-lg appearance-none cursor-pointer accent-black dark:accent-white"
+                            min={adj.min}
+                            max={adj.max}
+                            value={currentMedia.adjustments[adj.property] || 0}
+                            onChange={(e) => updateAdjustment(adj.property, parseInt(e.target.value))}
+                            className="flex-1 h-1 bg-gray-200 dark:bg-gray-700 rounded-lg appearance-none cursor-pointer accent-black dark:accent-white"
                           />
-                          <div className="flex justify-between mt-2 text-xs text-gray-400">
-                            <span>{activeAdjustment.min}</span>
-                            <span>{activeAdjustment.max}</span>
-                          </div>
+                          <span className="text-xs font-mono w-8 text-right text-gray-500 dark:text-gray-400">
+                            {currentMedia.adjustments[adj.property] || 0}
+                          </span>
                         </div>
-
-                        <button
-                          onClick={() => updateAdjustment(activeAdjustment.property, 0)}
-                          className="text-xs text-red-500 font-medium self-center mt-4 hover:underline"
-                        >
-                          Reset
-                        </button>
                       </div>
-                    ) : (
-                      <div className="grid grid-cols-3 gap-4">
-                        {ADJUSTMENTS.map((adj) => {
-                          const Icon = ADJUSTMENT_ICONS[adj.name] || Sliders;
-                          const value = currentMedia.adjustments[adj.property] || 0;
-                          const isActive = value !== 0;
-
-                          return (
-                            <div
-                              key={adj.name}
-                              className={`flex flex-col items-center gap-2 p-3 rounded-xl cursor-pointer transition-all hover:bg-gray-50 dark:hover:bg-gray-900 ${isActive ? 'bg-blue-50 dark:bg-blue-900/30' : ''}`}
-                              onClick={() => setActiveAdjustment(adj)}
-                            >
-                              <div className={`w-10 h-10 rounded-full flex items-center justify-center border ${isActive ? 'border-blue-500 text-blue-500 bg-white dark:bg-black' : 'border-gray-200 dark:border-gray-700 text-gray-700 dark:text-gray-300'}`}>
-                                <Icon size={20} />
-                              </div>
-                              <span className={`text-xs font-medium ${isActive ? 'text-blue-600 dark:text-blue-400' : 'text-gray-600 dark:text-gray-400'}`}>{adj.name}</span>
-                              {isActive && <span className="text-[10px] text-blue-400 font-mono">{value > 0 ? `+${value}` : value}</span>}
-                            </div>
-                          )
-                        })}
-                      </div>
-                    )}
+                    ))}
                   </div>
                 )}
               </div>
@@ -754,20 +821,34 @@ const CreatePostModal = ({ isOpen, onClose, initialType = 'post' }) => {
           </div>
         ) : (
           /* SHARE STEP */
-          <div className="flex-1 flex flex-col md:flex-row overflow-hidden">
+          <div className="flex-1 flex flex-col md:flex-row lg:overflow-hidden overflow-y-auto">
             {/* Left: Final Image Preview */}
             <div className="relative bg-[#f0f0f0] dark:bg-[#121212] flex items-center justify-center select-none w-full h-[40%] md:h-auto md:flex-[2]">
               {currentMedia && (
                 <div className="relative w-full h-full flex items-center justify-center" onClick={handleImageClick}>
-                  <img
-                    src={currentMedia.croppedUrl || currentMedia.url}
-                    className="max-w-full max-h-full object-contain cursor-crosshair"
-                    style={getFilterStyle(currentMedia)}
-                    alt="Share Preview"
-                  />
-                  <div className="absolute bottom-4 left-1/2 -translate-x-1/2 bg-black/70 text-white text-xs px-3 py-1.5 rounded-full pointer-events-none">
-                    Click photo to tag people
-                  </div>
+                  {currentMedia.type === 'video' ? (
+                    <video
+                      src={currentMedia.croppedUrl || currentMedia.url}
+                      className="max-w-full max-h-full object-contain"
+                      style={getFilterStyle(currentMedia)}
+                      controls
+                      autoPlay
+                      loop
+                      muted
+                    />
+                  ) : (
+                    <img
+                      src={currentMedia.croppedUrl || currentMedia.url}
+                      className="max-w-full max-h-full object-contain cursor-crosshair"
+                      style={getFilterStyle(currentMedia)}
+                      alt="Share Preview"
+                    />
+                  )}
+                  {currentMedia.type !== 'video' && (
+                    <div className="absolute bottom-4 left-1/2 -translate-x-1/2 bg-black/70 text-white text-xs px-3 py-1.5 rounded-full pointer-events-none">
+                      Click photo to tag people
+                    </div>
+                  )}
 
                   {/* Tags */}
                   {tags.map((tag) => (

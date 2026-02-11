@@ -71,9 +71,7 @@ class _SignupIdentifierScreenState extends State<SignupIdentifierScreen>
         final phone = _phoneController.text.trim();
         session = await _authService.signupWithPhone(phone);
       } else {
-        // Google signup
         session = await _authService.signupWithGoogle();
-        // Google auto-verifies, so skip to account setup
         if (mounted) {
           Navigator.of(context).pushReplacement(
             MaterialPageRoute(
@@ -87,7 +85,7 @@ class _SignupIdentifierScreenState extends State<SignupIdentifierScreen>
       if (mounted) {
         Navigator.of(context).push(
           MaterialPageRoute(
-            builder: (context) => SignupVerificationScreen(session: session),
+            builder: (context) => SignupAccountSetupScreen(session: session),
           ),
         );
       }

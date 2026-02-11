@@ -1,4 +1,5 @@
 import 'api_client.dart';
+import '../config/api_config.dart';
 
 /// REST API wrapper for `/upload` endpoint.
 ///
@@ -10,13 +11,19 @@ class UploadApi {
   UploadApi._internal();
 
   final ApiClient _client = ApiClient();
+  
+  String get _path {
+    final base = ApiConfig.baseUrl.toLowerCase().trim().replaceAll(RegExp(r'\/+$'), '');
+    final endsWithApi = base.endsWith('/api');
+    return endsWithApi ? '/upload' : '/api/upload';
+  }
 
   /// Upload a file from a local path.
   ///
   /// Returns `{ fileName: String, fileUrl: String }`.
   Future<Map<String, dynamic>> uploadFile(String filePath) async {
     final res = await _client.multipartPost(
-      '/upload',
+      _path,
       filePath: filePath,
       fileField: 'file',
     );
@@ -31,7 +38,7 @@ class UploadApi {
     required String filename,
   }) async {
     final res = await _client.multipartPostBytes(
-      '/upload',
+      _path,
       bytes: bytes,
       filename: filename,
       fileField: 'file',

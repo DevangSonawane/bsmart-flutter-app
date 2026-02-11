@@ -31,19 +31,19 @@ class AuthService {
     final now = DateTime.now();
 
     final session = SignupSession(
-      id: sessionToken,
-      sessionToken: sessionToken,
-      identifierType: IdentifierType.email,
-      identifierValue: email,
-      verificationStatus: VerificationStatus.pending,
-      step: 1,
-      metadata: {
-        'email': email,
-        'password': password,
-      },
-      createdAt: now,
-      expiresAt: now.add(const Duration(hours: 1)),
-    );
+        id: sessionToken,
+        sessionToken: sessionToken,
+        identifierType: IdentifierType.email,
+        identifierValue: email,
+        verificationStatus: VerificationStatus.verified,
+        step: 1,
+        metadata: {
+          'email': email,
+          'password': password,
+        },
+        createdAt: now,
+        expiresAt: now.add(const Duration(hours: 1)),
+      );
 
     _sessions[sessionToken] = session;
     return session;
@@ -55,18 +55,18 @@ class AuthService {
     final now = DateTime.now();
 
     final session = SignupSession(
-      id: sessionToken,
-      sessionToken: sessionToken,
-      identifierType: IdentifierType.phone,
-      identifierValue: phone,
-      verificationStatus: VerificationStatus.pending,
-      step: 1,
-      metadata: {
-        'phone': phone,
-      },
-      createdAt: now,
-      expiresAt: now.add(const Duration(hours: 1)),
-    );
+        id: sessionToken,
+        sessionToken: sessionToken,
+        identifierType: IdentifierType.phone,
+        identifierValue: phone,
+        verificationStatus: VerificationStatus.verified,
+        step: 1,
+        metadata: {
+          'phone': phone,
+        },
+        createdAt: now,
+        expiresAt: now.add(const Duration(hours: 1)),
+      );
 
     _sessions[sessionToken] = session;
     return session;
@@ -292,7 +292,6 @@ class AuthService {
       final googleUser = await _googleSignIn.signIn();
       if (googleUser == null) throw Exception('Google sign in cancelled');
 
-      final googleAuth = await googleUser.authentication;
       final email = googleUser.email;
       if (email == null || email.isEmpty) {
         throw Exception('Google account has no email');
@@ -301,12 +300,10 @@ class AuthService {
       final derivedPassword = _googlePasswordForEmail(email);
 
       try {
-        // Try login first with the derived password
         final data =
             await _authApi.login(email: email, password: derivedPassword);
         if (data['token'] != null) return;
       } catch (_) {
-        // If login fails, try register with the same derived password
         await _authApi.register(
           email: email,
           password: derivedPassword,

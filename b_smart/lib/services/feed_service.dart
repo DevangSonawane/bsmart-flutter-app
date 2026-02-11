@@ -1,4 +1,5 @@
 import '../api/api.dart';
+import '../config/api_config.dart';
 import '../models/feed_post_model.dart';
 import '../models/story_model.dart';
 import '../models/user_model.dart';
@@ -11,6 +12,41 @@ class FeedService {
 
   final PostsApi _postsApi = PostsApi();
   final AuthApi _authApi = AuthApi();
+  String _absoluteUrl(String url) {
+    if (url.startsWith('http://') || url.startsWith('https://')) return url;
+    final base = ApiConfig.baseUrl;
+    final baseUri = Uri.parse(base);
+    final origin = '${baseUri.scheme}://${baseUri.host}${baseUri.hasPort ? ':${baseUri.port}' : ''}';
+    if (url.startsWith('/')) return '$origin$url';
+    return '$origin/$url';
+  }
+  String _normalizeUrl(String? url) {
+    if (url == null || url.isEmpty) return '';
+    var u = url.trim();
+    u = u.replaceAll('\\', '/');
+    final lower = u.toLowerCase();
+    final isLikelyFile =
+        lower.endsWith('.jpg') ||
+        lower.endsWith('.jpeg') ||
+        lower.endsWith('.png') ||
+        lower.endsWith('.webp') ||
+        lower.endsWith('.gif') ||
+        lower.endsWith('.mp4');
+    if (!u.startsWith('http://') && !u.startsWith('https://')) {
+      if (!u.startsWith('/')) {
+        if (isLikelyFile) {
+          if (u.startsWith('uploads/') || u.contains('/')) {
+            u = '/$u';
+          } else {
+            u = '/uploads/$u';
+          }
+        } else {
+          u = '/$u';
+        }
+      }
+    }
+    return _absoluteUrl(u);
+  }
 
   // Get personalized feed with ranking
   List<FeedPost> getPersonalizedFeed({
@@ -224,29 +260,110 @@ class FeedService {
     try {
       final page = (offset ~/ limit) + 1;
       final data = await _postsApi.getFeed(page: page, limit: limit);
-      final items = (data['posts'] as List<dynamic>? ?? [])
-          .cast<Map<String, dynamic>>();
+      List<Map<String, dynamic>> items = [];
+      if (data is List) {
+        items = (data as List).cast<Map<String, dynamic>>();
+      } else if (data is Map) {
+        final map = data as Map;
+        if (map['posts'] is List) {
+          items = (map['posts'] as List).cast<Map<String, dynamic>>();
+        } else if (map['data'] is List) {
+          items = (map['data'] as List).cast<Map<String, dynamic>>();
+        } else if (map['data'] is Map && (map['data'] as Map)['posts'] is List) {
+          items = ((map['data'] as Map)['posts'] as List).cast<Map<String, dynamic>>();
+        }
+      }
 
       return items.map((item) {
         // The API nests the author info inside `user_id` as a populated object.
-        final user = item['user_id'] is Map
-            ? item['user_id'] as Map<String, dynamic>
-            : <String, dynamic>{};
+        Map<String, dynamic> user = {};
+        if (item['user_id'] is Map) {
+          user = item['user_id'] as Map<String, dynamic>;
+        } else if (item['users'] is Map) {
+          user = item['users'] as Map<String, dynamic>;
+        }
 
-        final media = item['media'] as List<dynamic>? ?? [];
-        final mediaUrls = media.map((m) {
-          if (m is String) return m;
-          if (m is Map) {
-            final url = (m['fileUrl'] ?? m['image'] ?? m['url'])?.toString();
-            if (url != null && url.isNotEmpty) return url;
+        final media = item['media'] as List<dynamic>? ?? (item['images'] as List<dynamic>? ?? (item['attachments'] as List<dynamic>? ?? []));
+        List<String> mediaUrls = media.map((m) {
+          String? url;
+          if (m is String) {
+            url = m;
+          } else if (m is Map) {
+            if (m['file'] is Map) {
+              final f = (m['file'] as Map);
+              url = (f['fileUrl'] ?? f['file_url'] ?? f['url'] ?? f['path'])?.toString();
+            } else if (m['file'] is String) {
+              url = (m['file'] as String);
+            }
+            url ??= (m['fileUrl'] ??
+                    m['file_url'] ??
+                    m['image'] ??
+                    m['imageUrl'] ??
+                    m['url'] ??
+                    m['file_path'])
+                ?.toString();
+            if ((url == null || url.isEmpty) && m['fileName'] != null) {
+              final fn = m['fileName'].toString();
+              url = '/uploads/$fn';
+            }
           }
-          return m.toString();
-        }).cast<String>().toList();
+          return _normalizeUrl(url);
+        }).where((u) => u.isNotEmpty).cast<String>().toList();
+        if (mediaUrls.isEmpty) {
+          final single = (item['imageUrl'] ??
+                  item['image'] ??
+                  item['fileUrl'] ??
+                  item['file_url'] ??
+                  item['url'] ??
+                  item['file_path'])
+              ?.toString();
+          final normalized = _normalizeUrl(single);
+          if (normalized.isNotEmpty) {
+            mediaUrls = [normalized];
+          }
+        }
+        if (mediaUrls.isEmpty) {
+          final single = (item['imageUrl'] ?? item['image'] ?? item['url'])?.toString();
+          if (single != null && single.isNotEmpty) {
+            mediaUrls.add(single);
+          }
+        }
 
         final typeStr = (item['type'] as String?) ?? 'post';
+        bool hasVideo = false;
+        for (final mm in media) {
+          if (mm is Map) {
+            final t = (mm['type'] as String?)?.toLowerCase();
+            if (t == 'video' || t == 'reel') {
+              hasVideo = true;
+              break;
+            }
+            final cand = (mm['fileUrl'] ??
+                    mm['file_url'] ??
+                    mm['url'] ??
+                    mm['file_path'] ??
+                    (mm['file'] is String ? mm['file'] : null) ??
+                    (mm['file'] is Map ? ((mm['file'] as Map)['url'] ?? (mm['file'] as Map)['fileUrl']) : null))
+                ?.toString()
+                .toLowerCase();
+            if (cand != null &&
+                (cand.endsWith('.mp4') || cand.endsWith('.mov') || cand.contains('.m3u8'))) {
+              hasVideo = true;
+              break;
+            }
+          } else if (mm is String) {
+            final s = mm.toLowerCase();
+            if (s.endsWith('.mp4') || s.endsWith('.mov')) {
+              hasVideo = true;
+              break;
+            }
+          }
+        }
         PostMediaType mediaType = PostMediaType.image;
         if (typeStr == 'reel') {
           mediaType = PostMediaType.reel;
+        } else if (hasVideo && mediaUrls.length <= 1) {
+          mediaType = PostMediaType.video;
         } else if (mediaUrls.length > 1) {
           mediaType = PostMediaType.carousel;
         }
@@ -256,9 +373,9 @@ class FeedService {
           userId: user['_id'] as String? ??
               user['id'] as String? ??
               (item['user_id'] is String ? item['user_id'] as String : ''),
-          userName: user['username'] as String? ?? 'user',
-          fullName: user['full_name'] as String?,
-          userAvatar: user['avatar_url'] as String?,
+          userName: user['username'] as String? ?? (item['username'] as String?) ?? 'user',
+          fullName: user['full_name'] as String? ?? (item['full_name'] as String?),
+          userAvatar: user['avatar_url'] as String? ?? (item['userAvatar'] as String?),
           isVerified: user['is_verified'] as bool? ?? false,
           mediaType: mediaType,
           mediaUrls: mediaUrls,
@@ -266,15 +383,17 @@ class FeedService {
           hashtags: ((item['tags'] as List<dynamic>?) ?? [])
               .map((e) => e.toString())
               .toList(),
-          createdAt: item['createdAt'] != null
+          createdAt: item['createdAt'] is String
               ? DateTime.parse(item['createdAt'] as String)
-              : DateTime.now(),
+              : (item['created_at'] is String
+                  ? DateTime.tryParse(item['created_at'] as String) ?? DateTime.now()
+                  : DateTime.now()),
           likes: item['likes_count'] as int? ?? 0,
           comments: item['comments'] is List
               ? (item['comments'] as List).length
-              : (item['comments_count'] as int? ?? 0),
+              : (item['comments_count'] as int? ?? (item['commentCount'] as int? ?? 0)),
           views: 0,
-          isLiked: item['is_liked_by_me'] as bool? ?? false,
+          isLiked: item['is_liked_by_me'] as bool? ?? (item['liked'] as bool? ?? false),
           isSaved: false,
           isFollowed: false,
           isTagged: false,

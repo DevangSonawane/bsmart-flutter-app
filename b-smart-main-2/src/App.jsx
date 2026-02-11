@@ -1,8 +1,8 @@
 import React, { useEffect } from 'react';
 import { BrowserRouter, Routes, Route } from 'react-router-dom';
 import { useDispatch, useSelector } from 'react-redux';
-import { supabase } from './lib/supabase';
-import { setUser, setLoading } from './store/authSlice';
+import { fetchMe, setLoading } from './store/authSlice';
+import api from './lib/api';
 import Layout from './components/Layout';
 import Home from './pages/Home';
 import CreatePost from './pages/CreatePost';
@@ -17,6 +17,7 @@ import ForgotPassword from './pages/ForgotPassword';
 import VerifyOtp from './pages/VerifyOtp';
 import EditProfile from './pages/EditProfile';
 import MobilePostDetail from './pages/MobilePostDetail';
+import AuthCallback from './pages/AuthCallback';
 import ProtectedRoute from './components/ProtectedRoute';
 
 function App() {
@@ -32,64 +33,12 @@ function App() {
   }, [mode]);
 
   useEffect(() => {
-    const fetchUserProfile = async (session) => {
-      if (session?.user) {
-        try {
-          const { data: userProfile, error } = await supabase
-            .from('users')
-            .select('*')
-            .eq('id', session.user.id)
-            .single();
-
-          let walletData = null;
-          try {
-            const { data: wallet } = await supabase
-              .from('wallets')
-              .select('*')
-              .eq('user_id', session.user.id)
-              .single();
-            walletData = wallet;
-          } catch (err) {
-            console.error('Error fetching wallet:', err);
-          }
-
-          if (userProfile) {
-            dispatch(setUser({ ...userProfile, auth_email: session.user.email, wallet: walletData }));
-          } else {
-            // Profile should be created by trigger, but if not found immediately (race condition), use metadata
-            // Or just set basic user info
-            const metadata = session.user.user_metadata || {};
-            dispatch(setUser({
-              id: session.user.id,
-              email: session.user.email,
-              full_name: metadata.full_name,
-              username: metadata.username,
-              avatar_url: metadata.avatar_url,
-              auth_email: session.user.email,
-              wallet: walletData
-            }));
-          }
-        } catch (error) {
-          console.error('Error fetching profile:', error);
-          dispatch(setUser(session.user));
-        }
-      } else {
-        dispatch(setUser(null));
-      }
+    const token = localStorage.getItem('token');
+    if (token) {
+      dispatch(fetchMe());
+    } else {
       dispatch(setLoading(false));
-    };
-
-    // Check active session
-    supabase.auth.getSession().then(({ data: { session } }) => {
-      fetchUserProfile(session);
-    });
-
-    // Listen for auth changes
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
-      fetchUserProfile(session);
-    });
-
-    return () => subscription.unsubscribe();
+    }
   }, [dispatch]);
 
   return (
@@ -97,6 +46,7 @@ function App() {
       <Routes>
         <Route path="/login" element={<Login />} />
         <Route path="/signup" element={<Signup />} />
+        <Route path="/auth/google/success" element={<AuthCallback />} />
         <Route path="/forgot-password" element={<ForgotPassword />} />
         <Route path="/verify-otp" element={<VerifyOtp />} />
 

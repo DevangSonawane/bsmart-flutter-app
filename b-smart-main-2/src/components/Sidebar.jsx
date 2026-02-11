@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Link, useLocation } from 'react-router-dom';
 import { useDispatch, useSelector } from 'react-redux';
-import { Home, PlusSquare, Clapperboard, ShoppingBag, User, Menu, Image, Video, Target, Megaphone, Moon, Sun } from 'lucide-react';
+import { Home, PlusSquare, Clapperboard, ShoppingBag, User, Menu, Image, Video, Target, Megaphone, Moon, Sun, Search } from 'lucide-react';
 import { toggleTheme } from '../store/themeSlice';
 import CreatePostModal from './CreatePostModal';
 
@@ -33,6 +33,7 @@ const Sidebar = ({ onOpenCreateModal }) => {
 
   const navItems = [
     { icon: Home, label: 'Home', path: '/' },
+    { icon: Search, label: 'Search', path: '/search' },
     { icon: Target, label: 'Ads', path: '/ads' },
     { icon: PlusSquare, label: 'Create', path: null, action: () => setIsCreateDropdownOpen(!isCreateDropdownOpen) },
     { icon: Megaphone, label: 'Promote', path: '/promote' },

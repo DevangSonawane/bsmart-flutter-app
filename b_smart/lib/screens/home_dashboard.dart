@@ -196,9 +196,9 @@ class _HomeDashboardState extends State<HomeDashboard> {
         width: double.infinity,
         padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
         decoration: BoxDecoration(
-          color: isDark ? const Color(0xFF1E1E1E) : Colors.pink.shade50,
+          color: isDark ? const Color(0xFF1E1E1E) : Colors.grey.shade100,
           border: Border(
-            bottom: BorderSide(color: isDark ? const Color(0xFF2A2A2A) : Colors.pink.shade100),
+            bottom: BorderSide(color: isDark ? const Color(0xFF2A2A2A) : Colors.grey.shade200),
           ),
         ),
         child: Row(
@@ -487,23 +487,51 @@ class _HomeDashboardState extends State<HomeDashboard> {
                           onYourStoryTap: () {},
                           onUserStoryTap: _storyGroups.isEmpty ? null : _onStoryTap,
                         ),
-                        // Reduced space between stories and posts
-                        ListView.builder(
-                          physics: const NeverScrollableScrollPhysics(),
-                          shrinkWrap: true,
-                          itemCount: posts.length,
-                          itemBuilder: (context, index) {
-                            final p = posts[index];
-                            return PostCard(
-                              post: p,
-                              onLike: () => _onLikePost(p),
-                              onComment: () => _onCommentPost(p),
-                              onShare: () => _onSharePost(p),
-                              onSave: () => _onSavePost(p),
-                              onMore: () => _onMorePost(context, p),
-                            );
-                          },
-                        ),
+                        if (posts.isEmpty)
+                          Padding(
+                            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 24),
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.center,
+                              children: [
+                                Icon(LucideIcons.image, size: 48, color: Theme.of(context).textTheme.bodyMedium?.color),
+                                const SizedBox(height: 12),
+                                Text(
+                                  'No posts yet',
+                                  style: TextStyle(
+                                    fontWeight: FontWeight.w600,
+                                    fontSize: 16,
+                                    color: Theme.of(context).colorScheme.onSurface,
+                                  ),
+                                ),
+                                const SizedBox(height: 6),
+                                Text(
+                                  'Create your first post from the + button',
+                                  style: TextStyle(
+                                    fontSize: 13,
+                                    color: Theme.of(context).textTheme.bodyMedium?.color,
+                                  ),
+                                  textAlign: TextAlign.center,
+                                ),
+                              ],
+                            ),
+                          )
+                        else
+                          ListView.builder(
+                            physics: const NeverScrollableScrollPhysics(),
+                            shrinkWrap: true,
+                            itemCount: posts.length,
+                            itemBuilder: (context, index) {
+                              final p = posts[index];
+                              return PostCard(
+                                post: p,
+                                onLike: () => _onLikePost(p),
+                                onComment: () => _onCommentPost(p),
+                                onShare: () => _onSharePost(p),
+                                onSave: () => _onSavePost(p),
+                                onMore: () => _onMorePost(context, p),
+                              );
+                            },
+                          ),
                         const SizedBox(height: 16),
                       ],
                     ),

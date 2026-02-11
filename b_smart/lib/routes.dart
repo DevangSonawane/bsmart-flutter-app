@@ -12,6 +12,7 @@ import 'screens/promote_screen.dart';
 import 'screens/settings_screen.dart';
 import 'screens/wallet_screen.dart';
 import 'screens/notifications_screen.dart';
+import 'screens/auth_callback_screen.dart';
 
 /// Centralized route definitions matching the React app structure.
 final Map<String, WidgetBuilder> appRoutes = {
@@ -33,9 +34,8 @@ final Map<String, WidgetBuilder> appRoutes = {
   '/settings': (ctx) => const SettingsScreen(),
   '/wallet': (ctx) => const WalletScreen(),
   '/notifications': (ctx) => const NotificationsScreen(),
+  '/auth/google/success': (ctx) => const AuthCallbackScreen(),
   '/edit-profile': (ctx) {
-    // EditProfileScreen will fetch current user if userId is empty/null
     return const EditProfileScreen(userId: '');
   },
 };
-

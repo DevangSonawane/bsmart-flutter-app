@@ -51,4 +51,22 @@ class UsersApi {
     final res = await _client.delete('/users/$userId');
     return res as Map<String, dynamic>;
   }
+
+  /// Search users by query string.
+  ///
+  /// Returns a list of users matching the query.
+  Future<List<Map<String, dynamic>>> search(String query) async {
+    final res = await _client.get('/users/search', queryParams: {
+      'q': query,
+    });
+    final data = res;
+    if (data is Map<String, dynamic>) {
+      final list = data['data'] as List<dynamic>? ?? [];
+      return list.cast<Map<String, dynamic>>();
+    }
+    if (data is List) {
+      return data.cast<Map<String, dynamic>>();
+    }
+    return <Map<String, dynamic>>[];
+  }
 }

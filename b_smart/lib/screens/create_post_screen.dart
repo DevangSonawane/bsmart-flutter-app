@@ -1,10 +1,15 @@
 import 'dart:io';
 import 'dart:typed_data';
+import 'dart:async';
+import 'dart:ui' as ui;
 import 'package:flutter/material.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 import 'package:image_picker/image_picker.dart';
 import '../services/supabase_service.dart';
 import '../utils/current_user.dart';
+import '../config/api_config.dart';
+import '../api/upload_api.dart';
+import '../api/posts_api.dart';
 
 /// Single media item in the create-post flow (select → crop → edit → share).
 class _CreatePostMediaItem {
@@ -301,6 +306,37 @@ class _CreatePostScreenState extends State<CreatePostScreen> {
     if (item != null) setState(() => item.filter = name);
   }
 
+  String _cssFrom(String name, Map<String, int> adj) {
+    final presets = {
+      'Original': '',
+      'Clarendon': 'contrast(1.2) saturate(1.25)',
+      'Gingham': 'brightness(1.05) hue-rotate(-10deg)',
+      'Moon': 'grayscale(1) contrast(1.1) brightness(1.1)',
+      'Lark': 'contrast(0.9)',
+      'Reyes': 'sepia(0.22) brightness(1.1) contrast(0.85) saturate(0.75)',
+      'Juno': 'contrast(1.2) brightness(1.1) saturate(1.4) sepia(0.2)',
+      'Slumber': 'brightness(1.05) saturate(0.66) sepia(0.20)',
+      'Crema': 'contrast(0.9) saturate(0.9) sepia(0.2)',
+      'Ludwig': 'contrast(0.9) saturate(0.9) brightness(1.1)',
+      'Aden': 'contrast(0.9) saturate(0.85) brightness(1.2) hue-rotate(-20deg)',
+      'Perpetua': 'contrast(1.1) brightness(1.1) saturate(1.1)',
+    };
+    final base = presets[name] ?? '';
+    final brightness = 'brightness(${100 + (adj['brightness'] ?? 0)}%)';
+    final contrast = 'contrast(${100 + (adj['contrast'] ?? 0)}%)';
+    final saturate = 'saturate(${100 + (adj['saturate'] ?? 0)}%)';
+    final sepia = ((adj['sepia'] ?? 0) != 0) ? 'sepia(${(adj['sepia'] ?? 0).abs()}%)' : '';
+    String hue = '';
+    final s = adj['sepia'] ?? 0;
+    if (s < 0) {
+      hue = 'hue-rotate(${s.abs()}deg)';
+    } else if (s > 0) {
+      hue = 'hue-rotate(${s}deg)';
+    }
+    final parts = [base, brightness, contrast, saturate, sepia, hue].where((e) => e.isNotEmpty).toList();
+    return parts.join(' ');
+  }
+
   void _updateAdjustment(String key, int value) {
     final item = _currentMedia;
     if (item != null) setState(() => item.adjustments[key] = value);
@@ -362,36 +398,99 @@ class _CreatePostScreenState extends State<CreatePostScreen> {
         final file = File(path);
         if (!await file.exists()) continue;
         final bytes = await file.readAsBytes();
-        final ext = path.split('.').last;
+        final isImage = !item.isVideo;
+        final Uint8List toUpload = isImage ? await _processImageBytes(Uint8List.fromList(bytes), item) : Uint8List.fromList(bytes);
+        final ext = isImage ? 'png' : path.split('.').last;
         final filename = '$userId/${DateTime.now().millisecondsSinceEpoch}_${item.hashCode % 100000}.$ext';
-        final uploaded = await _svc.uploadFile('post_images', filename, Uint8List.fromList(bytes));
+        final uploaded = await UploadApi().uploadFileBytes(bytes: toUpload, filename: filename);
+        final serverFileName = (uploaded['fileName'] ?? uploaded['filename'] ?? filename).toString();
+        String? fileUrl = uploaded['fileUrl']?.toString();
+        if (fileUrl != null && fileUrl.isNotEmpty) {
+          fileUrl = fileUrl.replaceAll('\\', '/');
+          final isAbs = fileUrl.startsWith('http://') || fileUrl.startsWith('https://');
+          if (!isAbs) {
+            final base = ApiConfig.baseUrl;
+            final baseUri = Uri.parse(base);
+            final origin = '${baseUri.scheme}://${baseUri.host}${baseUri.hasPort ? ':${baseUri.port}' : ''}';
+            if (!fileUrl.startsWith('/')) {
+              if (fileUrl.startsWith('uploads/') || fileUrl.contains('/')) {
+                fileUrl = '/$fileUrl';
+              } else {
+                fileUrl = '/uploads/$fileUrl';
+              }
+            }
+            fileUrl = '$origin$fileUrl';
+          } else if (fileUrl.startsWith('http://')) {
+            try {
+              final parsed = Uri.parse(fileUrl);
+              fileUrl = Uri(
+                scheme: 'https',
+                host: parsed.host,
+                port: parsed.hasPort ? parsed.port : null,
+                path: parsed.path,
+                query: parsed.query,
+              ).toString();
+            } catch (_) {}
+          }
+        }
+        final adj = item.adjustments;
+        final css = _cssFrom(item.filter, adj);
         processedMedia.add({
-          'fileName': uploaded['fileName'],
-          'ratio': item.aspect,
-          'zoom': 1.0,
-          'filter': item.filter,
-          'adjustments': item.adjustments,
+          'fileName': serverFileName,
+          'fileUrl': fileUrl,
+          'type': item.isVideo ? 'video' : 'image',
+          'crop': {
+            'mode': 'original',
+            'zoom': 1.0,
+            'x': 0,
+            'y': 0,
+          },
+          'filter': {
+            'name': item.filter,
+            'css': css,
+          },
+          'adjustments': {
+            'brightness': adj['brightness'],
+            'contrast': adj['contrast'],
+            'saturation': adj['saturate'],
+            'temperature': adj['sepia'],
+            'fade': adj['opacity'],
+            'vignette': adj['vignette'],
+          },
         });
       }
       if (processedMedia.isEmpty) throw Exception('No media to upload');
 
-      final tagsPayload = _tags.map((t) => {
+      final peopleTags = _tags.map((t) => {
+        'user_id': t.user['id'],
+        'username': t.user['username'],
         'x': t.x,
         'y': t.y,
-        'user': t.user,
       }).toList();
 
+      final hashtagMatches = RegExp(r'#[a-zA-Z0-9_]+').allMatches(_captionCtl.text.trim()).map((m) => m.group(0)!).toList();
+
       final postData = {
-        'user_id': userId,
         'caption': _captionCtl.text.trim(),
         'location': _location.isEmpty ? null : _location,
         'media': processedMedia,
-        'tags': tagsPayload,
+        'tags': hashtagMatches,
+        'people_tags': peopleTags,
         'hide_likes_count': _hideLikes,
         'turn_off_commenting': _turnOffCommenting,
+        'type': 'post',
       };
-      final ok = await _svc.createPost(postData);
-      if (ok && mounted) {
+      final created = await PostsApi().createPost(
+        media: processedMedia.cast<Map<String, dynamic>>(),
+        caption: _captionCtl.text.trim(),
+        location: _location.isEmpty ? null : _location,
+        tags: hashtagMatches,
+        hideLikesCount: _hideLikes,
+        turnOffCommenting: _turnOffCommenting,
+        peopleTags: peopleTags.cast<Map<String, dynamic>>(),
+        type: 'post',
+      );
+      if (created.isNotEmpty && mounted) {
         Navigator.of(context).pop(true);
         ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Post shared successfully!')));
       } else if (mounted) {
@@ -835,6 +934,73 @@ class _CreatePostScreenState extends State<CreatePostScreen> {
       colorFilter: ColorFilter.matrix(matrix),
       child: Image.file(file, fit: BoxFit.cover),
     );
+  }
+
+  Future<Uint8List> _processImageBytes(Uint8List srcBytes, _CreatePostMediaItem item) async {
+    final completer = Completer<ui.Image>();
+    ui.decodeImageFromList(srcBytes, (img) => completer.complete(img));
+    final srcImage = await completer.future;
+    final srcW = srcImage.width.toDouble();
+    final srcH = srcImage.height.toDouble();
+    Rect srcRect;
+    if (item.aspect == 0.0 || item.aspect <= 0) {
+      srcRect = Rect.fromLTWH(0, 0, srcW, srcH);
+    } else {
+      final target = item.aspect;
+      final current = srcW / srcH;
+      if (current > target) {
+        final newW = srcH * target;
+        final left = (srcW - newW) / 2.0;
+        srcRect = Rect.fromLTWH(left, 0, newW, srcH);
+      } else {
+        final newH = srcW / target;
+        final top = (srcH - newH) / 2.0;
+        srcRect = Rect.fromLTWH(0, top, srcW, newH);
+      }
+    }
+    final dstW = srcRect.width.round();
+    final dstH = srcRect.height.round();
+    final recorder = ui.PictureRecorder();
+    final canvas = ui.Canvas(recorder, ui.Rect.fromLTWH(0, 0, dstW.toDouble(), dstH.toDouble()));
+    final adj = item.adjustments;
+    final b = (adj['brightness'] ?? 0) / 100.0 + 1.0;
+    final c = (adj['contrast'] ?? 0) / 100.0 + 1.0;
+    final s = (adj['saturate'] ?? 0) / 100.0 + 1.0;
+    final opacity = 1.0 - (adj['opacity'] ?? 0) / 100.0;
+    final preset = _filterMatrixFor(item.filter);
+    final adjust = _buildFilterMatrix(brightness: b, contrast: c, saturation: s);
+    final combined = _combineColorMatrices(adjust, preset);
+    combined[18] = combined[18] * opacity;
+    final paint = Paint()
+      ..isAntiAlias = true
+      ..filterQuality = FilterQuality.high
+      ..colorFilter = ui.ColorFilter.matrix(combined);
+    final src = ui.Rect.fromLTWH(srcRect.left, srcRect.top, srcRect.width, srcRect.height);
+    final dst = ui.Rect.fromLTWH(0, 0, dstW.toDouble(), dstH.toDouble());
+    canvas.drawImageRect(srcImage, src, dst, paint);
+    final picture = recorder.endRecording();
+    final outImage = await picture.toImage(dstW, dstH);
+    final byteData = await outImage.toByteData(format: ui.ImageByteFormat.png);
+    return Uint8List.view(byteData!.buffer);
+  }
+
+  List<double> _combineColorMatrices(List<double> a, List<double> b) {
+    final out = List<double>.filled(20, 0.0);
+    for (var row = 0; row < 4; row++) {
+      for (var col = 0; col < 4; col++) {
+        double sum = 0.0;
+        for (var k = 0; k < 4; k++) {
+          sum += b[row * 5 + k] * a[k * 5 + col];
+        }
+        out[row * 5 + col] = sum;
+      }
+      double t = b[row * 5 + 4];
+      for (var k = 0; k < 4; k++) {
+        t += b[row * 5 + k] * a[k * 5 + 4];
+      }
+      out[row * 5 + 4] = t;
+    }
+    return out;
   }
 
   Widget _buildShare() {

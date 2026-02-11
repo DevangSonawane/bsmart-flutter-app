@@ -222,10 +222,12 @@ class _CreatePostDetailsScreenState extends State<CreatePostDetailsScreen> {
 
       final uploadRes = await UploadApi().uploadFile(filePath);
       final fileName = uploadRes['fileName'] as String;
+      final fileUrl = uploadRes['fileUrl'] as String?;
 
       // 2. Create post
       final mediaItem = {
         'fileName': fileName,
+        if (fileUrl != null && fileUrl.isNotEmpty) 'fileUrl': fileUrl,
         'ratio': 1.0, // Default ratio
         'filter': widget.selectedFilter ?? 'none',
         'type': widget.media.type == MediaType.video ? 'video' : 'image',

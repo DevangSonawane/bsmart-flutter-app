@@ -80,24 +80,44 @@ class ProfileHeader extends StatelessWidget {
           const SizedBox(height: 12),
           Row(
             children: [
-              Expanded(
-                child: Material(
-                  color: Colors.transparent,
-                  child: InkWell(
-                    onTap: onEdit,
-                    borderRadius: BorderRadius.circular(10),
-                    child: Container(
-                      padding: const EdgeInsets.symmetric(vertical: 8),
-                      decoration: const BoxDecoration(
-                        gradient: DesignTokens.instaGradient,
-                        borderRadius: BorderRadius.all(Radius.circular(10)),
+              if (isMe)
+                Expanded(
+                  child: Material(
+                    color: Colors.transparent,
+                    child: InkWell(
+                      onTap: onEdit,
+                      borderRadius: BorderRadius.circular(10),
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(vertical: 8),
+                        decoration: const BoxDecoration(
+                          gradient: DesignTokens.instaGradient,
+                          borderRadius: BorderRadius.all(Radius.circular(10)),
+                        ),
+                        alignment: Alignment.center,
+                        child: const Text('Edit Profile', style: TextStyle(color: Colors.white, fontWeight: FontWeight.w600, fontSize: 13)),
                       ),
-                      alignment: Alignment.center,
-                      child: const Text('Edit Profile', style: TextStyle(color: Colors.white, fontWeight: FontWeight.w600, fontSize: 13)),
+                    ),
+                  ),
+                )
+              else
+                Expanded(
+                  child: Material(
+                    color: Colors.transparent,
+                    child: InkWell(
+                      onTap: onFollow,
+                      borderRadius: BorderRadius.circular(10),
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(vertical: 8),
+                        decoration: const BoxDecoration(
+                          gradient: DesignTokens.instaGradient,
+                          borderRadius: BorderRadius.all(Radius.circular(10)),
+                        ),
+                        alignment: Alignment.center,
+                        child: const Text('Follow', style: TextStyle(color: Colors.white, fontWeight: FontWeight.w600, fontSize: 13)),
+                      ),
                     ),
                   ),
                 ),
-              ),
               const SizedBox(width: 8),
               Expanded(
                 child: Material(
@@ -137,4 +157,3 @@ class ProfileHeader extends StatelessWidget {
     );
   }
 }
-

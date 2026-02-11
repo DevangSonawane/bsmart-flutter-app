@@ -31,7 +31,7 @@ const StoryRail = () => {
               <div className={`w-16 h-16 rounded-full p-[2px] ${story.isUser ? 'border-2 border-gray-300 dark:border-gray-700' : 'bg-gradient-to-tr from-insta-yellow via-insta-orange to-insta-pink'}`}>
                 <div className="w-full h-full rounded-full bg-white dark:bg-black p-[2px]">
                   <img
-                    src={`https://i.pravatar.cc/150?u=${story.username}`}
+                    src={story.imageUrl || `https://i.pravatar.cc/150?u=${story.username}`}
                     alt={story.username}
                     className="w-full h-full rounded-full object-cover"
                   />

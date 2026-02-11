@@ -2,11 +2,12 @@ import 'package:flutter/material.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 import '../services/wallet_service.dart';
 import '../theme/instagram_theme.dart';
+import '../theme/design_tokens.dart';
 import '../widgets/clay_container.dart';
 import 'coins_history_screen.dart';
-import 'watch_ads_screen.dart';
-import 'gift_coins_screen.dart';
 import 'account_details_screen.dart';
+import '../models/ledger_model.dart';
+enum _HistoryState { hidden, minimal, expanded }
 
 class WalletScreen extends StatefulWidget {
   const WalletScreen({super.key});
@@ -19,11 +20,25 @@ class _WalletScreenState extends State<WalletScreen> {
   final WalletService _walletService = WalletService();
   int _coinBalance = 0;
   double _equivalentValue = 0;
+  bool _isLifeTime = true;
+  int _totalEarnedLifetime = 0;
+  int _totalSpentLifetime = 0;
+  int _totalEarnedMonth = 0;
+  int _totalSpentMonth = 0;
+  bool _historyExpanded = false;
+  List<LedgerTransaction> _transactions = [];
+  DateTime? _filterStart;
+  DateTime? _filterEnd;
+  LedgerTransactionType? _filterType;
+  String _coinsComparator = 'any'; // any, =, >=, <=
+  int? _coinsValue;
+  _HistoryState _historyState = _HistoryState.hidden;
 
   @override
   void initState() {
     super.initState();
     _loadBalance();
+    _seedTransactions();
   }
 
   Future<void> _loadBalance() async {
@@ -68,55 +83,93 @@ class _WalletScreenState extends State<WalletScreen> {
           padding: const EdgeInsets.all(16),
           child: Column(
             children: [
-              // Wallet Balance Card
-              ClayContainer(
+              Container(
                 width: double.infinity,
-                padding: const EdgeInsets.all(24),
-                borderRadius: 24,
-                color: InstagramTheme.surfaceWhite,
+                padding: const EdgeInsets.all(16),
+                decoration: BoxDecoration(
+                  borderRadius: BorderRadius.circular(20),
+                  gradient: DesignTokens.instaGradient,
+                ),
                 child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    const Text(
-                      'Total Coins',
-                      style: TextStyle(
-                        fontSize: 16,
-                        color: InstagramTheme.textGrey,
-                        fontWeight: FontWeight.w500,
-                      ),
-                    ),
-                    const SizedBox(height: 8),
                     Row(
-                      mainAxisAlignment: MainAxisAlignment.center,
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
                       children: [
-                        const Icon(LucideIcons.coins, 
-                          color: InstagramTheme.primaryPink, size: 40),
-                        const SizedBox(width: 8),
-                        Text(
-                          _coinBalance.toString(),
-                          style: const TextStyle(
-                            fontSize: 48,
-                            fontWeight: FontWeight.bold,
-                            color: InstagramTheme.textBlack,
-                          ),
+                        Row(
+                          children: [
+                            const Icon(LucideIcons.badgePercent, color: Colors.white),
+                            const SizedBox(width: 8),
+                            const Text(
+                              'Available Balance',
+                              style: TextStyle(color: Colors.white, fontWeight: FontWeight.w600),
+                            ),
+                          ],
+                        ),
+                        Row(
+                          children: [
+                            const Text('Life Time', style: TextStyle(color: Colors.white, fontWeight: FontWeight.w600)),
+                            const SizedBox(width: 8),
+                            Switch(
+                              value: _isLifeTime,
+                              onChanged: (v) => setState(() => _isLifeTime = v),
+                              activeThumbColor: Colors.white,
+                              activeTrackColor: Colors.white.withValues(alpha: 0.3),
+                              inactiveThumbColor: Colors.white,
+                              inactiveTrackColor: Colors.white.withValues(alpha: 0.2),
+                            ),
+                          ],
                         ),
                       ],
                     ),
                     const SizedBox(height: 8),
-                    Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-                      decoration: BoxDecoration(
-                        color: InstagramTheme.primaryPink.withValues(alpha: 0.1),
-                        borderRadius: BorderRadius.circular(20),
-                        border: Border.all(color: InstagramTheme.primaryPink.withValues(alpha: 0.3)),
-                      ),
-                      child: Text(
-                        '≈ \$${_equivalentValue.toStringAsFixed(2)}',
-                        style: const TextStyle(
-                          fontSize: 16,
-                          color: InstagramTheme.primaryPink,
-                          fontWeight: FontWeight.bold,
+                    Row(
+                      crossAxisAlignment: CrossAxisAlignment.end,
+                      children: [
+                        Text(
+                          _coinBalance.toString(),
+                          style: const TextStyle(color: Colors.white, fontSize: 44, fontWeight: FontWeight.bold),
+                        ),
+                        const SizedBox(width: 6),
+                        const Padding(
+                          padding: EdgeInsets.only(bottom: 6),
+                          child: Text('coins', style: TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.w600)),
+                        ),
+                      ],
+                    ),
+                    if (!_isLifeTime)
+                      Padding(
+                        padding: const EdgeInsets.only(top: 6),
+                        child: Text(
+                          _monthName(DateTime.now().month),
+                          style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w600),
                         ),
                       ),
+                    const SizedBox(height: 12),
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              (_isLifeTime ? _totalEarnedLifetime : _totalEarnedMonth).toString(),
+                              style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
+                            ),
+                            const Text('Total Earned', style: TextStyle(color: Colors.white)),
+                          ],
+                        ),
+                        Column(
+                          crossAxisAlignment: CrossAxisAlignment.end,
+                          children: [
+                            Text(
+                              (_isLifeTime ? _totalSpentLifetime : _totalSpentMonth).toString(),
+                              style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
+                            ),
+                            const Text('Total Spent', style: TextStyle(color: Colors.white)),
+                          ],
+                        ),
+                      ],
                     ),
                   ],
                 ),
@@ -124,40 +177,7 @@ class _WalletScreenState extends State<WalletScreen> {
 
               const SizedBox(height: 24),
 
-              // Quick Actions
-              Row(
-                children: [
-                  Expanded(
-                    child: _buildActionCard(
-                      icon: Icons.play_circle_outline,
-                      title: 'Watch Ads',
-                      subtitle: 'Earn Coins',
-                      onTap: () {
-                        Navigator.of(context).push(
-                          MaterialPageRoute(
-                            builder: (context) => const WatchAdsScreen(),
-                          ),
-                        ).then((_) => _loadBalance());
-                      },
-                    ),
-                  ),
-                  const SizedBox(width: 16),
-                  Expanded(
-                    child: _buildActionCard(
-                      icon: Icons.card_giftcard,
-                      title: 'Gift Coins',
-                      subtitle: 'Send to Friends',
-                      onTap: () {
-                        Navigator.of(context).push(
-                          MaterialPageRoute(
-                            builder: (context) => const GiftCoinsScreen(),
-                          ),
-                        ).then((_) => _loadBalance());
-                      },
-                    ),
-                  ),
-                ],
-              ),
+              _buildTransactionSection(),
 
               const SizedBox(height: 24),
 
@@ -209,18 +229,6 @@ class _WalletScreenState extends State<WalletScreen> {
     return Column(
       children: [
         _buildMenuItem(
-          icon: Icons.history,
-          title: 'Coins History',
-          subtitle: 'View all transactions',
-          onTap: () {
-            Navigator.of(context).push(
-              MaterialPageRoute(
-                builder: (context) => const CoinsHistoryScreen(),
-              ),
-            );
-          },
-        ),
-        _buildMenuItem(
           icon: Icons.account_balance_wallet_outlined,
           title: 'Account Details',
           subtitle: 'Manage payout account',
@@ -233,14 +241,448 @@ class _WalletScreenState extends State<WalletScreen> {
           },
         ),
         _buildMenuItem(
+          icon: Icons.redeem_outlined,
+          title: 'Redeem Coins',
+          subtitle: 'Use coins for orders',
+          onTap: _showRedeemDialog,
+        ),
+        _buildMenuItem(
           icon: Icons.help_outline,
-          title: 'How to Earn Coins',
-          subtitle: 'Learn about earning coins',
-          onTap: () {
-            _showHowToEarnDialog();
-          },
+          title: 'Help',
+          subtitle: 'Wallet & coins FAQs',
+          onTap: _showHelpDialog,
         ),
       ],
+    );
+  }
+
+  String _monthName(int m) {
+    const names = [
+      'January','February','March','April','May','June','July','August','September','October','November','December'
+    ];
+    return names[(m - 1).clamp(0, 11)];
+  }
+
+  void _seedTransactions() {
+    final now = DateTime.now();
+    _transactions = [
+      LedgerTransaction(
+        id: 't1',
+        userId: 'me',
+        type: LedgerTransactionType.adReward,
+        amount: 8,
+        timestamp: now.subtract(const Duration(minutes: 20)),
+        status: LedgerTransactionStatus.completed,
+        description: 'Watched video: Kids Learning Fun',
+      ),
+      LedgerTransaction(
+        id: 't2',
+        userId: 'me',
+        type: LedgerTransactionType.payout,
+        amount: -139,
+        timestamp: now.subtract(const Duration(hours: 1)),
+        status: LedgerTransactionStatus.completed,
+        description: 'Redeemed on order #9c2656b4',
+      ),
+      LedgerTransaction(
+        id: 't3',
+        userId: 'me',
+        type: LedgerTransactionType.adReward,
+        amount: 8,
+        timestamp: now.subtract(const Duration(hours: 2)),
+        status: LedgerTransactionStatus.completed,
+        description: 'Watched video: Kids Learning Fun',
+      ),
+      LedgerTransaction(
+        id: 't4',
+        userId: 'me',
+        type: LedgerTransactionType.payout,
+        amount: -139,
+        timestamp: now.subtract(const Duration(hours: 3)),
+        status: LedgerTransactionStatus.completed,
+        description: 'Redeemed on order #9c2656b4',
+      ),
+    ];
+    _recalculateTotals();
+  }
+
+  void _recalculateTotals() {
+    int earnedLifetime = 0;
+    int spentLifetime = 0;
+    int earnedMonth = 0;
+    int spentMonth = 0;
+    final now = DateTime.now();
+    for (final t in _transactions) {
+      if (t.amount > 0) {
+        earnedLifetime += t.amount;
+        if (t.timestamp.year == now.year && t.timestamp.month == now.month) {
+          earnedMonth += t.amount;
+        }
+      } else if (t.amount < 0) {
+        final v = t.amount.abs();
+        spentLifetime += v;
+        if (t.timestamp.year == now.year && t.timestamp.month == now.month) {
+          spentMonth += v;
+        }
+      }
+    }
+    setState(() {
+      _totalEarnedLifetime = earnedLifetime;
+      _totalSpentLifetime = spentLifetime;
+      _totalEarnedMonth = earnedMonth;
+      _totalSpentMonth = spentMonth;
+    });
+  }
+
+  Widget _buildTransactionSection() {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final filtered = _applyFilters(_transactions);
+    final display = _historyState == _HistoryState.expanded ? filtered : filtered.take(3).toList();
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          children: [
+            const Text('Transaction History', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+            Row(
+              children: [
+                Tooltip(
+                  message: 'Filter',
+                  child: TextButton(
+                    onPressed: _openFilterModal,
+                    style: TextButton.styleFrom(
+                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
+                      foregroundColor: InstagramTheme.textBlack,
+                      backgroundColor: isDark ? const Color(0xFF1E1E1E) : InstagramTheme.surfaceWhite,
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+                    ),
+                    child: const Icon(Icons.tune, size: 18),
+                  ),
+                ),
+                const SizedBox(width: 8),
+                PopupMenuButton<_HistoryState>(
+                  tooltip: 'View',
+                  icon: const Icon(Icons.expand_more),
+                  onSelected: (sel) {
+                    setState(() {
+                      _historyState = sel;
+                    });
+                  },
+                  itemBuilder: (ctx) => const [
+                    PopupMenuItem(value: _HistoryState.hidden, child: Text('Hide')),
+                    PopupMenuItem(value: _HistoryState.minimal, child: Text('Minimal')),
+                    PopupMenuItem(value: _HistoryState.expanded, child: Text('Show All')),
+                  ],
+                ),
+              ],
+            ),
+          ],
+        ),
+        const SizedBox(height: 8),
+        if (_historyState != _HistoryState.hidden)
+          Container(
+            decoration: BoxDecoration(
+              color: isDark ? const Color(0xFF1E1E1E) : Colors.white,
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(color: InstagramTheme.borderGrey),
+            ),
+            constraints: BoxConstraints(maxHeight: _historyState == _HistoryState.expanded ? 300 : 180),
+            child: _historyState == _HistoryState.expanded
+                ? Scrollbar(
+                    interactive: true,
+                    child: ListView.separated(
+                      padding: const EdgeInsets.all(8),
+                      itemBuilder: (ctx, i) => _buildTransactionRow(display[i]),
+                      separatorBuilder: (ctx, i) => const Divider(height: 1),
+                      itemCount: display.length,
+                    ),
+                  )
+                : ListView.separated(
+                    shrinkWrap: true,
+                    physics: const NeverScrollableScrollPhysics(),
+                    padding: const EdgeInsets.all(8),
+                    itemBuilder: (ctx, i) => _buildTransactionRow(display[i]),
+                    separatorBuilder: (ctx, i) => const Divider(height: 1),
+                    itemCount: display.length,
+                  ),
+          ),
+      ],
+    );
+  }
+
+  Widget _buildTransactionRow(LedgerTransaction t) {
+    final isCredit = t.amount >= 0;
+    final amountColor = isCredit ? Colors.green : Colors.red;
+    final icon = t.type == LedgerTransactionType.adReward
+        ? Icons.play_circle_outline
+        : Icons.receipt_long;
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Container(
+          width: 36,
+          height: 36,
+          decoration: BoxDecoration(
+            color: InstagramTheme.backgroundGrey,
+            borderRadius: BorderRadius.circular(10),
+          ),
+          child: Icon(icon, color: InstagramTheme.textGrey),
+        ),
+        const SizedBox(width: 8),
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(t.description ?? _labelForType(t.type),
+                  style: const TextStyle(fontWeight: FontWeight.w600)),
+              Text(_formatTimestamp(t.timestamp), style: TextStyle(color: Colors.grey[600], fontSize: 12)),
+            ],
+          ),
+        ),
+        Text(
+          (isCredit ? '+${t.amount}' : '${t.amount}'),
+          style: TextStyle(color: amountColor, fontWeight: FontWeight.w600),
+        ),
+      ],
+    );
+  }
+
+  String _labelForType(LedgerTransactionType type) {
+    switch (type) {
+      case LedgerTransactionType.adReward:
+        return 'Ad reward';
+      case LedgerTransactionType.giftReceived:
+        return 'Gift received';
+      case LedgerTransactionType.giftSent:
+        return 'Gift sent';
+      case LedgerTransactionType.payout:
+        return 'Redeemed';
+      case LedgerTransactionType.refund:
+        return 'Refund';
+    }
+  }
+
+  String _formatTimestamp(DateTime dt) {
+    final d = '${_monthName(dt.month)} ${dt.day}, ${dt.year}';
+    final h = dt.hour % 12 == 0 ? 12 : dt.hour % 12;
+    final m = dt.minute.toString().padLeft(2, '0');
+    final ampm = dt.hour >= 12 ? 'PM' : 'AM';
+    return '$d at $h:$m $ampm';
+  }
+
+  List<LedgerTransaction> _applyFilters(List<LedgerTransaction> list) {
+    return list.where((t) {
+      if (_filterType != null && t.type != _filterType) return false;
+      if (_filterStart != null && t.timestamp.isBefore(_filterStart!)) return false;
+      if (_filterEnd != null && t.timestamp.isAfter(_filterEnd!)) return false;
+      if (_coinsComparator != 'any' && _coinsValue != null) {
+        final v = t.amount.abs();
+        switch (_coinsComparator) {
+          case '=':
+            if (v != _coinsValue) return false;
+            break;
+          case '>=':
+            if (v < _coinsValue!) return false;
+            break;
+          case '<=':
+            if (v > _coinsValue!) return false;
+            break;
+        }
+      }
+      return true;
+    }).toList();
+  }
+
+  void _openFilterModal() {
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(16))),
+      builder: (ctx) {
+        DateTime? start = _filterStart;
+        DateTime? end = _filterEnd;
+        LedgerTransactionType? type = _filterType;
+        String comparator = _coinsComparator;
+        int? coins = _coinsValue;
+        return Padding(
+          padding: EdgeInsets.only(bottom: MediaQuery.of(ctx).viewInsets.bottom),
+          child: Container(
+            padding: const EdgeInsets.all(16),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text('Filters', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+                const SizedBox(height: 12),
+                Row(
+                  children: [
+                    Expanded(
+                      child: OutlinedButton.icon(
+                        onPressed: () async {
+                          final picked = await showDatePicker(context: ctx, initialDate: start ?? DateTime.now(), firstDate: DateTime(2020), lastDate: DateTime(2100));
+                          if (picked != null) {
+                            start = DateTime(picked.year, picked.month, picked.day);
+                          }
+                        },
+                        icon: const Icon(Icons.calendar_today, size: 16),
+                        label: Text(start == null ? 'Start date' : '${_monthName(start.month)} ${start.day}, ${start.year}'),
+                        style: OutlinedButton.styleFrom(
+                          padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 12),
+                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                          side: BorderSide(color: InstagramTheme.borderGrey),
+                          foregroundColor: InstagramTheme.textBlack,
+                          backgroundColor: InstagramTheme.surfaceWhite,
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: OutlinedButton.icon(
+                        onPressed: () async {
+                          final picked = await showDatePicker(context: ctx, initialDate: end ?? DateTime.now(), firstDate: DateTime(2020), lastDate: DateTime(2100));
+                          if (picked != null) {
+                            end = DateTime(picked.year, picked.month, picked.day, 23, 59, 59);
+                          }
+                        },
+                        icon: const Icon(Icons.calendar_today, size: 16),
+                        label: Text(end == null ? 'End date' : '${_monthName(end.month)} ${end.day}, ${end.year}'),
+                        style: OutlinedButton.styleFrom(
+                          padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 12),
+                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                          side: BorderSide(color: InstagramTheme.borderGrey),
+                          foregroundColor: InstagramTheme.textBlack,
+                          backgroundColor: InstagramTheme.surfaceWhite,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 12),
+                DropdownButtonFormField<LedgerTransactionType?>(
+                  initialValue: type,
+                  decoration: const InputDecoration(labelText: 'Received Type'),
+                  items: [
+        const DropdownMenuItem<LedgerTransactionType?>(value: null, child: Text('Any')),
+        DropdownMenuItem<LedgerTransactionType?>(value: LedgerTransactionType.adReward, child: const Text('Earned (Ad Reward)')),
+        DropdownMenuItem<LedgerTransactionType?>(value: LedgerTransactionType.payout, child: const Text('Spent (Redeemed)')),
+        DropdownMenuItem<LedgerTransactionType?>(value: LedgerTransactionType.giftReceived, child: const Text('Gift Received')),
+        DropdownMenuItem<LedgerTransactionType?>(value: LedgerTransactionType.giftSent, child: const Text('Gift Sent')),
+        DropdownMenuItem<LedgerTransactionType?>(value: LedgerTransactionType.refund, child: const Text('Refund')),
+                  ],
+                  onChanged: (v) => type = v,
+                ),
+                const SizedBox(height: 12),
+                Row(
+                  children: [
+                    DropdownButton<String>(
+                      value: comparator,
+                      items: const [
+                        DropdownMenuItem(value: 'any', child: Text('Any')),
+                        DropdownMenuItem(value: '=', child: Text('= coins')),
+                        DropdownMenuItem(value: '>=', child: Text('≥ coins')),
+                        DropdownMenuItem(value: '<=', child: Text('≤ coins')),
+                      ],
+                      onChanged: (v) => comparator = v ?? 'any',
+                    ),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: TextField(
+                        keyboardType: TextInputType.number,
+                        decoration: const InputDecoration(labelText: 'No. of Coins'),
+                        onChanged: (v) => coins = int.tryParse(v),
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 16),
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.end,
+                  children: [
+                    OutlinedButton(
+                      onPressed: () {
+                        setState(() {
+                          _filterStart = null;
+                          _filterEnd = null;
+                          _filterType = null;
+                          _coinsComparator = 'any';
+                          _coinsValue = null;
+                        });
+                        Navigator.pop(ctx);
+                      },
+                      style: OutlinedButton.styleFrom(
+                        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                        side: BorderSide(color: InstagramTheme.borderGrey),
+                        foregroundColor: InstagramTheme.textBlack,
+                        backgroundColor: InstagramTheme.surfaceWhite,
+                      ),
+                      child: const Text('Clear'),
+                    ),
+                    const SizedBox(width: 8),
+                    ElevatedButton(
+                      onPressed: () {
+                        setState(() {
+                          _filterStart = start;
+                          _filterEnd = end;
+                          _filterType = type;
+                          _coinsComparator = comparator;
+                          _coinsValue = coins;
+                        });
+                        Navigator.pop(ctx);
+                      },
+                      style: ElevatedButton.styleFrom(
+                        padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                        backgroundColor: InstagramTheme.primaryPink,
+                        foregroundColor: Colors.white,
+                      ),
+                      child: const Text('Apply'),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  void _showRedeemDialog() {
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Redeem Coins'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text('Available: $_coinBalance coins'),
+            const SizedBox(height: 8),
+            TextField(
+              keyboardType: TextInputType.number,
+              decoration: const InputDecoration(labelText: 'Coins to redeem'),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Cancel')),
+          ElevatedButton(onPressed: () => Navigator.pop(ctx), child: const Text('Redeem')),
+        ],
+      ),
+    );
+  }
+
+  void _showHelpDialog() {
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Help'),
+        content: const Text('Manage your wallet balance, view transactions, and redeem coins.'),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Close')),
+        ],
+      ),
     );
   }
 

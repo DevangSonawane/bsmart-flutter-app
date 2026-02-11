@@ -30,10 +30,10 @@ class AuthApi {
       'email': email,
       'password': password,
       'username': username,
+      'role': role,
     };
     if (fullName != null) body['full_name'] = fullName;
     if (phone != null) body['phone'] = phone;
-    if (role != 'member') body['role'] = role;
 
     final res = await _client.post('/auth/register', body: body);
     final data = res as Map<String, dynamic>;

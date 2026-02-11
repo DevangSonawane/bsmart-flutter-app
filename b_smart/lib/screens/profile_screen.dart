@@ -17,6 +17,7 @@ import '../state/profile_actions.dart';
 import '../utils/current_user.dart';
 import '../services/user_account_service.dart';
 import '../services/wallet_service.dart';
+import '../api/auth_api.dart';
 
 /// Heroicons badge-check (same as React web app verified badge)
 const String _verifiedBadgeSvg = r'''
@@ -37,6 +38,8 @@ class _ProfileScreenState extends State<ProfileScreen> {
   final SupabaseService _svc = SupabaseService();
   Map<String, dynamic>? _profile;
   List<FeedPost> _posts = [];
+  List<FeedPost> _saved = [];
+  List<FeedPost> _tagged = [];
   bool _loading = true;
   bool _usedCache = false;
   final ReelsService _reelsService = ReelsService();
@@ -79,8 +82,11 @@ class _ProfileScreenState extends State<ProfileScreen> {
     }
 
     // Load profile and posts in parallel from the REST API.
-    final profileFuture = _svc.getUserById(targetId);
+    final bool isMe = widget.userId == null;
+    final profileFuture = isMe ? AuthApi().me() : _svc.getUserById(targetId);
     final postsFuture = _svc.getUserPosts(targetId, limit: _initialPostsLimit);
+    final savedFuture = _svc.getUserSavedPosts(targetId, limit: _initialPostsLimit);
+    final taggedFuture = _svc.getUserTaggedPosts(targetId, limit: _initialPostsLimit);
     final walletFuture = (widget.userId == null) ? WalletService().getCoinBalance() : Future.value(0);
     
     // Also fetch UserAccount info (e.g. followers, account type)
@@ -89,34 +95,80 @@ class _ProfileScreenState extends State<ProfileScreen> {
     final results = await Future.wait([
       profileFuture,
       postsFuture,
+      savedFuture,
+      taggedFuture,
       walletFuture,
     ]);
 
     final profile = results[0] as Map<String, dynamic>?;
     final rawPosts = results[1] as List<Map<String, dynamic>>;
-    final walletBalance = results[2] as int;
+    final rawSaved = results[2] as List<Map<String, dynamic>>;
+    final rawTagged = results[3] as List<Map<String, dynamic>>;
+    final walletBalance = results[4] as int;
 
-    final posts = rawPosts.map((item) {
-      final media = item['media'] as List<dynamic>? ?? [];
+    List<FeedPost> _map(List<Map<String, dynamic>> source) {
+      return source.map((item) {
+      final map = Map<String, dynamic>.from(item);
+      final id = map['_id'] as String? ?? map['id'] as String? ?? '';
+      // user_id may be a string or a populated object
+      String userId = '';
+      String userName = 'user';
+      final uid = map['user_id'];
+      if (uid is String) {
+        userId = uid;
+      } else if (uid is Map) {
+        userId = uid['_id'] as String? ?? uid['id'] as String? ?? '';
+        userName = uid['username'] as String? ?? userName;
+      }
+      // Fallback to joined 'users' key (Supabase style)
+      final joinedUser = map['users'];
+      if (joinedUser is Map) {
+        userName = joinedUser['username'] as String? ?? userName;
+        userId = joinedUser['id'] as String? ?? userId;
+      }
+      final media = (map['media'] as List<dynamic>? ?? []);
       final mediaUrls = media.map((m) {
         if (m is String) return m;
         if (m is Map) {
-          if (m.containsKey('image')) return m['image'] as String;
-          if (m.containsKey('url')) return m['url'] as String;
+          final mm = Map<String, dynamic>.from(m);
+          final url = (mm['fileUrl'] ?? mm['image'] ?? mm['url'])?.toString();
+          if (url != null && url.isNotEmpty) return url;
         }
         return m.toString();
       }).cast<String>().toList();
-      return FeedPost(
-        id: item['id'] as String,
-        userId: item['user_id'] as String,
-        userName: (item['users'] as Map<String, dynamic>?)?['username'] as String? ?? 'user',
-        mediaType: PostMediaType.image,
-        mediaUrls: mediaUrls,
-        caption: item['caption'] as String?,
-        hashtags: ((item['hashtags'] as List<dynamic>?) ?? []).map((e) => e.toString()).toList(),
-        createdAt: DateTime.parse(item['created_at'] as String),
-      );
-    }).toList();
+      final typeStr = (map['type'] as String?) ?? 'post';
+      PostMediaType mediaType = PostMediaType.image;
+      if (typeStr == 'reel') {
+        mediaType = PostMediaType.reel;
+      } else if (mediaUrls.length > 1) {
+        mediaType = PostMediaType.carousel;
+      }
+      final caption = map['caption'] as String?;
+      final hashtags = ((map['hashtags'] as List<dynamic>?) ?? (map['tags'] as List<dynamic>?) ?? [])
+          .map((e) => e.toString())
+          .toList();
+      DateTime createdAt;
+      final createdAtStr = map['created_at'] as String? ?? map['createdAt'] as String?;
+      if (createdAtStr != null && createdAtStr.isNotEmpty) {
+        createdAt = DateTime.tryParse(createdAtStr) ?? DateTime.now();
+      } else {
+        createdAt = DateTime.now();
+      }
+        return FeedPost(
+          id: id,
+          userId: userId,
+          userName: userName,
+          mediaType: mediaType,
+          mediaUrls: mediaUrls,
+          caption: caption,
+          hashtags: hashtags,
+          createdAt: createdAt,
+        );
+      }).toList();
+    }
+    final posts = _map(rawPosts);
+    final saved = _map(rawSaved);
+    final tagged = _map(rawTagged);
 
     if (mounted) {
       final merged = {
@@ -133,6 +185,8 @@ class _ProfileScreenState extends State<ProfileScreen> {
       setState(() {
         _profile = merged;
         _posts = posts;
+        _saved = saved;
+        _tagged = tagged;
         _userReels =
             _reelsService.getReels().where((r) => r.userId == targetId).toList();
         _loading = false;
@@ -183,6 +237,65 @@ class _ProfileScreenState extends State<ProfileScreen> {
         ),
       );
     }
+  }
+
+  void _showCreateModal() {
+    showModalBottomSheet<void>(
+      context: context,
+      backgroundColor: Colors.transparent,
+      builder: (ctx) => SafeArea(
+        child: Container(
+          decoration: BoxDecoration(
+            color: Theme.of(ctx).cardColor,
+            borderRadius: const BorderRadius.vertical(top: Radius.circular(20)),
+            boxShadow: [BoxShadow(color: Colors.black26, blurRadius: 12, offset: const Offset(0, -4))],
+          ),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const SizedBox(height: 12),
+              Container(width: 40, height: 4, decoration: BoxDecoration(color: Colors.grey.shade400, borderRadius: BorderRadius.circular(2))),
+              const SizedBox(height: 16),
+              Text('Create', style: Theme.of(ctx).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w600)),
+              const SizedBox(height: 16),
+              ListTile(
+                leading: Container(
+                  width: 44,
+                  height: 44,
+                  decoration: BoxDecoration(gradient: DesignTokens.instaGradient, borderRadius: BorderRadius.circular(12)),
+                  child: Icon(LucideIcons.image, color: Colors.white, size: 22),
+                ),
+                title: const Text('Create Post'),
+                subtitle: Text('Photo or video', style: TextStyle(fontSize: 12, color: Theme.of(ctx).colorScheme.onSurfaceVariant)),
+                onTap: () {
+                  Navigator.of(ctx).pop();
+                  WidgetsBinding.instance.addPostFrameCallback((_) {
+                    if (mounted) Navigator.of(context).pushNamed('/create');
+                  });
+                },
+              ),
+              ListTile(
+                leading: Container(
+                  width: 44,
+                  height: 44,
+                  decoration: BoxDecoration(gradient: DesignTokens.instaGradient, borderRadius: BorderRadius.circular(12)),
+                  child: Icon(LucideIcons.video, color: Colors.white, size: 22),
+                ),
+                title: const Text('Upload Reel'),
+                subtitle: Text('Short video', style: TextStyle(fontSize: 12, color: Theme.of(ctx).colorScheme.onSurfaceVariant)),
+                onTap: () {
+                  Navigator.of(ctx).pop();
+                  WidgetsBinding.instance.addPostFrameCallback((_) {
+                    if (mounted) Navigator.of(context).pushNamed('/create');
+                  });
+                },
+              ),
+              const SizedBox(height: 16),
+            ],
+          ),
+        ),
+      ),
+    );
   }
 
   static const List<({String title, String img})> _highlights = [
@@ -265,7 +378,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
     final theme = Theme.of(context);
     final fgColor = theme.colorScheme.onSurface;
     return DefaultTabController(
-      length: 3,
+      length: 4,
       child: Scaffold(
         backgroundColor: theme.scaffoldBackgroundColor,
         appBar: AppBar(
@@ -287,7 +400,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
           ),
           actions: [
             if (isMe) ...[
-              IconButton(icon: Icon(LucideIcons.plus, color: fgColor), onPressed: () => Navigator.of(context).pushNamed('/create')),
+              IconButton(icon: Icon(LucideIcons.squarePlus, color: fgColor), onPressed: _showCreateModal),
               IconButton(icon: Icon(LucideIcons.menu, color: fgColor), onPressed: () => Navigator.of(context).pushNamed('/settings')),
             ],
           ],
@@ -322,6 +435,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                     Tab(icon: Icon(LucideIcons.layoutGrid)),
                     Tab(icon: Icon(LucideIcons.video)),
                     Tab(icon: Icon(LucideIcons.bookmark)),
+                    Tab(icon: Icon(LucideIcons.tag)),
                   ],
                   indicator: UnderlineTabIndicator(borderSide: BorderSide(width: 1.5, color: DesignTokens.instaPink)),
                   labelColor: DesignTokens.instaPink,
@@ -377,7 +491,18 @@ class _ProfileScreenState extends State<ProfileScreen> {
                         );
                       },
                     ),
-              Center(child: Text('Saved', style: TextStyle(color: fgColor))),
+              _saved.isEmpty
+                  ? Center(child: Padding(padding: const EdgeInsets.all(24.0), child: Text('No saved posts', style: TextStyle(color: fgColor))))
+                  : Padding(
+                      padding: const EdgeInsets.all(8.0),
+                      child: PostsGrid(posts: _saved, onTap: (p) => _onPostTap(p)),
+                    ),
+              _tagged.isEmpty
+                  ? Center(child: Padding(padding: const EdgeInsets.all(24.0), child: Text('No tagged posts', style: TextStyle(color: fgColor))))
+                  : Padding(
+                      padding: const EdgeInsets.all(8.0),
+                      child: PostsGrid(posts: _tagged, onTap: (p) => _onPostTap(p)),
+                    ),
             ],
           ),
         ),
@@ -610,4 +735,3 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
     return Container(color: theme.cardColor, child: Center(child: Text(initial, style: TextStyle(fontSize: 32, fontWeight: FontWeight.bold, color: theme.colorScheme.onSurface))));
   }
 }
-

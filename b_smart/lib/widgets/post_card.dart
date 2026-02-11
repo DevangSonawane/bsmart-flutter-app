@@ -2,9 +2,13 @@ import 'package:flutter/material.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 import '../models/feed_post_model.dart';
 import 'package:cached_network_image/cached_network_image.dart';
+import 'package:video_player/video_player.dart';
+import 'package:http/http.dart' as http;
+import '../api/api_client.dart';
+import '../config/api_config.dart';
 import '../theme/design_tokens.dart';
 
-class PostCard extends StatelessWidget {
+class PostCard extends StatefulWidget {
   final FeedPost post;
   final VoidCallback? onLike;
   final VoidCallback? onComment;
@@ -23,7 +27,164 @@ class PostCard extends StatelessWidget {
   }) : super(key: key);
 
   @override
+  State<PostCard> createState() => _PostCardState();
+}
+
+class _PostCardState extends State<PostCard> {
+  VideoPlayerController? _videoCtl;
+  Future<void>? _initVideo;
+  Map<String, String>? _imageHeaders;
+  String? _resolvedImageUrl;
+
+  @override
+  void initState() {
+    super.initState();
+    ApiClient().getToken().then((token) {
+      if (!mounted) return;
+      if (token != null && token.isNotEmpty) {
+        setState(() {
+          _imageHeaders = {'Authorization': 'Bearer $token'};
+        });
+        // Re-run media setup so images/videos initialize with headers
+        _setupMedia();
+      }
+    });
+    _setupMedia();
+  }
+
+  @override
+  void didUpdateWidget(covariant PostCard oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    final oldFirst = oldWidget.post.mediaUrls.isNotEmpty ? oldWidget.post.mediaUrls.first : '';
+    final newFirst = widget.post.mediaUrls.isNotEmpty ? widget.post.mediaUrls.first : '';
+    if (oldWidget.post.id != widget.post.id ||
+        oldFirst != newFirst ||
+        oldWidget.post.mediaType != widget.post.mediaType) {
+      _disposeVideo();
+      _setupMedia();
+    }
+  }
+
+  void _setupMedia() {
+    if (widget.post.mediaType.name == 'video' || widget.post.mediaType.name == 'reel') {
+      final url = widget.post.mediaUrls.isNotEmpty ? widget.post.mediaUrls.first : '';
+      if (url.isNotEmpty) _initVideoFromCandidates(_candidateUrls(url));
+    } else {
+      final url = widget.post.mediaUrls.isNotEmpty ? widget.post.mediaUrls.first : '';
+      if (url.isNotEmpty) _resolveImageUrl(url);
+    }
+  }
+
+  void _disposeVideo() {
+    _videoCtl?.dispose();
+    _videoCtl = null;
+    _initVideo = null;
+  }
+
+  @override
+  void dispose() {
+    _disposeVideo();
+    super.dispose();
+  }
+
+  List<String> _candidateUrls(String url) {
+    final baseUri = Uri.parse(ApiConfig.baseUrl);
+    final origin = '${baseUri.scheme}://${baseUri.host}${baseUri.hasPort ? ':${baseUri.port}' : ''}';
+    String abs = url;
+    if (!abs.startsWith('http://') && !abs.startsWith('https://')) {
+      abs = url.startsWith('/') ? '$origin$url' : '$origin/$url';
+    }
+    final alts = <String>[abs];
+    if (abs.startsWith('http://')) {
+      alts.add(abs.replaceFirst('http://', 'https://'));
+    }
+    if (abs.contains('/api/uploads/')) {
+      alts.add(abs.replaceFirst('/api/uploads/', '/uploads/'));
+    } else if (abs.contains('/uploads/')) {
+      alts.add(abs.replaceFirst('/uploads/', '/api/uploads/'));
+    }
+    return alts.toSet().toList();
+  }
+
+  Future<void> _resolveImageUrl(String url) async {
+    final headers = _imageHeaders ?? {};
+    final candidates = _candidateUrls(url);
+    // If we don't yet have headers, skip HEAD probe and use first candidate;
+    // CachedNetworkImage will fetch with headers once available and cacheKey changes.
+    if (headers.isEmpty) {
+      if (mounted) setState(() => _resolvedImageUrl = candidates.first);
+      return;
+    }
+    for (final u in candidates) {
+      try {
+        final resp = await http.get(
+          Uri.parse(u),
+          headers: {
+            ...headers,
+            'Range': 'bytes=0-0',
+            'Accept': 'image/*',
+          },
+        ).timeout(const Duration(seconds: 8));
+        final ok = (resp.statusCode >= 200 && resp.statusCode < 300) || resp.statusCode == 206;
+        if (ok) {
+          if (!mounted) return;
+          setState(() => _resolvedImageUrl = u);
+          return;
+        }
+      } catch (_) {}
+    }
+    // Fallback: try plain GET with headers (servers that disallow Range)
+    for (final u in candidates) {
+      try {
+        final resp = await http.get(
+          Uri.parse(u),
+          headers: {
+            ...headers,
+            'Accept': 'image/*',
+          },
+        ).timeout(const Duration(seconds: 8));
+        if (resp.statusCode >= 200 && resp.statusCode < 300) {
+          if (!mounted) return;
+          setState(() => _resolvedImageUrl = u);
+          return;
+        }
+      } catch (_) {}
+    }
+    if (mounted) setState(() => _resolvedImageUrl = candidates.first);
+  }
+
+  Future<void> _initVideoFromCandidates(List<String> candidates) async {
+    // Ensure headers are ready; if not, fetch token quickly
+    if (_imageHeaders == null) {
+      final token = await ApiClient().getToken();
+      if (token != null && token.isNotEmpty) {
+        if (mounted) setState(() {
+          _imageHeaders = {'Authorization': 'Bearer $token'};
+        });
+      }
+    }
+    final headers = _imageHeaders ?? {};
+    for (final u in candidates) {
+      try {
+        _videoCtl?.dispose();
+        _videoCtl = VideoPlayerController.networkUrl(Uri.parse(u), httpHeaders: headers);
+        await _videoCtl!.initialize();
+        _videoCtl!.setLooping(true);
+        _videoCtl!.setVolume(0);
+        _videoCtl!.play();
+        if (mounted) setState(() {});
+        return;
+      } catch (_) {
+        // Try next candidate
+      }
+    }
+    // If all candidates fail, show placeholder by leaving controller null
+    if (mounted) setState(() {});
+  }
+
+  @override
   Widget build(BuildContext context) {
+    final post = widget.post;
     final displayName = post.fullName?.trim().isNotEmpty == true
         ? post.fullName!
         : post.userName;
@@ -118,7 +279,7 @@ class PostCard extends StatelessWidget {
                   ),
                 ),
                 IconButton(
-                  onPressed: onMore ?? () {},
+                  onPressed: widget.onMore ?? () {},
                   icon: Icon(LucideIcons.ellipsis, size: 24, color: textColor),
                   padding: EdgeInsets.zero,
                   constraints: const BoxConstraints(minWidth: 32, minHeight: 32),
@@ -132,26 +293,66 @@ class PostCard extends StatelessWidget {
             AspectRatio(
               aspectRatio: 1,
               child: ClipRect(
-                child: CachedNetworkImage(
-                  imageUrl: post.mediaUrls.first,
-                  fit: BoxFit.cover,
-                  width: double.infinity,
-                  placeholder: (ctx, url) => Container(
-                    color: isDark ? const Color(0xFF1E1E1E) : Colors.grey.shade200,
-                    child: Center(
-                      child: CircularProgressIndicator(
-                        strokeWidth: 2,
-                        color: DesignTokens.instaPink,
+                child: (post.mediaType.name == 'video' || post.mediaType.name == 'reel')
+                    ? (_videoCtl != null
+                        ? FutureBuilder(
+                            future: _initVideo,
+                            builder: (ctx, snap) {
+                              if (snap.connectionState != ConnectionState.done) {
+                                return Container(
+                                  color: isDark ? const Color(0xFF1E1E1E) : Colors.grey.shade200,
+                                  child: Center(
+                                    child: CircularProgressIndicator(
+                                      strokeWidth: 2,
+                                      color: DesignTokens.instaPink,
+                                    ),
+                                  ),
+                                );
+                              }
+                              return FittedBox(
+                                fit: BoxFit.cover,
+                                clipBehavior: Clip.hardEdge,
+                                child: SizedBox(
+                                  width: _videoCtl!.value.size.width,
+                                  height: _videoCtl!.value.size.height,
+                                  child: VideoPlayer(_videoCtl!),
+                                ),
+                              );
+                            },
+                          )
+                        : Container(
+                            color: isDark ? const Color(0xFF1E1E1E) : Colors.grey.shade200,
+                            child: Center(
+                              child: CircularProgressIndicator(
+                                strokeWidth: 2,
+                                color: DesignTokens.instaPink,
+                              ),
+                            ),
+                          ))
+                    : CachedNetworkImage(
+                        imageUrl: _resolvedImageUrl ?? post.mediaUrls.first,
+                        // Include auth signature in cacheKey so header changes bust cache
+                        cacheKey:
+                            '${_resolvedImageUrl ?? post.mediaUrls.first}#${_imageHeaders?['Authorization'] ?? ''}',
+                        httpHeaders: _imageHeaders,
+                        fit: BoxFit.cover,
+                        width: double.infinity,
+                        placeholder: (ctx, url) => Container(
+                          color: isDark ? const Color(0xFF1E1E1E) : Colors.grey.shade200,
+                          child: Center(
+                            child: CircularProgressIndicator(
+                              strokeWidth: 2,
+                              color: DesignTokens.instaPink,
+                            ),
+                          ),
+                        ),
+                        errorWidget: (ctx, url, err) => Container(
+                          color: isDark ? const Color(0xFF1E1E1E) : Colors.grey.shade200,
+                          child: Center(
+                            child: Icon(LucideIcons.imageOff, size: 48, color: mutedColor),
+                          ),
+                        ),
                       ),
-                    ),
-                  ),
-                  errorWidget: (ctx, url, err) => Container(
-                    color: isDark ? const Color(0xFF1E1E1E) : Colors.grey.shade200,
-                    child: Center(
-                      child: Icon(LucideIcons.imageOff, size: 48, color: mutedColor),
-                    ),
-                  ),
-                ),
               ),
             )
           else
@@ -171,7 +372,7 @@ class PostCard extends StatelessWidget {
             child: Row(
               children: [
                 IconButton(
-                  onPressed: onLike ?? () {},
+                  onPressed: widget.onLike ?? () {},
                   icon: Icon(
                     post.isLiked ? Icons.favorite : LucideIcons.heart,
                     size: 28,
@@ -181,20 +382,20 @@ class PostCard extends StatelessWidget {
                   constraints: const BoxConstraints(minWidth: 44, minHeight: 44),
                 ),
                 IconButton(
-                  onPressed: onComment ?? () {},
+                  onPressed: widget.onComment ?? () {},
                   icon: Icon(LucideIcons.messageCircle, size: 26, color: textColor),
                   padding: EdgeInsets.zero,
                   constraints: const BoxConstraints(minWidth: 44, minHeight: 44),
                 ),
                 IconButton(
-                  onPressed: onShare ?? () {},
+                  onPressed: widget.onShare ?? () {},
                   icon: Icon(LucideIcons.send, size: 26, color: textColor),
                   padding: EdgeInsets.zero,
                   constraints: const BoxConstraints(minWidth: 44, minHeight: 44),
                 ),
                 const Spacer(),
                 IconButton(
-                  onPressed: onSave ?? () {},
+                  onPressed: widget.onSave ?? () {},
                   icon: Icon(
                     post.isSaved ? Icons.bookmark : LucideIcons.bookmark,
                     size: 26,
@@ -241,6 +442,23 @@ class PostCard extends StatelessWidget {
               ),
             ),
           ],
+
+          // Comments preview line: "View all X comments"
+          if (post.comments > 0)
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
+              child: GestureDetector(
+                onTap: widget.onComment,
+                child: Text(
+                  'View all ${post.comments} ${post.comments == 1 ? 'comment' : 'comments'}',
+                  style: TextStyle(
+                    fontSize: 13,
+                    color: mutedColor,
+                    fontWeight: FontWeight.w500,
+                  ),
+                ),
+              ),
+            ),
 
           // Time posted (below caption, Instagram style)
           Padding(

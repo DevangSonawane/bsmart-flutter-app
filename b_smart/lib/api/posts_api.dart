@@ -1,4 +1,5 @@
 import 'api_client.dart';
+import '../config/api_config.dart';
 
 /// REST API wrapper for `/posts` endpoints.
 ///
@@ -16,6 +17,11 @@ class PostsApi {
   PostsApi._internal();
 
   final ApiClient _client = ApiClient();
+  String get _basePath {
+    final base = ApiConfig.baseUrl.toLowerCase().trim().replaceAll(RegExp(r'\/+$'), '');
+    final endsWithApi = base.endsWith('/api');
+    return endsWithApi ? '' : '/api';
+  }
 
   /// Create a new post.
   ///
@@ -28,6 +34,7 @@ class PostsApi {
     List<String>? tags,
     bool? hideLikesCount,
     bool? turnOffCommenting,
+    List<Map<String, dynamic>>? peopleTags,
     String type = 'post', // post | reel | promote | advertise
   }) async {
     final body = <String, dynamic>{
@@ -38,32 +45,31 @@ class PostsApi {
     if (tags != null && tags.isNotEmpty) body['tags'] = tags;
     if (hideLikesCount != null) body['hide_likes_count'] = hideLikesCount;
     if (turnOffCommenting != null) body['turn_off_commenting'] = turnOffCommenting;
+    if (peopleTags != null && peopleTags.isNotEmpty) body['people_tags'] = peopleTags;
     if (type != 'post') body['type'] = type;
 
-    final res = await _client.post('/posts', body: body);
+    final res = await _client.post('$_basePath/posts', body: body);
     return res as Map<String, dynamic>;
   }
 
   /// Get the paginated feed.
-  ///
-  /// Returns `{ page, limit, total, posts: [...] }`.
-  Future<Map<String, dynamic>> getFeed({int page = 1, int limit = 20}) async {
-    final res = await _client.get('/posts/feed', queryParams: {
+  Future<dynamic> getFeed({int page = 1, int limit = 20}) async {
+    final res = await _client.get('$_basePath/posts/feed', queryParams: {
       'page': page.toString(),
       'limit': limit.toString(),
     });
-    return res as Map<String, dynamic>;
+    return res;
   }
 
   /// Get a single post by ID.
   Future<Map<String, dynamic>> getPost(String postId) async {
-    final res = await _client.get('/posts/$postId');
+    final res = await _client.get('$_basePath/posts/$postId');
     return res as Map<String, dynamic>;
   }
 
   /// Delete a post.
   Future<Map<String, dynamic>> deletePost(String postId) async {
-    final res = await _client.delete('/posts/$postId');
+    final res = await _client.delete('$_basePath/posts/$postId');
     return res as Map<String, dynamic>;
   }
 
@@ -71,7 +77,7 @@ class PostsApi {
   ///
   /// Returns `{ message, likes_count, liked: true }`.
   Future<Map<String, dynamic>> likePost(String postId) async {
-    final res = await _client.post('/posts/$postId/like');
+    final res = await _client.post('$_basePath/posts/$postId/like');
     return res as Map<String, dynamic>;
   }
 
@@ -79,7 +85,7 @@ class PostsApi {
   ///
   /// Returns `{ message, likes_count, liked: false }`.
   Future<Map<String, dynamic>> unlikePost(String postId) async {
-    final res = await _client.post('/posts/$postId/unlike');
+    final res = await _client.post('$_basePath/posts/$postId/unlike');
     return res as Map<String, dynamic>;
   }
 
@@ -87,7 +93,7 @@ class PostsApi {
   ///
   /// Returns `{ total, users: [...] }`.
   Future<Map<String, dynamic>> getLikes(String postId) async {
-    final res = await _client.get('/posts/$postId/likes');
+    final res = await _client.get('$_basePath/posts/$postId/likes');
     return res as Map<String, dynamic>;
   }
 }

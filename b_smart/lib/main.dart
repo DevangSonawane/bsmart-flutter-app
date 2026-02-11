@@ -70,13 +70,24 @@ class _BSmartAppState extends State<BSmartApp> {
   }
 
   Future<void> _checkAuthStatus() async {
-    // Check for stored JWT from the REST API
-    final hasApiToken = await ApiClient().hasToken;
-
-    setState(() {
-      _isAuthenticated = hasApiToken;
-      _isInitialized = true;
-    });
+    final client = ApiClient();
+    final hasToken = await client.hasToken;
+    bool authed = false;
+    if (hasToken) {
+      try {
+        await AuthApi().me();
+        authed = true;
+      } catch (_) {
+        await client.clearToken();
+        authed = false;
+      }
+    }
+    if (mounted) {
+      setState(() {
+        _isAuthenticated = authed;
+        _isInitialized = true;
+      });
+    }
   }
 
   @override

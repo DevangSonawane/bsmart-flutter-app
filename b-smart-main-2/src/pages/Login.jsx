@@ -1,12 +1,15 @@
 import React, { useState, useEffect } from 'react';
 import { Link, useNavigate, useLocation } from 'react-router-dom';
-import { useSelector } from 'react-redux';
-import { supabase } from '../lib/supabase';
+import { useSelector, useDispatch } from 'react-redux';
+import api from '../lib/api';
+import authService from '../services/authService';
+import { login, fetchMe, setUser } from '../store/authSlice';
 import { ArrowLeft, Mail, Lock, User, Phone, LogIn, AlertCircle, CheckCircle } from 'lucide-react';
 
 const Login = () => {
   const navigate = useNavigate();
   const location = useLocation();
+  const dispatch = useDispatch();
   const { isAuthenticated } = useSelector((state) => state.auth);
   const [identifier, setIdentifier] = useState('');
   const [password, setPassword] = useState('');
@@ -27,34 +30,74 @@ const Login = () => {
     setLoading(true);
 
     try {
-      const { error: signInError } = await supabase.auth.signInWithPassword({
+      const resultAction = await dispatch(login({
         email: identifier,
         password
-      });
-      if (signInError) throw signInError;
-      // Navigation is handled by useEffect on isAuthenticated
-    } catch (err) {
-      if (err.message === 'Email not confirmed') {
-        setError('Please verify your email address. Check your inbox for the confirmation link.');
+      }));
+
+      if (login.fulfilled.match(resultAction)) {
+        navigate('/');
       } else {
-        setError(err.message || 'Login failed');
+        setError(resultAction.payload || 'Login failed');
       }
+    } catch (err) {
+      setError('An unexpected error occurred');
+    } finally {
       setLoading(false);
     }
   };
 
-  const handleGoogleLogin = async () => {
-    try {
-      const { error } = await supabase.auth.signInWithOAuth({
-        provider: 'google',
-        options: {
-          redirectTo: `${window.location.origin}/`,
-        },
-      });
-      if (error) throw error;
-    } catch (err) {
-      setError(err.message || 'Google login failed');
-    }
+  const handleGoogleLogin = () => {
+    const baseURL = api.defaults.baseURL || 'http://localhost:5000/api';
+    const authUrl = `${baseURL}/auth/google?scope=email%20profile`;
+
+    // Calculate center position for the popup
+    const width = 500;
+    const height = 600;
+    const left = window.screen.width / 2 - width / 2;
+    const top = window.screen.height / 2 - height / 2;
+
+    const popup = window.open(
+      authUrl,
+      'google-login',
+      `width=${width},height=${height},left=${left},top=${top}`
+    );
+
+    const handleMessage = async (event) => {
+      // Verify origin if needed, but for now we accept from self/subdomains
+      if (event.data?.type === 'GOOGLE_AUTH_SUCCESS') {
+        const { token } = event.data;
+        if (token) {
+          authService.setSession(token);
+          setLoading(true);
+
+          try {
+            // Fetch user details since we only got the token
+            await dispatch(fetchMe()).unwrap();
+            navigate('/');
+          } catch (err) {
+            console.error('Failed to fetch user details:', err);
+            setError('Authentication successful but failed to load user data');
+          } finally {
+            setLoading(false);
+          }
+        }
+        window.removeEventListener('message', handleMessage);
+      } else if (event.data?.type === 'GOOGLE_AUTH_ERROR') {
+        setError(event.data.error || 'Google authentication failed');
+        window.removeEventListener('message', handleMessage);
+      }
+    };
+
+    window.addEventListener('message', handleMessage);
+
+    // Clean up listener if popup is closed manually (optional polling)
+    const timer = setInterval(() => {
+      if (popup && popup.closed) {
+        clearInterval(timer);
+        window.removeEventListener('message', handleMessage);
+      }
+    }, 1000);
   };
 
   return (

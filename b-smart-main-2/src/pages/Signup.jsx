@@ -1,10 +1,14 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { supabase } from '../lib/supabase';
+import { useDispatch } from 'react-redux';
+import api from '../lib/api';
+import authService from '../services/authService';
+import { setUser } from '../store/authSlice';
 import { ArrowLeft, User, Mail, Phone, Lock, Sparkles } from 'lucide-react';
 
 const Signup = () => {
   const navigate = useNavigate();
+  const dispatch = useDispatch();
   const [form, setForm] = useState({
     name: '',
     username: '',
@@ -33,31 +37,75 @@ const Signup = () => {
     setLoading(true);
 
     try {
-      const { data, error: signUpError } = await supabase.auth.signUp({
+      const response = await api.post('/auth/register', {
         email: form.email,
         password: form.password,
-        options: {
-          data: {
-            full_name: form.name,
-            username: form.username,
-            phone: form.phone
-          }
-        }
+        username: form.username,
+        full_name: form.name,
+        phone: form.phone,
+        role: 'member'
       });
-      if (signUpError) throw signUpError;
 
-      // Check if session is established (auto sign-in)
-      if (data.session) {
-        navigate('/');
-      } else {
-        // Email confirmation might be required
-        navigate('/login', { state: { message: 'Please check your email to confirm your account.' } });
-      }
+      const { token, user } = response.data;
+      authService.setSession(token);
+      dispatch(setUser(user));
+      navigate('/');
     } catch (err) {
-      setError(err.message || 'Something went wrong');
+      setError(err.response?.data?.message || 'Something went wrong');
     } finally {
       setLoading(false);
     }
+  };
+
+  const handleGoogleLogin = () => {
+    const baseURL = api.defaults.baseURL || 'http://localhost:5000/api';
+    const authUrl = `${baseURL}/auth/google?scope=email%20profile`;
+
+    // Calculate center position for the popup
+    const width = 500;
+    const height = 600;
+    const left = window.screen.width / 2 - width / 2;
+    const top = window.screen.height / 2 - height / 2;
+
+    const popup = window.open(
+      authUrl,
+      'google-login',
+      `width=${width},height=${height},left=${left},top=${top}`
+    );
+
+    const handleMessage = async (event) => {
+      if (event.data?.type === 'GOOGLE_AUTH_SUCCESS') {
+        const { token } = event.data;
+        if (token) {
+          authService.setSession(token);
+          setLoading(true);
+
+          try {
+            const response = await api.get('/auth/me');
+            dispatch(setUser(response.data));
+            navigate('/');
+          } catch (err) {
+            console.error('Failed to fetch user details:', err);
+            setError('Authentication successful but failed to load user data');
+          } finally {
+            setLoading(false);
+          }
+        }
+        window.removeEventListener('message', handleMessage);
+      } else if (event.data?.type === 'GOOGLE_AUTH_ERROR') {
+        setError(event.data.error || 'Google authentication failed');
+        window.removeEventListener('message', handleMessage);
+      }
+    };
+
+    window.addEventListener('message', handleMessage);
+
+    const timer = setInterval(() => {
+      if (popup && popup.closed) {
+        clearInterval(timer);
+        window.removeEventListener('message', handleMessage);
+      }
+    }, 1000);
   };
 
   return (
@@ -234,19 +282,7 @@ const Signup = () => {
           </div>
 
           <button
-            onClick={async () => {
-              try {
-                const { error } = await supabase.auth.signInWithOAuth({
-                  provider: 'google',
-                  options: {
-                    redirectTo: `${window.location.origin}/`,
-                  },
-                });
-                if (error) throw error;
-              } catch (err) {
-                setError(err.message || 'Google login failed');
-              }
-            }}
+            onClick={handleGoogleLogin}
             type="button"
             className="w-full flex items-center justify-center gap-3 bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 text-gray-700 dark:text-white py-3 rounded-xl font-semibold hover:bg-gray-50 dark:hover:bg-gray-800 hover:border-gray-300 dark:hover:border-gray-700 transition-all shadow-sm hover:shadow"
           >

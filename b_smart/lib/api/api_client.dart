@@ -1,6 +1,7 @@
 import 'dart:convert';
 import 'dart:io';
 import 'package:http/http.dart' as http;
+import 'package:http_parser/http_parser.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import '../config/api_config.dart';
@@ -178,7 +179,13 @@ class ApiClient {
       final token = await getToken();
       if (token != null) request.headers['Authorization'] = 'Bearer $token';
       if (fields != null) request.fields.addAll(fields);
-      request.files.add(http.MultipartFile.fromBytes(fileField, bytes, filename: filename));
+      final ct = _contentTypeForFilename(filename);
+      request.files.add(http.MultipartFile.fromBytes(
+        fileField,
+        bytes,
+        filename: filename,
+        contentType: ct,
+      ));
       final streamed = await request.send().timeout(ApiConfig.timeout);
       final response = await http.Response.fromStream(streamed);
       return _handleResponse(response);
@@ -190,46 +197,83 @@ class ApiClient {
   // ── Response handling ──────────────────────────────────────────────────────
 
   dynamic _handleResponse(http.Response response) {
-    final Map<String, dynamic>? body = _tryDecodeJson(response.body);
+    final dynamic decoded = _tryDecodeJson(response.body);
+    final Map<String, dynamic>? body =
+        decoded is Map<String, dynamic> ? decoded : null;
     
     // Extract detailed error message
     String? message = body?['message'] as String?;
     final error = body?['error'] as String?;
     
     if (message == null) {
-      message = error ?? response.reasonPhrase ?? 'Unknown error';
+      final raw = response.body.trim();
+      final ct = response.headers['content-type'] ?? '';
+      final isHtml = ct.contains('text/html') || _looksLikeHtml(raw);
+      if (isHtml) {
+        final title = _extractHtmlTitle(raw);
+        message = title?.isNotEmpty == true
+            ? title
+            : (response.reasonPhrase ?? 'HTTP ${response.statusCode}');
+      } else {
+        message = raw.isNotEmpty ? raw : (error ?? response.reasonPhrase ?? 'Unknown error');
+      }
     } else if (error != null && message != error) {
       // Append detailed error if available
       message = '$message: $error';
     }
 
+    final safeMessage = message ?? (response.reasonPhrase ?? 'Unknown error');
     switch (response.statusCode) {
       case 200:
       case 201:
-        return body ?? response.body;
+        return decoded ?? response.body;
       case 400:
-        throw BadRequestException(message: message, body: body);
+        throw BadRequestException(message: safeMessage, body: body);
       case 401:
-        throw UnauthorizedException(message: message, body: body);
+        throw UnauthorizedException(message: safeMessage, body: body);
       case 403:
-        throw ForbiddenException(message: message, body: body);
+        throw ForbiddenException(message: safeMessage, body: body);
       case 404:
-        throw NotFoundException(message: message, body: body);
+        throw NotFoundException(message: safeMessage, body: body);
       default:
         if (response.statusCode >= 500) {
-          throw ServerException(message: message, body: body);
+          throw ServerException(message: safeMessage, body: body);
         }
-        throw ApiException(statusCode: response.statusCode, message: message, body: body);
+        throw ApiException(statusCode: response.statusCode, message: safeMessage, body: body);
     }
   }
 
-  Map<String, dynamic>? _tryDecodeJson(String source) {
+  dynamic _tryDecodeJson(String source) {
     try {
       final decoded = jsonDecode(source);
-      if (decoded is Map<String, dynamic>) return decoded;
-      return null;
+      return decoded;
     } catch (_) {
       return null;
     }
+  }
+
+  bool _looksLikeHtml(String source) {
+    final s = source.trimLeft();
+    if (s.isEmpty) return false;
+    if (s.startsWith('<!DOCTYPE html') || s.startsWith('<html')) return true;
+    if (s.contains('<html') || s.contains('<body')) return true;
+    return false;
+  }
+
+  String? _extractHtmlTitle(String source) {
+    final match = RegExp(r'<title[^>]*>(.*?)<\/title>', caseSensitive: false, dotAll: true)
+        .firstMatch(source);
+    final t = match?.group(1)?.replaceAll(RegExp(r'\s+'), ' ').trim();
+    return t;
+  }
+
+  MediaType? _contentTypeForFilename(String name) {
+    final n = name.toLowerCase();
+    if (n.endsWith('.jpg') || n.endsWith('.jpeg')) return MediaType('image', 'jpeg');
+    if (n.endsWith('.png')) return MediaType('image', 'png');
+    if (n.endsWith('.gif')) return MediaType('image', 'gif');
+    if (n.endsWith('.mp4')) return MediaType('video', 'mp4');
+    if (n.endsWith('.mov')) return MediaType('video', 'quicktime');
+    return null;
   }
 }
