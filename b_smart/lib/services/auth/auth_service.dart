@@ -289,6 +289,11 @@ class AuthService {
 
   Future<void> loginWithGoogle() async {
     try {
+      try {
+        await _googleSignIn.disconnect();
+      } catch (_) {
+        await _googleSignIn.signOut();
+      }
       final googleUser = await _googleSignIn.signIn();
       if (googleUser == null) throw Exception('Google sign in cancelled');
 

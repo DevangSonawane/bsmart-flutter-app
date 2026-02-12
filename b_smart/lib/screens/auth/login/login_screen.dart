@@ -1,16 +1,11 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_svg/flutter_svg.dart';
-import 'dart:io' show Platform;
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 import '../../../theme/instagram_theme.dart';
 import '../../../widgets/clay_container.dart';
 import '../../../services/auth/auth_service.dart';
-import 'package:flutter_web_auth_2/flutter_web_auth_2.dart';
-import 'package:flutter/services.dart';
-import '../../../config/api_config.dart';
-import '../../../api/auth_api.dart';
 import '../../home_dashboard.dart';
-import '../signup/signup_identifier_screen.dart';
+// Using native GoogleSignIn / secure browser flows; no embedded WebView
 
 class LoginScreen extends StatefulWidget {
   const LoginScreen({super.key});
@@ -83,80 +78,20 @@ class _LoginScreenState extends State<LoginScreen>
     if (_isLoading) return;
     setState(() => _isLoading = true);
     try {
-      final base = ApiConfig.baseUrl;
-      final redirect = 'bsmart://auth/google/success';
-      final url =
-          '$base/auth/google'
-          '?scope=${Uri.encodeComponent('email profile')}'
-          '&redirect_uri=${Uri.encodeComponent(redirect)}'
-          '&redirect=${Uri.encodeComponent(redirect)}'
-          '&callback=${Uri.encodeComponent(redirect)}';
-      String result;
-      try {
-        result = await FlutterWebAuth2.authenticate(
-          url: url,
-          callbackUrlScheme: 'bsmart',
-        );
-      } on MissingPluginException {
-        await _authService.loginWithGoogle();
-        final user = await _authService.fetchCurrentUser();
-        if (user != null) {
-          _navigateToHome();
-          return;
-        }
-        _showError('Authentication failed');
+      await _authService.loginWithGoogle();
+      final user = await _authService.fetchCurrentUser();
+      if (user != null) {
+        _navigateToHome();
         return;
-      }
-      final uri = Uri.parse(result);
-      String? token =
-          uri.queryParameters['token'] ??
-          uri.queryParameters['access_token'] ??
-          uri.queryParameters['id_token'];
-      if (token == null || token.isEmpty) {
-        final frag = uri.fragment;
-        if (frag.isNotEmpty) {
-          final fragParams = Uri.splitQueryString(frag);
-          token = fragParams['token'] ??
-              fragParams['access_token'] ??
-              fragParams['id_token'];
-        }
-      }
-      if (token != null && token.isNotEmpty) {
-        await AuthApi().saveExternalToken(token);
-        final user = await _authService.fetchCurrentUser();
-        if (user != null) {
-          _navigateToHome();
-          return;
-        }
       }
       _showError('Authentication failed');
     } catch (e) {
-      _showAuthDiagnostics('exception=${e.toString()}');
+      _showError(e.toString().replaceAll('Exception: ', ''));
     } finally {
       if (mounted) setState(() => _isLoading = false);
     }
   }
 
-  void _showAuthDiagnostics(String details) {
-    if (!mounted) return;
-    showDialog<void>(
-      context: context,
-      builder: (context) {
-        return AlertDialog(
-          title: const Text('Authentication failed'),
-          content: SingleChildScrollView(
-            child: Text(details),
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.of(context).pop(),
-              child: const Text('Close'),
-            ),
-          ],
-        );
-      },
-    );
-  }
 
   void _navigateToHome() {
     if (mounted) {
