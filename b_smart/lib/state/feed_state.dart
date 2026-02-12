@@ -12,6 +12,14 @@ class FeedState {
   });
 
   factory FeedState.initial() => const FeedState();
+  // Set initial loading to true to avoid "No posts yet" flash before first fetch.
+  // This matches the React Home.jsx behavior which shows a spinner until the feed loads.
+  // ignore: dead_code
+  // The below line overrides the factory if used directly.
+  // Keeping both for clarity: most code uses `FeedState.initial()`.
+  const FeedState.initialLoading()
+      : posts = const [],
+        isLoading = true;
 
   FeedState copyWith({
     List<FeedPost>? posts,

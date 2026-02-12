@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import '../models/feed_post_model.dart';
 import '../api/api_client.dart';
+import '../config/api_config.dart';
 
 class PostsGrid extends StatefulWidget {
   final List<FeedPost> posts;
@@ -15,6 +16,12 @@ class PostsGrid extends StatefulWidget {
 
 class _PostsGridState extends State<PostsGrid> {
   Map<String, String>? _headers;
+  String _absolute(String url) {
+    if (url.startsWith('http://') || url.startsWith('https://')) return url;
+    final baseUri = Uri.parse(ApiConfig.baseUrl);
+    final origin = '${baseUri.scheme}://${baseUri.host}${baseUri.hasPort ? ':${baseUri.port}' : ''}';
+    return url.startsWith('/') ? '$origin$url' : '$origin/$url';
+  }
 
   @override
   void initState() {
@@ -45,7 +52,8 @@ class _PostsGridState extends State<PostsGrid> {
       ),
       itemBuilder: (context, index) {
         final p = widget.posts[index];
-        final thumb = p.mediaUrls.isNotEmpty ? p.mediaUrls.first : null;
+        final raw = p.mediaUrls.isNotEmpty ? p.mediaUrls.first : null;
+        final thumb = (raw != null && raw.isNotEmpty) ? _absolute(raw) : null;
         return GestureDetector(
           onTap: () => widget.onTap(p),
           child: ClipRRect(

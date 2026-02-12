@@ -92,18 +92,26 @@ class _InstagramFeedScreenState extends State<InstagramFeedScreen> {
 
   Future<void> _handleLike(FeedPost post) async {
     final desired = !post.isLiked;
+    setState(() {
+      final index = _feedPosts.indexWhere((p) => p.id == post.id);
+      if (index != -1) {
+        final prev = _feedPosts[index];
+        _feedPosts[index] = prev.copyWith(
+          isLiked: desired,
+          likes: desired ? prev.likes + 1 : prev.likes - 1,
+        );
+      }
+    });
     final liked = await _supabase.setPostLike(post.id, like: desired);
     if (!mounted) return;
     setState(() {
       final index = _feedPosts.indexWhere((p) => p.id == post.id);
       if (index != -1) {
         final prev = _feedPosts[index];
-        if (prev.isLiked != liked) {
-          _feedPosts[index] = prev.copyWith(
-            isLiked: liked,
-            likes: liked ? prev.likes + 1 : prev.likes - 1,
-          );
-        }
+        _feedPosts[index] = prev.copyWith(
+          isLiked: liked,
+          likes: liked ? prev.likes : prev.likes, // likes already adjusted optimistically; keep if server agrees
+        );
       }
     });
   }
@@ -604,6 +612,7 @@ class _InstagramFeedScreenState extends State<InstagramFeedScreen> {
     final accountService = UserAccountService();
     final currentAccount = accountService.getCurrentAccount();
     final canBoost = currentAccount.accountType != AccountType.regular;
+    final messenger = ScaffoldMessenger.of(this.context);
 
     showModalBottomSheet(
       context: context,
@@ -633,9 +642,7 @@ class _InstagramFeedScreenState extends State<InstagramFeedScreen> {
               title: const Text('Report'),
               onTap: () {
                 Navigator.pop(context);
-                ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(content: Text('Report submitted')),
-                );
+                messenger.showSnackBar(const SnackBar(content: Text('Report submitted')));
               },
             ),
             ListTile(
@@ -643,9 +650,7 @@ class _InstagramFeedScreenState extends State<InstagramFeedScreen> {
               title: const Text('Not Interested'),
               onTap: () {
                 Navigator.pop(context);
-                ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(content: Text('We\'ll show you less like this')),
-                );
+                messenger.showSnackBar(const SnackBar(content: Text('We\'ll show you less like this')));
               },
             ),
           ],

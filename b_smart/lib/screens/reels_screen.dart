@@ -198,6 +198,7 @@ class _ReelsScreenState extends State<ReelsScreen> {
   }
 
   void _handleShare() {
+    final messenger = ScaffoldMessenger.of(this.context);
     _reelsService.incrementShares(_reels[_currentIndex].id);
     setState(() {});
     
@@ -220,16 +221,14 @@ class _ReelsScreenState extends State<ReelsScreen> {
               ),
               onTap: () {
                 Navigator.pop(context);
-                ScaffoldMessenger.of(context).showSnackBar(
-                  SnackBar(
-                    content: const Text('Link copied to clipboard'),
-                    backgroundColor: InstagramTheme.surfaceWhite,
-                    behavior: SnackBarBehavior.floating,
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(12),
-                    ),
+                messenger.showSnackBar(SnackBar(
+                  content: const Text('Link copied to clipboard'),
+                  backgroundColor: InstagramTheme.surfaceWhite,
+                  behavior: SnackBarBehavior.floating,
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(12),
                   ),
-                );
+                ));
               },
             ),
             ListTile(
@@ -240,16 +239,14 @@ class _ReelsScreenState extends State<ReelsScreen> {
               ),
               onTap: () {
                 Navigator.pop(context);
-                ScaffoldMessenger.of(context).showSnackBar(
-                  SnackBar(
-                    content: const Text('Share sheet opened'),
-                    backgroundColor: InstagramTheme.surfaceWhite,
-                    behavior: SnackBarBehavior.floating,
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(12),
-                    ),
+                messenger.showSnackBar(SnackBar(
+                  content: const Text('Share sheet opened'),
+                  backgroundColor: InstagramTheme.surfaceWhite,
+                  behavior: SnackBarBehavior.floating,
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(12),
                   ),
-                );
+                ));
               },
             ),
             const SizedBox(height: 8),
@@ -387,6 +384,7 @@ class _ReelsScreenState extends State<ReelsScreen> {
   }
 
   void _showAdDetails(Reel reel) {
+    final messenger = ScaffoldMessenger.of(this.context);
     showDialog(
       context: context,
       barrierColor: InstagramTheme.backgroundWhite.withValues(alpha: 0.7),
@@ -426,16 +424,14 @@ class _ReelsScreenState extends State<ReelsScreen> {
                     : null,
                 onTap: () {
                   Navigator.pop(context);
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    SnackBar(
-                      content: Text('Opening ${tag.externalUrl}'),
-                      backgroundColor: InstagramTheme.surfaceWhite,
-                      behavior: SnackBarBehavior.floating,
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(12),
-                      ),
+                  messenger.showSnackBar(SnackBar(
+                    content: Text('Opening ${tag.externalUrl}'),
+                    backgroundColor: InstagramTheme.surfaceWhite,
+                    behavior: SnackBarBehavior.floating,
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(12),
                     ),
-                  );
+                  ));
                 },
               )),
             ],

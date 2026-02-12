@@ -291,20 +291,27 @@ class FeedService {
         if (currentUserId != null && rawLikesAny.isNotEmpty) {
           for (final e in rawLikesAny) {
             if (e is Map) {
-              final uid = (e['user_id'] as String?) ??
+              String? uid = (e['user_id'] as String?) ??
                   (e['id'] as String?) ??
                   (e['_id'] as String?);
-              if (uid != null && uid == currentUserId) {
+              if (uid == null && e['user'] is Map) {
+                final u = (e['user'] as Map);
+                uid = (u['id'] as String?) ?? (u['_id'] as String?);
+              }
+              if (uid != null && uid.toString() == currentUserId.toString()) {
                 computedLiked = true;
                 break;
               }
-            } else if (e is String && e == currentUserId) {
+            } else if (e is String && e.toString() == currentUserId.toString()) {
               computedLiked = true;
               break;
             }
           }
         }
-        final isLikedByMe = (item['is_liked_by_me'] as bool?) ?? computedLiked;
+        final hasLikesArray = rawLikesAny.isNotEmpty;
+        final isLikedByMe = hasLikesArray
+            ? computedLiked
+            : ((item['is_liked_by_me'] as bool?) ?? false);
 
         final media = item['media'] as List<dynamic>? ?? (item['images'] as List<dynamic>? ?? (item['attachments'] as List<dynamic>? ?? []));
         List<String> mediaUrls = media.map((m) {

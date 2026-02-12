@@ -249,12 +249,8 @@ class _CreatePostDetailsScreenState extends State<CreatePostDetailsScreen> {
         
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text(
-              moderationResult.hasRestrictions
-                  ? 'Post published with restrictions'
-                  : 'Post published successfully!',
-            ),
-            backgroundColor: moderationResult.hasRestrictions ? Colors.orange : Colors.green,
+            content: const Text('Post shared successfully!'),
+            backgroundColor: Colors.green,
           ),
         );
       }

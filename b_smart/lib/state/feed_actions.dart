@@ -28,3 +28,8 @@ class UpdatePostSaved {
   final bool saved;
   UpdatePostSaved(this.postId, this.saved);
 }
+
+class RemovePost {
+  final String postId;
+  RemovePost(this.postId);
+}

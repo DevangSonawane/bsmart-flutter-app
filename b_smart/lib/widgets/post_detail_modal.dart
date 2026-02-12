@@ -4,6 +4,9 @@ import 'package:lucide_icons_flutter/lucide_icons.dart';
 import '../services/supabase_service.dart';
 import '../theme/design_tokens.dart';
 import '../utils/current_user.dart';
+import '../api/api_exceptions.dart';
+import '../config/api_config.dart';
+import '../api/api_client.dart';
 
 /// Modal matching React PostDetailModal: image left, details + comments right.
 class PostDetailModal extends StatefulWidget {
@@ -27,6 +30,7 @@ class _PostDetailModalState extends State<PostDetailModal> {
   bool _isLiked = false;
   int _likeCount = 0;
   bool _postingComment = false;
+  bool _likeAnimate = false;
 
   @override
   void initState() {
@@ -57,16 +61,32 @@ class _PostDetailModalState extends State<PostDetailModal> {
     }
     final comments = await _svc.getComments(widget.postId);
     final rawLikes = post['likes'] as List<dynamic>? ?? [];
-    final likesList = rawLikes.map((e) => Map<String, dynamic>.from(e as Map)).toList();
     final currentUserId = await CurrentUser.id;
-    final isLiked = currentUserId != null && likesList.any((e) => e['user_id'] == currentUserId);
+    bool isLiked = false;
+    for (final e in rawLikes) {
+      if (e is Map) {
+        String? uid = (e['user_id'] as String?) ?? (e['id'] as String?) ?? (e['_id'] as String?);
+        if (uid == null && e['user'] is Map) {
+          final u = (e['user'] as Map);
+          uid = (u['id'] as String?) ?? (u['_id'] as String?);
+        }
+        if (uid != null && currentUserId != null && uid.toString() == currentUserId.toString()) {
+          isLiked = true;
+          break;
+        }
+      } else if (e is String && currentUserId != null && e.toString() == currentUserId.toString()) {
+        isLiked = true;
+        break;
+      }
+    }
+    int likeCount = (post['likes_count'] as int?) ?? rawLikes.length;
     if (mounted) {
       setState(() {
         _post = post;
         _postUser = user;
         _comments = comments;
         _isLiked = isLiked;
-        _likeCount = likesList.length;
+        _likeCount = likeCount;
         _loadingPost = false;
         _loadingComments = false;
       });
@@ -75,25 +95,55 @@ class _PostDetailModalState extends State<PostDetailModal> {
 
   Future<void> _handleLike() async {
     if (_post == null) return;
+    final hasToken = await ApiClient().hasToken;
+    if (!hasToken) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Please log in to like posts')),
+        );
+      }
+      return;
+    }
     final desired = !_isLiked;
     setState(() {
       _isLiked = desired;
       _likeCount = desired ? _likeCount + 1 : _likeCount - 1;
+      _likeAnimate = true;
     });
     final liked = await _svc.setPostLike(widget.postId, like: desired);
     if (!mounted) return;
     try {
       final p = await SupabaseService().getPostById(widget.postId);
-      final serverLiked = (p?['is_liked_by_me'] as bool?) ?? liked;
-      final likesCount = (p?['likes_count'] as int?) ?? _likeCount;
+      final rawLikes = (p?['likes'] as List<dynamic>?) ?? [];
+      bool serverLiked = false;
+      final currentUserId = await CurrentUser.id;
+      for (final e in rawLikes) {
+        if (e is Map) {
+          String? uid = (e['user_id'] as String?) ?? (e['id'] as String?) ?? (e['_id'] as String?);
+          if (uid == null && e['user'] is Map) {
+            final u = (e['user'] as Map);
+            uid = (u['id'] as String?) ?? (u['_id'] as String?);
+          }
+          if (uid != null && currentUserId != null && uid.toString() == currentUserId.toString()) {
+            serverLiked = true;
+            break;
+          }
+        } else if (e is String && currentUserId != null && e.toString() == currentUserId.toString()) {
+          serverLiked = true;
+          break;
+        }
+      }
+      final likesCount = (p?['likes_count'] as int?) ?? rawLikes.length;
       setState(() {
         _isLiked = serverLiked;
         _likeCount = likesCount;
+        _likeAnimate = false;
       });
     } catch (_) {
       if (!mounted) return;
       setState(() {
         _isLiked = liked;
+        _likeAnimate = false;
       });
     }
   }
@@ -112,6 +162,47 @@ class _PostDetailModalState extends State<PostDetailModal> {
     }
   }
 
+  Future<void> _showLikesList() async {
+    final users = await _svc.getPostLikes(widget.postId);
+    if (!mounted) return;
+    await showModalBottomSheet<void>(
+      context: context,
+      builder: (ctx) {
+        final theme = Theme.of(ctx);
+        return SafeArea(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const SizedBox(height: 8),
+              Text('Liked by', style: theme.textTheme.titleMedium),
+              const SizedBox(height: 8),
+              Flexible(
+                child: ListView.builder(
+                  shrinkWrap: true,
+                  itemCount: users.length,
+                  itemBuilder: (context, index) {
+                    final u = users[index];
+                    final id = (u['_id'] as String?) ?? (u['id'] as String?) ?? '';
+                    final username = (u['username'] as String?) ?? (u['full_name'] as String?) ?? 'User';
+                    final avatar = (u['avatar_url'] as String?) ?? '';
+                    return ListTile(
+                      leading: CircleAvatar(
+                        backgroundImage: avatar.isNotEmpty ? NetworkImage(avatar) : null,
+                        child: avatar.isEmpty ? Text(username.isNotEmpty ? username[0].toUpperCase() : 'U') : null,
+                      ),
+                      title: Text(username),
+                      onTap: id.isNotEmpty ? () => Navigator.of(context).pushNamed('/profile/$id') : null,
+                    );
+                  },
+                ),
+              ),
+            ],
+          ),
+        );
+      },
+    );
+  }
+
   static String formatRelativeTime(String dateString) {
     final date = DateTime.tryParse(dateString);
     if (date == null) return '';
@@ -128,9 +219,14 @@ class _PostDetailModalState extends State<PostDetailModal> {
     final media = _post?['media'] as List<dynamic>?;
     if (media == null || media.isEmpty) return 'https://via.placeholder.com/600';
     final first = media.first;
-    if (first is Map && first.containsKey('image')) return first['image'] as String;
-    if (first is Map && first.containsKey('url')) return first['url'] as String;
-    if (first is String) return first;
+    String? raw;
+    if (first is Map && first.containsKey('image')) raw = first['image'] as String?;
+    if (raw == null && first is Map && first.containsKey('url')) raw = first['url'] as String?;
+    if (raw == null && first is String) raw = first;
+    if (raw == null || raw.isEmpty) return 'https://via.placeholder.com/600';
+    final baseUri = Uri.parse(ApiConfig.baseUrl);
+    final origin = '${baseUri.scheme}://${baseUri.host}${baseUri.hasPort ? ':${baseUri.port}' : ''}';
+    return raw.startsWith('http://') || raw.startsWith('https://') ? raw : (raw.startsWith('/') ? '$origin$raw' : '$origin/$raw');
     return 'https://via.placeholder.com/600';
   }
 
@@ -249,7 +345,176 @@ class _PostDetailModalState extends State<PostDetailModal> {
                   ),
                 ),
               ),
-              IconButton(icon: Icon(LucideIcons.ellipsis), onPressed: () {}),
+              IconButton(
+                icon: Icon(LucideIcons.ellipsis),
+                onPressed: () async {
+                  final uid = await CurrentUser.id;
+                  final ownerId = _post?['user_id'] as String?;
+                  final isOwner = uid != null && ownerId != null && uid == ownerId;
+                  showModalBottomSheet(
+                    context: context,
+                    builder: (ctx) => SafeArea(
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          ListTile(
+                            leading: const Icon(Icons.copy),
+                            title: const Text('Copy link'),
+                            onTap: () {
+                              Navigator.pop(ctx);
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                const SnackBar(content: Text('Link copied')),
+                              );
+                            },
+                          ),
+                          ListTile(
+                            leading: const Icon(Icons.report_outlined),
+                            title: const Text('Report'),
+                            onTap: () {
+                              Navigator.pop(ctx);
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                const SnackBar(content: Text('Report submitted')),
+                              );
+                            },
+                          ),
+                          if (isOwner)
+                            ListTile(
+                              leading: const Icon(Icons.delete_outline, color: Colors.red),
+                              title: const Text('Delete Post', style: TextStyle(color: Colors.red)),
+                              onTap: () async {
+                                Navigator.pop(ctx);
+                                final messenger = ScaffoldMessenger.of(context);
+                                bool isDeleting = false;
+                                await showDialog<void>(
+                                  context: context,
+                                  barrierDismissible: false,
+                                  builder: (dctx) {
+                                    return StatefulBuilder(
+                                      builder: (context, setState) {
+                                        return Center(
+                                          child: Material(
+                                            color: Colors.transparent,
+                                            child: Container(
+                                              width: MediaQuery.of(context).size.width * 0.9,
+                                              constraints: const BoxConstraints(maxWidth: 360),
+                                              padding: const EdgeInsets.all(16),
+                                              decoration: BoxDecoration(
+                                                color: Theme.of(context).cardColor,
+                                                borderRadius: BorderRadius.circular(16),
+                                                border: Border.all(color: Theme.of(context).dividerColor),
+                                              ),
+                                              child: isDeleting
+                                                  ? Column(
+                                                      mainAxisSize: MainAxisSize.min,
+                                                      children: [
+                                                        const SizedBox(height: 8),
+                                                        SizedBox(
+                                                          width: 48,
+                                                          height: 48,
+                                                          child: CircularProgressIndicator(
+                                                            strokeWidth: 4,
+                                                            color: Colors.red,
+                                                          ),
+                                                        ),
+                                                        const SizedBox(height: 16),
+                                                        Text(
+                                                          'Deleting post...',
+                                                          style: TextStyle(
+                                                            color: Theme.of(context).textTheme.bodyMedium?.color,
+                                                            fontWeight: FontWeight.w600,
+                                                          ),
+                                                        ),
+                                                        const SizedBox(height: 8),
+                                                      ],
+                                                    )
+                                                  : Column(
+                                                      mainAxisSize: MainAxisSize.min,
+                                                      children: [
+                                                        const SizedBox(height: 4),
+                                                        const Text(
+                                                          'Delete Post?',
+                                                          textAlign: TextAlign.center,
+                                                          style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+                                                        ),
+                                                        const SizedBox(height: 8),
+                                                        Text(
+                                                          'Are you sure you want to delete this post? This action cannot be undone.',
+                                                          textAlign: TextAlign.center,
+                                                          style: TextStyle(color: Theme.of(context).textTheme.bodySmall?.color),
+                                                        ),
+                                                        const SizedBox(height: 16),
+                                                        Row(
+                                                          children: [
+                                                            Expanded(
+                                                              child: OutlinedButton(
+                                                                onPressed: () {
+                                                                  Navigator.pop(context);
+                                                                },
+                                                                child: const Text('Cancel'),
+                                                              ),
+                                                            ),
+                                                            const SizedBox(width: 8),
+                                                            Expanded(
+                                                              child: ElevatedButton(
+                                                                style: ElevatedButton.styleFrom(
+                                                                  backgroundColor: Colors.red,
+                                                                  foregroundColor: Colors.white,
+                                                                ),
+                                                                onPressed: () async {
+                                                                  setState(() => isDeleting = true);
+                                                                  try {
+                                                                    final ok = await _svc.deletePost(widget.postId);
+                                                                    await Future.delayed(const Duration(milliseconds: 1500));
+                                                                    if (ok) {
+                                                                      if (mounted) {
+                                                                        Navigator.pop(context);
+                                                                        messenger.showSnackBar(const SnackBar(content: Text('Post deleted')));
+                                                                        if (widget.onClose != null) widget.onClose!();
+                                                                        Navigator.of(context).pop();
+                                                                      }
+                                                                    } else {
+                                                                      if (mounted) {
+                                                                        setState(() => isDeleting = false);
+                                                                        Navigator.pop(context);
+                                                                        messenger.showSnackBar(const SnackBar(content: Text('Failed to delete post')));
+                                                                      }
+                                                                    }
+                                                                  } on ApiException catch (e) {
+                                                                    if (mounted) {
+                                                                      setState(() => isDeleting = false);
+                                                                      Navigator.pop(context);
+                                                                      messenger.showSnackBar(SnackBar(content: Text(e.message)));
+                                                                    }
+                                                                  } catch (e) {
+                                                                    if (mounted) {
+                                                                      setState(() => isDeleting = false);
+                                                                      Navigator.pop(context);
+                                                                      messenger.showSnackBar(SnackBar(content: Text(e.toString())));
+                                                                    }
+                                                                  }
+                                                                },
+                                                                child: const Text('Delete'),
+                                                              ),
+                                                            ),
+                                                          ],
+                                                        ),
+                                                      ],
+                                                    ),
+                                            ),
+                                          ),
+                                        );
+                                      },
+                                    );
+                                  },
+                                );
+                              },
+                            ),
+                        ],
+                      ),
+                    ),
+                  );
+                },
+              ),
             ],
           ),
         ),
@@ -335,7 +600,11 @@ class _PostDetailModalState extends State<PostDetailModal> {
           padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
           child: Row(
             children: [
-              IconButton(icon: Icon(LucideIcons.heart, color: _isLiked ? Colors.red : Colors.black87), onPressed: _handleLike),
+              AnimatedScale(
+                scale: _likeAnimate ? 1.15 : 1.0,
+                duration: const Duration(milliseconds: 150),
+                child: IconButton(icon: Icon(LucideIcons.heart, color: _isLiked ? Colors.red : Colors.black87), onPressed: _handleLike),
+              ),
               IconButton(icon: Icon(LucideIcons.messageCircle), onPressed: () {}),
               IconButton(icon: Icon(LucideIcons.send), onPressed: () {}),
               const Spacer(),
@@ -345,7 +614,13 @@ class _PostDetailModalState extends State<PostDetailModal> {
         ),
         Padding(
           padding: const EdgeInsets.only(left: 12, right: 12, bottom: 8),
-          child: Text('$_likeCount ${_likeCount == 1 ? 'like' : 'likes'}', style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 14)),
+          child: Row(
+            children: [
+              Text('$_likeCount ${_likeCount == 1 ? 'like' : 'likes'}', style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 14)),
+              const SizedBox(width: 12),
+              TextButton(onPressed: _showLikesList, child: const Text('Liked by')),
+            ],
+          ),
         ),
         Padding(
           padding: const EdgeInsets.only(left: 12, right: 12, bottom: 8),

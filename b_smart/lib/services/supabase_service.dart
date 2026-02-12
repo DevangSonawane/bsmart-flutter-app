@@ -416,6 +416,19 @@ class SupabaseService {
     }
   }
 
+  /// Get users who liked a post.
+  ///
+  /// Returns a list of user objects: `{ id, _id, username, full_name, avatar_url }`.
+  Future<List<Map<String, dynamic>>> getPostLikes(String postId) async {
+    try {
+      final res = await _postsApi.getLikes(postId);
+      final users = res['users'] as List<dynamic>? ?? [];
+      return users.whereType<Map>().map((m) => Map<String, dynamic>.from(m)).toList();
+    } catch (_) {
+      return [];
+    }
+  }
+
   // ── Ads & Products ─────────────────────────────────────────────────────────
   // These are not part of the new API docs. Keep stubs returning empty data.
 
@@ -506,5 +519,16 @@ class SupabaseService {
   Future<bool> rewardUserForAdView(
       String userId, String adId, int amount) async {
     return false;
+  }
+
+  Future<bool> deletePost(String postId) async {
+    try {
+      await _postsApi.deletePost(postId);
+      return true;
+    } on ApiException catch (e) {
+      throw e;
+    } catch (e) {
+      throw ServerException(message: e.toString());
+    }
   }
 }

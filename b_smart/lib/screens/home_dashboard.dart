@@ -22,6 +22,8 @@ import 'promote_screen.dart';
 import 'reels_screen.dart';
 import 'story_viewer_screen.dart';
 import '../utils/current_user.dart';
+import '../api/api_exceptions.dart';
+import '../api/api_client.dart';
 
 class HomeDashboard extends StatefulWidget {
   final int? initialIndex;
@@ -83,9 +85,19 @@ class _HomeDashboardState extends State<HomeDashboard> {
 
   // Like toggle - same as React PostCard: update post.likes array on posts table
   void _onLikePost(FeedPost post) async {
+    final hasToken = await ApiClient().hasToken;
+    if (!hasToken) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Please log in to like posts')),
+        );
+      }
+      return;
+    }
     final desired = !post.isLiked;
     final store = StoreProvider.of<AppState>(context);
     store.dispatch(UpdatePostLiked(post.id, desired));
+    if (mounted) setState(() {}); // trigger rebuild to reflect optimistic change
     final liked = await _supabase.setPostLike(post.id, like: desired);
     if (!mounted) return;
     try {
@@ -93,8 +105,10 @@ class _HomeDashboardState extends State<HomeDashboard> {
       final serverLiked = (p?['is_liked_by_me'] as bool?) ?? liked;
       final likesCount = (p?['likes_count'] as int?) ?? (post.likes + (desired ? 1 : -1));
       store.dispatch(UpdatePostLikedWithCount(post.id, serverLiked, likesCount));
+      if (mounted) setState(() {}); // reflect reconciled count/color
     } catch (_) {
       store.dispatch(UpdatePostLiked(post.id, liked));
+      if (mounted) setState(() {}); // reflect reconciled state
     }
   }
 
@@ -135,6 +149,7 @@ class _HomeDashboardState extends State<HomeDashboard> {
   }
 
   void _onMorePost(BuildContext context, FeedPost post) {
+    final messenger = ScaffoldMessenger.of(context);
     showModalBottomSheet(
       context: context,
       builder: (ctx) => SafeArea(
@@ -168,6 +183,142 @@ class _HomeDashboardState extends State<HomeDashboard> {
                 Navigator.pop(ctx);
                 ScaffoldMessenger.of(context).showSnackBar(
                   const SnackBar(content: Text('Link copied'), behavior: SnackBarBehavior.floating),
+                );
+              },
+            ),
+            FutureBuilder<String?>(
+              future: CurrentUser.id,
+              builder: (context, snapshot) {
+                final isOwner = snapshot.data != null && snapshot.data == post.userId;
+                if (!isOwner) return const SizedBox.shrink();
+                return ListTile(
+                  leading: const Icon(Icons.delete_outline, color: Colors.red),
+                  title: const Text('Delete Post', style: TextStyle(color: Colors.red)),
+                  onTap: () async {
+                    Navigator.pop(ctx);
+                    bool isDeleting = false;
+                    await showDialog<void>(
+                      context: context,
+                      barrierDismissible: false,
+                      builder: (dctx) {
+                        return StatefulBuilder(
+                          builder: (context, setState) {
+                            return Center(
+                              child: Material(
+                                color: Colors.transparent,
+                                child: Container(
+                                  width: MediaQuery.of(context).size.width * 0.9,
+                                  constraints: const BoxConstraints(maxWidth: 360),
+                                  padding: const EdgeInsets.all(16),
+                                  decoration: BoxDecoration(
+                                    color: Theme.of(context).cardColor,
+                                    borderRadius: BorderRadius.circular(16),
+                                    border: Border.all(color: Theme.of(context).dividerColor),
+                                  ),
+                                  child: isDeleting
+                                      ? Column(
+                                          mainAxisSize: MainAxisSize.min,
+                                          children: [
+                                            const SizedBox(height: 8),
+                                            SizedBox(
+                                              width: 48,
+                                              height: 48,
+                                              child: CircularProgressIndicator(
+                                                strokeWidth: 4,
+                                                color: Colors.red,
+                                              ),
+                                            ),
+                                            const SizedBox(height: 16),
+                                            Text(
+                                              'Deleting post...',
+                                              style: TextStyle(
+                                                color: Theme.of(context).textTheme.bodyMedium?.color,
+                                                fontWeight: FontWeight.w600,
+                                              ),
+                                            ),
+                                            const SizedBox(height: 8),
+                                          ],
+                                        )
+                                      : Column(
+                                          mainAxisSize: MainAxisSize.min,
+                                          children: [
+                                            const SizedBox(height: 4),
+                                            Text(
+                                              'Delete Post?',
+                                              textAlign: TextAlign.center,
+                                              style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+                                            ),
+                                            const SizedBox(height: 8),
+                                            Text(
+                                              'Are you sure you want to delete this post? This action cannot be undone.',
+                                              textAlign: TextAlign.center,
+                                              style: TextStyle(color: Theme.of(context).textTheme.bodySmall?.color),
+                                            ),
+                                            const SizedBox(height: 16),
+                                            Row(
+                                              children: [
+                                                Expanded(
+                                                  child: OutlinedButton(
+                                                    onPressed: () {
+                                                      Navigator.pop(context);
+                                                    },
+                                                    child: const Text('Cancel'),
+                                                  ),
+                                                ),
+                                                const SizedBox(width: 8),
+                                                Expanded(
+                                                  child: ElevatedButton(
+                                                    style: ElevatedButton.styleFrom(
+                                                      backgroundColor: Colors.red,
+                                                      foregroundColor: Colors.white,
+                                                    ),
+                                                    onPressed: () async {
+                                                      setState(() => isDeleting = true);
+                                                      try {
+                                                        final ok = await SupabaseService().deletePost(post.id);
+                                                        await Future.delayed(const Duration(milliseconds: 1500));
+                                                        if (ok) {
+                                                          if (mounted) {
+                                                            StoreProvider.of<AppState>(context).dispatch(RemovePost(post.id));
+                                                            Navigator.pop(context);
+                                                            messenger.showSnackBar(const SnackBar(content: Text('Post deleted')));
+                                                          }
+                                                        } else {
+                                                          if (mounted) {
+                                                            setState(() => isDeleting = false);
+                                                            Navigator.pop(context);
+                                                            messenger.showSnackBar(const SnackBar(content: Text('Failed to delete post')));
+                                                          }
+                                                        }
+                                                      } on ApiException catch (e) {
+                                                        if (mounted) {
+                                                          setState(() => isDeleting = false);
+                                                          Navigator.pop(context);
+                                                          messenger.showSnackBar(SnackBar(content: Text(e.message)));
+                                                        }
+                                                      } catch (e) {
+                                                        if (mounted) {
+                                                          setState(() => isDeleting = false);
+                                                          Navigator.pop(context);
+                                                          messenger.showSnackBar(SnackBar(content: Text(e.toString())));
+                                                        }
+                                                      }
+                                                    },
+                                                    child: const Text('Delete'),
+                                                  ),
+                                                ),
+                                              ],
+                                            ),
+                                          ],
+                                        ),
+                                ),
+                              ),
+                            );
+                          },
+                        );
+                      },
+                    );
+                  },
                 );
               },
             ),

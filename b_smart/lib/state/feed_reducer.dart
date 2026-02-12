@@ -9,6 +9,7 @@ final feedReducer = combineReducers<FeedState>([
   TypedReducer<FeedState, UpdatePostLiked>(_updatePostLiked),
   TypedReducer<FeedState, UpdatePostLikedWithCount>(_updatePostLikedWithCount),
   TypedReducer<FeedState, UpdatePostSaved>(_updatePostSaved),
+  TypedReducer<FeedState, RemovePost>(_removePost),
 ]);
 
 FeedState _setLoading(FeedState state, SetFeedLoading action) {
@@ -54,5 +55,10 @@ FeedState _updatePostLikedWithCount(FeedState state, UpdatePostLikedWithCount ac
   );
   final next = List<FeedPost>.from(state.posts);
   next[idx] = updated;
+  return state.copyWith(posts: next);
+}
+
+FeedState _removePost(FeedState state, RemovePost action) {
+  final next = state.posts.where((p) => p.id != action.postId).toList();
   return state.copyWith(posts: next);
 }

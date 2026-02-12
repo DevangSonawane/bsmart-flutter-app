@@ -64,6 +64,14 @@ class _PostCardState extends State<PostCard> {
       _setupMedia();
     }
   }
+  bool _likeAnim = false;
+  void _onLikePressed() {
+    setState(() => _likeAnim = true);
+    widget.onLike?.call();
+    Future.delayed(const Duration(milliseconds: 180), () {
+      if (mounted) setState(() => _likeAnim = false);
+    });
+  }
 
   void _setupMedia() {
     if (widget.post.mediaType.name == 'video' || widget.post.mediaType.name == 'reel') {
@@ -371,15 +379,19 @@ class _PostCardState extends State<PostCard> {
             padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 4),
             child: Row(
               children: [
-                IconButton(
-                  onPressed: widget.onLike ?? () {},
-                  icon: Icon(
-                    post.isLiked ? Icons.favorite : LucideIcons.heart,
-                    size: 28,
-                    color: post.isLiked ? Colors.red : textColor,
+                AnimatedScale(
+                  scale: _likeAnim ? 1.15 : 1.0,
+                  duration: const Duration(milliseconds: 150),
+                  child: IconButton(
+                    onPressed: _onLikePressed,
+                    icon: Icon(
+                      post.isLiked ? Icons.favorite : LucideIcons.heart,
+                      size: 28,
+                      color: post.isLiked ? Colors.red : textColor,
+                    ),
+                    padding: EdgeInsets.zero,
+                    constraints: const BoxConstraints(minWidth: 44, minHeight: 44),
                   ),
-                  padding: EdgeInsets.zero,
-                  constraints: const BoxConstraints(minWidth: 44, minHeight: 44),
                 ),
                 IconButton(
                   onPressed: widget.onComment ?? () {},
