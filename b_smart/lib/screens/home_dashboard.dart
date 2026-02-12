@@ -1,11 +1,13 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_redux/flutter_redux.dart';
+import 'package:redux/redux.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 import '../services/feed_service.dart';
 import '../services/supabase_service.dart';
 import '../services/wallet_service.dart';
 import '../state/app_state.dart';
 import '../state/profile_actions.dart';
+import '../state/feed_actions.dart';
 import '../widgets/post_card.dart';
 import '../widgets/stories_row.dart';
 import '../widgets/bottom_nav.dart';
@@ -14,6 +16,7 @@ import '../theme/design_tokens.dart';
 import '../models/story_model.dart';
 import '../models/feed_post_model.dart';
 import '../widgets/post_detail_modal.dart';
+import '../widgets/comments_sheet.dart';
 import 'ads_screen.dart';
 import 'promote_screen.dart';
 import 'reels_screen.dart';
@@ -34,9 +37,7 @@ class _HomeDashboardState extends State<HomeDashboard> {
   final SupabaseService _supabase = SupabaseService();
   final WalletService _walletService = WalletService();
 
-  List<FeedPost> posts = [];
   List<Map<String, dynamic>> _storyUsers = [];
-  bool _isLoading = true;
   List<StoryGroup> _storyGroups = [];
   int _currentIndex = 0;
   int _balance = 0;
@@ -49,11 +50,14 @@ class _HomeDashboardState extends State<HomeDashboard> {
     if (widget.initialIndex != null) {
       _currentIndex = widget.initialIndex!;
     }
-    _loadData();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      final store = StoreProvider.of<AppState>(context);
+      _loadData(store);
+    });
   }
 
-  Future<void> _loadData() async {
-    setState(() => _isLoading = true);
+  Future<void> _loadData(Store<AppState> store) async {
+    store.dispatch(SetFeedLoading(true));
     // Use REST API-backed CurrentUser helper for the authenticated user ID.
     final currentUserId = await CurrentUser.id;
     final currentProfile = currentUserId != null ? await _supabase.getUserById(currentUserId) : null;
@@ -63,60 +67,50 @@ class _HomeDashboardState extends State<HomeDashboard> {
     final bal = await _walletService.getCoinBalance();
     final groups = _buildStoryGroupsFromUsers(users);
     if (mounted) {
+      store.dispatch(SetFeedPosts(fetched));
       setState(() {
         _currentUserProfile = currentProfile;
-        posts = fetched;
         _storyUsers = users;
         _storyGroups = groups;
         _balance = bal;
-        _isLoading = false;
       });
       // Preload profile into Redux so ProfileScreen opens instantly
       if (currentUserId != null && currentProfile != null) {
-        StoreProvider.of<AppState>(context).dispatch(SetProfile(currentProfile));
+        store.dispatch(SetProfile(currentProfile));
       }
     }
   }
 
   // Like toggle - same as React PostCard: update post.likes array on posts table
   void _onLikePost(FeedPost post) async {
-    final currentUserId = await CurrentUser.id;
-    if (currentUserId == null) return;
-    
-    // Optimistic update
-    setState(() {
-      final i = posts.indexWhere((p) => p.id == post.id);
-      if (i != -1) {
-        posts[i] = post.copyWith(
-          isLiked: !post.isLiked,
-          likes: post.isLiked ? post.likes - 1 : post.likes + 1,
-        );
-      }
-    });
-
-    _supabase.togglePostLike(post.id, currentUserId).then((liked) {
-      if (mounted) {
-        // Ensure state matches server response
-        setState(() {
-          final i = posts.indexWhere((p) => p.id == post.id);
-          if (i != -1) {
-            // Only update if different to avoid flicker
-            if (posts[i].isLiked != liked) {
-              posts[i] = posts[i].copyWith(
-                isLiked: liked,
-                likes: liked ? posts[i].likes + 1 : posts[i].likes - 1,
-              );
-            }
-          }
-        });
-      }
-    });
+    final desired = !post.isLiked;
+    final store = StoreProvider.of<AppState>(context);
+    store.dispatch(UpdatePostLiked(post.id, desired));
+    final liked = await _supabase.setPostLike(post.id, like: desired);
+    if (!mounted) return;
+    try {
+      final p = await SupabaseService().getPostById(post.id);
+      final serverLiked = (p?['is_liked_by_me'] as bool?) ?? liked;
+      final likesCount = (p?['likes_count'] as int?) ?? (post.likes + (desired ? 1 : -1));
+      store.dispatch(UpdatePostLikedWithCount(post.id, serverLiked, likesCount));
+    } catch (_) {
+      store.dispatch(UpdatePostLiked(post.id, liked));
+    }
   }
 
   void _onCommentPost(FeedPost post) {
     final isMobile = MediaQuery.sizeOf(context).width < 600;
     if (isMobile) {
-      Navigator.of(context).pushNamed('/post/${post.id}');
+      showModalBottomSheet(
+        context: context,
+        isScrollControlled: true,
+        useSafeArea: true,
+        backgroundColor: Theme.of(context).scaffoldBackgroundColor,
+        builder: (ctx) => FractionallySizedBox(
+          heightFactor: 0.9,
+          child: CommentsSheet(postId: post.id),
+        ),
+      );
     } else {
       Navigator.of(context).push(
         MaterialPageRoute(
@@ -136,12 +130,8 @@ class _HomeDashboardState extends State<HomeDashboard> {
   }
 
   void _onSavePost(FeedPost post) {
-    setState(() {
-      final i = posts.indexWhere((p) => p.id == post.id);
-      if (i != -1) {
-        posts[i] = post.copyWith(isSaved: !post.isSaved);
-      }
-    });
+    final saved = !post.isSaved;
+    StoreProvider.of<AppState>(context).dispatch(UpdatePostSaved(post.id, saved));
   }
 
   void _onMorePost(BuildContext context, FeedPost post) {
@@ -284,7 +274,8 @@ class _HomeDashboardState extends State<HomeDashboard> {
   }
 
   Future<void> _onRefresh() async {
-    await _loadData();
+    final store = StoreProvider.of<AppState>(context);
+    await _loadData(store);
   }
 
   void _onNavTap(int idx) {
@@ -365,6 +356,10 @@ class _HomeDashboardState extends State<HomeDashboard> {
 
   @override
   Widget build(BuildContext context) {
+    final store = StoreProvider.of<AppState>(context);
+    final feedState = store.state.feedState;
+    final posts = feedState.posts;
+    final isLoading = feedState.isLoading;
     final isDesktop = MediaQuery.sizeOf(context).width >= 768;
     final isFullScreen = _currentIndex == 3 || _currentIndex == 4; // Promote, Reels
 
@@ -474,7 +469,7 @@ class _HomeDashboardState extends State<HomeDashboard> {
           // Home tab
           RefreshIndicator(
             onRefresh: _onRefresh,
-            child: _isLoading
+            child: isLoading
                 ? Center(child: CircularProgressIndicator(color: DesignTokens.instaPink))
                 : SingleChildScrollView(
                     physics: const AlwaysScrollableScrollPhysics(),

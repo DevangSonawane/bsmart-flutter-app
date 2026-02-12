@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import '../services/feed_service.dart';
 import '../widgets/post_card.dart';
+import '../utils/current_user.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({Key? key}) : super(key: key);
@@ -24,7 +25,12 @@ class _HomeScreenState extends State<HomeScreen> {
 
   Future<void> _loadMore() async {
     if (!_hasMore) return;
-    final items = await _feedService.fetchFeedFromBackend(limit: _limit, offset: _page * _limit);
+    final currentUserId = await CurrentUser.id;
+    final items = await _feedService.fetchFeedFromBackend(
+      limit: _limit,
+      offset: _page * _limit,
+      currentUserId: currentUserId,
+    );
     setState(() {
       posts.addAll(items);
       _page += 1;
@@ -67,4 +73,3 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 }
-

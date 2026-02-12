@@ -74,45 +74,27 @@ class _PostDetailModalState extends State<PostDetailModal> {
   }
 
   Future<void> _handleLike() async {
-    final userId = await CurrentUser.id;
-    if (userId == null || _post == null) return;
-    
-    // Optimistic update
-    final wasLiked = _isLiked;
+    if (_post == null) return;
+    final desired = !_isLiked;
     setState(() {
-      _isLiked = !wasLiked;
-      _likeCount = !wasLiked ? _likeCount + 1 : _likeCount - 1;
+      _isLiked = desired;
+      _likeCount = desired ? _likeCount + 1 : _likeCount - 1;
     });
-
-    final success = await _svc.togglePostLike(widget.postId, userId);
-    
-    // Revert if failed (togglePostLike returns true if liked, false if unliked, but we can't easily distinguish failure from "unliked successfully" without more info, 
-    // but based on SupabaseService implementation, it returns the *new state* effectively or false on error? 
-    // Wait, SupabaseService.togglePostLike returns true (liked) or false (unliked or error).
-    // If it returns false, it could be unliked OR error.
-    // Ideally we should trust the return value as the new state if it wasn't an error.
-    // But SupabaseService swallows errors and returns false.
-    // So if I liked it (expecting true) and got false, it might be an error or it was already liked and got unliked.
-    // Since togglePostLike handles the toggle logic on server (try like, if fail, unlike), 
-    // the return value IS the state.
-    
-    if (mounted) {
-       // Sync with server state
-       if (_isLiked != success) {
-          // If our optimistic state matches server state, great. 
-          // If not, update to match server state.
-          setState(() {
-            _isLiked = success;
-             // Adjust count based on correction
-             if (success) {
-                // We thought it was false, but it's true.
-                _likeCount++; 
-             } else {
-                // We thought it was true, but it's false.
-                _likeCount--;
-             }
-          });
-       }
+    final liked = await _svc.setPostLike(widget.postId, like: desired);
+    if (!mounted) return;
+    try {
+      final p = await SupabaseService().getPostById(widget.postId);
+      final serverLiked = (p?['is_liked_by_me'] as bool?) ?? liked;
+      final likesCount = (p?['likes_count'] as int?) ?? _likeCount;
+      setState(() {
+        _isLiked = serverLiked;
+        _likeCount = likesCount;
+      });
+    } catch (_) {
+      if (!mounted) return;
+      setState(() {
+        _isLiked = liked;
+      });
     }
   }
 

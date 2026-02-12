@@ -5,6 +5,7 @@ import '../models/feed_post_model.dart';
 import '../models/story_model.dart';
 import '../services/feed_service.dart';
 import '../services/wallet_service.dart';
+import '../services/supabase_service.dart';
 import '../services/user_account_service.dart';
 import '../models/user_account_model.dart';
 import '../theme/instagram_theme.dart';
@@ -25,6 +26,7 @@ class InstagramFeedScreen extends StatefulWidget {
 class _InstagramFeedScreenState extends State<InstagramFeedScreen> {
   final FeedService _feedService = FeedService();
   final WalletService _walletService = WalletService();
+  final SupabaseService _supabase = SupabaseService();
   
   final ScrollController _scrollController = ScrollController();
   bool _isHeaderVisible = true;
@@ -88,11 +90,20 @@ class _InstagramFeedScreenState extends State<InstagramFeedScreen> {
     });
   }
 
-  void _handleLike(FeedPost post) {
+  Future<void> _handleLike(FeedPost post) async {
+    final desired = !post.isLiked;
+    final liked = await _supabase.setPostLike(post.id, like: desired);
+    if (!mounted) return;
     setState(() {
       final index = _feedPosts.indexWhere((p) => p.id == post.id);
       if (index != -1) {
-        _feedPosts[index] = _feedService.toggleLike(post);
+        final prev = _feedPosts[index];
+        if (prev.isLiked != liked) {
+          _feedPosts[index] = prev.copyWith(
+            isLiked: liked,
+            likes: liked ? prev.likes + 1 : prev.likes - 1,
+          );
+        }
       }
     });
   }

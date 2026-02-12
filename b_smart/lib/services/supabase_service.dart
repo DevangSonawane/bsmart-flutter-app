@@ -14,6 +14,13 @@ class SupabaseService {
   final PostsApi _postsApi = PostsApi();
   final CommentsApi _commentsApi = CommentsApi();
   final UploadApi _uploadApi = UploadApi();
+  final Map<String, bool> _commentLikeOverrides = {};
+  void setCommentLikeOverride(String commentId, bool liked) {
+    _commentLikeOverrides[commentId] = liked;
+  }
+  bool? getCommentLikeOverride(String commentId) {
+    return _commentLikeOverrides[commentId];
+  }
 
   // ── Users ──────────────────────────────────────────────────────────────────
 
@@ -252,23 +259,87 @@ class SupabaseService {
 
   // ── Comments ───────────────────────────────────────────────────────────────
 
-  Future<List<Map<String, dynamic>>> getComments(String postId) async {
+  Future<List<Map<String, dynamic>>> getComments(String postId,
+      {int page = 1, int limit = 50, bool newestFirst = true}) async {
     try {
-      final data = await _commentsApi.getComments(postId);
-      final comments = data['comments'] as List<dynamic>? ?? [];
-      return comments.cast<Map<String, dynamic>>();
+      final data = await _commentsApi.getComments(postId, page: page, limit: limit);
+      List<Map<String, dynamic>> comments = [];
+      if (data is List) {
+        comments = (data as List).cast<Map<String, dynamic>>();
+      } else if (data is Map) {
+        final map = data as Map;
+        if (map['comments'] is List) {
+          comments = (map['comments'] as List).cast<Map<String, dynamic>>();
+        } else if (map['data'] is List) {
+          comments = (map['data'] as List).cast<Map<String, dynamic>>();
+        } else if (map['data'] is Map && (map['data'] as Map)['comments'] is List) {
+          comments = ((map['data'] as Map)['comments'] as List).cast<Map<String, dynamic>>();
+        }
+      }
+      if (newestFirst) {
+        comments.sort((a, b) {
+          final as = (a['created_at'] as String?) ?? (a['createdAt'] as String?) ?? '';
+          final bs = (b['created_at'] as String?) ?? (b['createdAt'] as String?) ?? '';
+          final ad = DateTime.tryParse(as) ?? DateTime.fromMillisecondsSinceEpoch(0);
+          final bd = DateTime.tryParse(bs) ?? DateTime.fromMillisecondsSinceEpoch(0);
+          return bd.compareTo(ad);
+        });
+      }
+      return comments;
     } catch (_) {
       return [];
     }
   }
 
-  Future<bool> addComment(
-      String postId, String userId, String content) async {
+  Future<Map<String, dynamic>?> addComment(
+      String postId, String userId, String content, {String? parentId}) async {
     try {
-      await _commentsApi.addComment(postId, text: content);
+      final created = await _commentsApi.addComment(
+        postId,
+        text: content,
+        parentId: parentId,
+      );
+      return created;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  Future<bool> deleteComment(String commentId) async {
+    try {
+      await _commentsApi.deleteComment(commentId);
       return true;
     } catch (_) {
       return false;
+    }
+  }
+
+  Future<Map<String, dynamic>?> likeComment(String commentId) async {
+    try {
+      final res = await _commentsApi.likeComment(commentId);
+      return res;
+    } catch (e) {
+      return null;
+    }
+  }
+
+  Future<Map<String, dynamic>?> unlikeComment(String commentId) async {
+    try {
+      final res = await _commentsApi.unlikeComment(commentId);
+      return res;
+    } catch (e) {
+      return null;
+    }
+  }
+
+  Future<List<Map<String, dynamic>>> getReplies(String commentId,
+      {int page = 1, int limit = 10}) async {
+    try {
+      final res = await _commentsApi.getReplies(commentId, page: page, limit: limit);
+      final replies = res['replies'] as List<dynamic>? ?? [];
+      return replies.cast<Map<String, dynamic>>();
+    } catch (_) {
+      return [];
     }
   }
 
@@ -298,6 +369,50 @@ class SupabaseService {
       }
     } catch (_) {
       return false;
+    }
+  }
+
+  /// Explicitly set post like state.
+  ///
+  /// Calls `/posts/:id/like` when [like] is true, otherwise `/posts/:id/unlike`.
+  /// Returns the server's authoritative `liked` state.
+  Future<bool> setPostLike(String postId, {required bool like}) async {
+    try {
+      final res = like ? await _postsApi.likePost(postId) : await _postsApi.unlikePost(postId);
+      final liked = res['liked'] as bool?;
+      if (liked != null) return liked;
+      final lc = res['likes_count'] as int?;
+      if (lc != null) return lc > 0;
+      // As a final fallback, re-fetch the post to derive authoritative state.
+      try {
+        final post = await _postsApi.getPost(postId);
+        final isLikedByMe = post['is_liked_by_me'] as bool?;
+        if (isLikedByMe != null) return isLikedByMe;
+        final likesCount = post['likes_count'] as int?;
+        if (likesCount != null) return likesCount > 0;
+      } catch (_) {}
+      return like;
+    } on BadRequestException {
+      // Already in desired state; fetch current state to avoid incorrect flips.
+      try {
+        final post = await _postsApi.getPost(postId);
+        final isLikedByMe = post['is_liked_by_me'] as bool?;
+        if (isLikedByMe != null) return isLikedByMe;
+        final likesCount = post['likes_count'] as int?;
+        if (likesCount != null) return likesCount > 0;
+      } catch (_) {}
+      return like;
+    } on UnauthorizedException {
+      // Token missing/expired – cannot persist. Try to read current state; otherwise keep desired for UI.
+      try {
+        final post = await _postsApi.getPost(postId);
+        final isLikedByMe = post['is_liked_by_me'] as bool?;
+        if (isLikedByMe != null) return isLikedByMe;
+      } catch (_) {}
+      return like;
+    } catch (_) {
+      // Network or other error – avoid flipping; best-effort read of server state failed.
+      return like;
     }
   }
 

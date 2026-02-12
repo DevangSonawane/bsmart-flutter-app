@@ -274,7 +274,7 @@ class FeedService {
         }
       }
 
-      return items.map((item) {
+      final mapped = items.map((item) {
         // The API nests the author info inside `user_id` as a populated object.
         Map<String, dynamic> user = {};
         if (item['user_id'] is Map) {
@@ -282,6 +282,29 @@ class FeedService {
         } else if (item['users'] is Map) {
           user = item['users'] as Map<String, dynamic>;
         }
+
+        final rawLikesAny = (item['likes'] as List<dynamic>?) ??
+            (item['liked_by'] as List<dynamic>?) ??
+            const [];
+        final likesCount = (item['likes_count'] as int?) ?? rawLikesAny.length;
+        bool computedLiked = false;
+        if (currentUserId != null && rawLikesAny.isNotEmpty) {
+          for (final e in rawLikesAny) {
+            if (e is Map) {
+              final uid = (e['user_id'] as String?) ??
+                  (e['id'] as String?) ??
+                  (e['_id'] as String?);
+              if (uid != null && uid == currentUserId) {
+                computedLiked = true;
+                break;
+              }
+            } else if (e is String && e == currentUserId) {
+              computedLiked = true;
+              break;
+            }
+          }
+        }
+        final isLikedByMe = (item['is_liked_by_me'] as bool?) ?? computedLiked;
 
         final media = item['media'] as List<dynamic>? ?? (item['images'] as List<dynamic>? ?? (item['attachments'] as List<dynamic>? ?? []));
         List<String> mediaUrls = media.map((m) {
@@ -368,7 +391,7 @@ class FeedService {
           mediaType = PostMediaType.carousel;
         }
 
-        return FeedPost(
+        final post = FeedPost(
           id: item['_id'] as String? ?? item['id'] as String? ?? '',
           userId: user['_id'] as String? ??
               user['id'] as String? ??
@@ -388,19 +411,23 @@ class FeedService {
               : (item['created_at'] is String
                   ? DateTime.tryParse(item['created_at'] as String) ?? DateTime.now()
                   : DateTime.now()),
-          likes: item['likes_count'] as int? ?? 0,
+          likes: likesCount,
           comments: item['comments'] is List
               ? (item['comments'] as List).length
               : (item['comments_count'] as int? ?? (item['commentCount'] as int? ?? 0)),
           views: 0,
-          isLiked: item['is_liked_by_me'] as bool? ?? (item['liked'] as bool? ?? false),
+          isLiked: isLikedByMe,
           isSaved: false,
           isFollowed: false,
           isTagged: false,
           isShared: false,
           isAd: false,
+          rawLikes: rawLikesAny.whereType<Map>().map((m) => Map<String, dynamic>.from(m)).toList(),
         );
+        return post;
       }).toList();
+
+      return mapped;
     } catch (e) {
       return [];
     }

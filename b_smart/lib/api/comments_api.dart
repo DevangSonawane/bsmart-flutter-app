@@ -1,4 +1,5 @@
-import 'api_client.dart';
+ import 'api_client.dart';
+ import '../config/api_config.dart';
 
 /// REST API wrapper for comment & reply endpoints.
 ///
@@ -15,6 +16,11 @@ class CommentsApi {
   CommentsApi._internal();
 
   final ApiClient _client = ApiClient();
+  String get _basePath {
+    final base = ApiConfig.baseUrl.toLowerCase().trim().replaceAll(RegExp(r'\/+$'), '');
+    final endsWithApi = base.endsWith('/api');
+    return endsWithApi ? '' : '/api';
+  }
 
   /// Add a comment (or reply) to a post.
   ///
@@ -28,28 +34,31 @@ class CommentsApi {
     final body = <String, dynamic>{'text': text};
     if (parentId != null) body['parent_id'] = parentId;
 
-    final res = await _client.post('/posts/$postId/comments', body: body);
+    final res = await _client.post('$_basePath/posts/$postId/comments', body: body);
     return res as Map<String, dynamic>;
   }
 
   /// Get paginated comments for a post.
   ///
-  /// Returns `{ page, limit, total, comments: [...] }`.
-  Future<Map<String, dynamic>> getComments(
+  /// Returns either:
+  /// - `{ page, limit, total, comments: [...] }`
+  /// - `{ data: [...] }`
+  /// - `[...]`
+  Future<dynamic> getComments(
     String postId, {
     int page = 1,
     int limit = 10,
   }) async {
-    final res = await _client.get('/posts/$postId/comments', queryParams: {
+    final res = await _client.get('$_basePath/posts/$postId/comments', queryParams: {
       'page': page.toString(),
       'limit': limit.toString(),
     });
-    return res as Map<String, dynamic>;
+    return res;
   }
 
   /// Delete a comment.
   Future<Map<String, dynamic>> deleteComment(String commentId) async {
-    final res = await _client.delete('/comments/$commentId');
+    final res = await _client.delete('$_basePath/comments/$commentId');
     return res as Map<String, dynamic>;
   }
 
@@ -57,7 +66,7 @@ class CommentsApi {
   ///
   /// Returns `{ liked: true, likes_count }`.
   Future<Map<String, dynamic>> likeComment(String commentId) async {
-    final res = await _client.post('/comments/$commentId/like');
+    final res = await _client.post('$_basePath/comments/$commentId/like');
     return res as Map<String, dynamic>;
   }
 
@@ -65,7 +74,7 @@ class CommentsApi {
   ///
   /// Returns `{ liked: false, likes_count }`.
   Future<Map<String, dynamic>> unlikeComment(String commentId) async {
-    final res = await _client.post('/comments/$commentId/unlike');
+    final res = await _client.post('$_basePath/comments/$commentId/unlike');
     return res as Map<String, dynamic>;
   }
 
@@ -77,7 +86,7 @@ class CommentsApi {
     int page = 1,
     int limit = 10,
   }) async {
-    final res = await _client.get('/comments/$commentId/replies', queryParams: {
+    final res = await _client.get('$_basePath/comments/$commentId/replies', queryParams: {
       'page': page.toString(),
       'limit': limit.toString(),
     });
