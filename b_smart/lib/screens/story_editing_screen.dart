@@ -1,9 +1,12 @@
 import 'dart:math' as math;
+import 'dart:async';
+import 'dart:io';
 import 'dart:ui' as ui;
 import 'package:flutter/rendering.dart';
 import 'package:flutter/material.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 import '../api/api.dart';
+import '../config/api_config.dart';
 
 class StoryEditingScreen extends StatefulWidget {
   final List<ImageProvider> media;
@@ -28,21 +31,42 @@ class _StoryEditingScreenState extends State<StoryEditingScreen> {
   bool _stickerMode = false;
   final GlobalKey _repaintKey = GlobalKey();
   bool _imageReady = false;
+  bool _didPrecache = false;
+  bool _imageError = false;
 
   @override
   void initState() {
     super.initState();
-    _precacheCurrent();
   }
 
-  void _precacheCurrent() {
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    if (!_didPrecache) {
+      _didPrecache = true;
+      _precacheCurrent();
+    }
+  }
+
+  void _precacheCurrent() async {
     final img = widget.media[_currentIndex];
-    final stream = img.resolve(const ImageConfiguration());
-    stream.addListener(ImageStreamListener((_, __) {
-      if (mounted) setState(() => _imageReady = true);
-    }, onError: (_, __) {
-      if (mounted) setState(() => _imageReady = false);
-    }));
+    try {
+      await precacheImage(img, context, size: const Size(1080, 1920));
+      if (mounted) {
+        setState(() {
+          _imageReady = true;
+          _imageError = false;
+        });
+      }
+    } catch (e) {
+      if (mounted) {
+        setState(() {
+          _imageReady = false;
+          _imageError = true;
+        });
+      }
+    }
   }
 
   void _addText() {
@@ -118,34 +142,73 @@ class _StoryEditingScreenState extends State<StoryEditingScreen> {
   Future<void> _postToApi() async {
     try {
       if (!_imageReady) {
-        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Image is still loading')));
+        _showError('Image is still loading');
+        return;
+      }
+      if (_imageError) {
+        _showError('Image failed to load. Please try again.');
+        return;
+      }
+      if (!await _checkConnectivity()) {
+        _showError('No internet connection. Please check your network.');
         return;
       }
       final boundary = _repaintKey.currentContext?.findRenderObject() as RenderRepaintBoundary?;
       if (boundary == null) {
-        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Unable to capture story')));
+        _showError('Unable to capture story');
         return;
+      }
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Row(
+              children: [
+                SizedBox(width: 20, height: 20, child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2)),
+                SizedBox(width: 16),
+                Text('Posting story...'),
+              ],
+            ),
+            duration: Duration(seconds: 30),
+          ),
+        );
       }
       final ui.Image image = await boundary.toImage(pixelRatio: 2.0);
       final byteData = await image.toByteData(format: ui.ImageByteFormat.png);
       if (byteData == null) {
-        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Capture failed')));
+        _showError('Failed to capture image');
         return;
       }
       final bytes = byteData.buffer.asUint8List();
-      final upload = await UploadApi().uploadFileBytes(bytes: bytes.toList(), filename: 'story.png');
-      final url = (upload['fileUrl'] as String?) ??
-          (upload['url'] as String?) ??
-          (upload['file_url'] as String?) ??
-          (upload['data'] is Map ? (upload['data']['url'] as String?) : null) ??
-          '';
-      if (url.isEmpty) {
-        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Upload failed')));
+      final upload = await _uploadWithRetry(bytes.toList(), 'story_${DateTime.now().millisecondsSinceEpoch}.png');
+      String? url;
+      if (upload is Map) {
+        url = upload['fileUrl'] as String? ?? upload['url'] as String? ?? upload['file_url'] as String?;
+        if (url == null && upload['data'] is Map) {
+          final data = upload['data'] as Map;
+          url = data['url'] as String? ?? data['fileUrl'] as String? ?? data['file_url'] as String?;
+        }
+      }
+      if (url == null || url.isEmpty) {
+        _showError('Upload failed: No URL returned');
         return;
       }
+      if (!url.startsWith('http://') && !url.startsWith('https://')) {
+        final baseUri = Uri.parse(ApiConfig.baseUrl);
+        final origin = '${baseUri.scheme}://${baseUri.host}${baseUri.hasPort ? ':${baseUri.port}' : ''}';
+        if (!url.startsWith('/')) {
+          url = '/$url';
+        }
+        url = '$origin$url';
+      }
+      final screenSize = MediaQuery.of(context).size;
       final payload = {
-        'media': {'url': url, 'type': 'image'},
-        'transform': {'x': 0.5, 'y': 0.5, 'scale': 1, 'rotation': 0},
+        'media': {
+          'url': url,
+          'type': 'image',
+          'width': image.width,
+          'height': image.height,
+        },
+        'transform': {'x': 0.5, 'y': 0.5, 'scale': 1.0, 'rotation': 0.0},
         'filter': {'name': 'none', 'intensity': 0},
         'texts': _elements
             .where((e) => e.type == _ElementType.text)
@@ -153,23 +216,72 @@ class _StoryEditingScreenState extends State<StoryEditingScreen> {
                   'content': e.text ?? '',
                   'fontSize': 24,
                   'fontFamily': (e.style ?? 'classic').toLowerCase(),
-                  'color': '#FFFFFF',
+                  'color': '#${(e.color ?? Colors.white).value.toRadixString(16).substring(2, 8).toUpperCase()}',
                   'align': 'center',
+                  'x': e.position.dx / screenSize.width,
+                  'y': e.position.dy / screenSize.height,
                 })
             .toList(),
         'mentions': [],
       };
-      await StoriesApi().createFlexible([payload]);
+      final response = await StoriesApi().create([payload]).timeout(const Duration(seconds: 15));
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Posted to story')));
-        Navigator.pop(context);
+        ScaffoldMessenger.of(context).clearSnackBars();
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Posted to story ✓')));
+        Navigator.pop(context, true);
       }
+    } on SocketException {
+      _showError('No internet connection');
+    } on TimeoutException {
+      _showError('Request timed out. Please try again.');
     } catch (e) {
-      if (mounted) {
-        final msg = e is ApiException ? e.message : 'Failed to post story';
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg)));
+      String errorMessage = 'Failed to post story';
+      if (e is ApiException) {
+        errorMessage = e.message;
+      }
+      _showError(errorMessage);
+    }
+  }
+
+  Future<Map<String, dynamic>> _uploadWithRetry(List<int> bytes, String filename, {int maxRetries = 3}) async {
+    int attempts = 0;
+    Exception? lastException;
+    while (attempts < maxRetries) {
+      try {
+        attempts++;
+        final upload = await UploadApi().uploadFileBytes(bytes: bytes, filename: filename).timeout(const Duration(seconds: 20));
+        return upload;
+      } catch (e) {
+        lastException = e as Exception;
+        if (attempts < maxRetries) {
+          await Future.delayed(Duration(seconds: attempts * 2));
+        }
       }
     }
+    throw lastException ?? Exception('Upload failed after $maxRetries attempts');
+  }
+
+  Future<bool> _checkConnectivity() async {
+    try {
+      final result = await InternetAddress.lookup('google.com').timeout(const Duration(seconds: 5));
+      return result.isNotEmpty && result[0].rawAddress.isNotEmpty;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  void _showError(String message) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(message),
+        backgroundColor: Colors.red,
+        action: SnackBarAction(
+          label: 'Retry',
+          textColor: Colors.white,
+          onPressed: _postToApi,
+        ),
+      ),
+    );
   }
 
   @override
@@ -214,7 +326,37 @@ class _StoryEditingScreenState extends State<StoryEditingScreen> {
                               key: _repaintKey,
                               child: Stack(
                                 children: [
-                                  Positioned.fill(child: Image(image: currentImage, fit: BoxFit.cover)),
+                                  Positioned.fill(
+                                    child: _imageError
+                                        ? Container(
+                                            color: Colors.black,
+                                            child: const Center(
+                                              child: Column(
+                                                mainAxisAlignment: MainAxisAlignment.center,
+                                                children: [
+                                                  Icon(Icons.error_outline, color: Colors.white, size: 48),
+                                                  SizedBox(height: 16),
+                                                  Text('Failed to load image', style: TextStyle(color: Colors.white)),
+                                                ],
+                                              ),
+                                            ),
+                                          )
+                                        : Image(
+                                            image: ResizeImage(currentImage, width: 1080, height: 1920),
+                                            fit: BoxFit.cover,
+                                            gaplessPlayback: true,
+                                            frameBuilder: (context, child, frame, wasSynchronouslyLoaded) {
+                                              if (wasSynchronouslyLoaded || frame != null) return child;
+                                              return Stack(
+                                                fit: StackFit.expand,
+                                                children: [
+                                                  Container(color: Colors.black),
+                                                  const Center(child: CircularProgressIndicator(color: Colors.white)),
+                                                ],
+                                              );
+                                            },
+                                          ),
+                                  ),
                                   CustomPaint(painter: _DrawingPainter(_strokes)),
                                   ..._elements.map((e) => _ElementWidget(
                                         element: e,

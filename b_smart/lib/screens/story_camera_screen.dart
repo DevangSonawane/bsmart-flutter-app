@@ -5,6 +5,7 @@ import 'package:lucide_icons_flutter/lucide_icons.dart';
 import 'package:camera/camera.dart';
 import 'package:permission_handler/permission_handler.dart';
 import '../api/api.dart';
+import '../config/api_config.dart';
 import '../models/media_model.dart';
 import 'create_edit_preview_screen.dart';
 import 'media_picker_screen.dart';
@@ -250,14 +251,22 @@ class _StoryCameraScreenState extends State<StoryCameraScreen> {
             ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Uploading video...')));
             final bytes = await File(xfile.path).readAsBytes();
             final upload = await UploadApi().uploadFileBytes(bytes: bytes, filename: 'story.mp4');
-            final url = (upload['fileUrl'] as String?) ??
+            String? url = (upload['fileUrl'] as String?) ??
                 (upload['url'] as String?) ??
                 (upload['file_url'] as String?) ??
                 (upload['data'] is Map ? (upload['data']['url'] as String?) : null) ??
                 '';
-            if (url.isEmpty) {
+            if (url == null || url.isEmpty) {
               ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Upload failed')));
             } else {
+              if (!(url.startsWith('http://') || url.startsWith('https://'))) {
+                final baseUri = Uri.parse(ApiConfig.baseUrl);
+                final origin = '${baseUri.scheme}://${baseUri.host}${baseUri.hasPort ? ':${baseUri.port}' : ''}';
+                if (!url.startsWith('/')) {
+                  url = '/$url';
+                }
+                url = '$origin$url';
+              }
               await StoriesApi().create([
                 {
                   'media': {'url': url, 'type': 'video'},
@@ -303,6 +312,9 @@ class _StoryCameraScreenState extends State<StoryCameraScreen> {
         xfile = await _controller!.takePicture();
       }
       final imgProvider = FileImage(File(xfile.path));
+      if (mounted) {
+        await precacheImage(imgProvider, context);
+      }
       setState(() => _lastThumb = imgProvider);
       if (_mode == 'POST') {
         Navigator.of(context).push(
@@ -318,7 +330,13 @@ class _StoryCameraScreenState extends State<StoryCameraScreen> {
           ),
         );
       } else {
-        Navigator.of(context).push(MaterialPageRoute(builder: (_) => StoryEditingScreen(media: [imgProvider])));
+        if (mounted) {
+          Navigator.of(context).push(
+            MaterialPageRoute(
+              builder: (_) => StoryEditingScreen(media: [imgProvider]),
+            ),
+          );
+        }
       }
     } catch (_) {
       ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Failed to capture')));

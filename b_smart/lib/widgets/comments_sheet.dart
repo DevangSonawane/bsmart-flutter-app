@@ -48,9 +48,11 @@ class _CommentsSheetState extends State<CommentsSheet> {
     final list = await _svc.getComments(widget.postId, page: 1, limit: 100, newestFirst: true);
     final uid = await CurrentUser.id;
     final likedIds = <String>{};
+    final ids = <String>[];
     for (final c in list) {
       try {
         final cid = (c['_id'] as String?) ?? (c['id'] as String?) ?? '';
+        if (cid.isNotEmpty) ids.add(cid);
         bool likedByMe = false;
         if (c['is_liked_by_me'] == true || c['liked_by_me'] == true || c['liked'] == true) {
           likedByMe = true;
@@ -79,12 +81,16 @@ class _CommentsSheetState extends State<CommentsSheet> {
         if (likedByMe && cid.isNotEmpty) likedIds.add(cid);
       } catch (_) {}
     }
+    final preloadedReplies = await _svc.loadRepliesCacheFor(ids);
     if (!mounted) return;
     setState(() {
       _comments = list;
       _liked
         ..clear()
         ..addAll(likedIds);
+      for (final entry in preloadedReplies.entries) {
+        _replies[entry.key] = entry.value;
+      }
       _loading = false;
     });
   }
@@ -123,46 +129,106 @@ class _CommentsSheetState extends State<CommentsSheet> {
     final text = _controller.text.trim();
     final uid = await CurrentUser.id;
     if (text.isEmpty || uid == null) return;
+    final isReply = _replyParentId != null && _replyParentId!.isNotEmpty;
     final tempId = 'temp-${DateTime.now().millisecondsSinceEpoch}';
     final me = _me ?? await _svc.getUserById(uid);
     setState(() {
       _posting = true;
-      _comments = [
-        {
+      if (!isReply) {
+        _comments = [
+          {
+            '_id': tempId,
+            'user': me ?? {'username': 'me'},
+            'text': text,
+            'createdAt': DateTime.now().toIso8601String(),
+            'likes_count': 0,
+            'pending': true,
+          },
+          ..._comments
+        ];
+      } else {
+        final parentId = _replyParentId!;
+        final existingReplies = List<Map<String, dynamic>>.from(_replies[parentId] ?? const []);
+        existingReplies.insert(0, {
           '_id': tempId,
+          'parent_id': parentId,
           'user': me ?? {'username': 'me'},
           'text': text,
           'createdAt': DateTime.now().toIso8601String(),
           'likes_count': 0,
           'pending': true,
-        },
-        ..._comments
-      ];
+        });
+        _replies[parentId] = existingReplies;
+        _svc.setRepliesCache(parentId, existingReplies);
+        final parentIndex = _comments.indexWhere((c) {
+          final cid = (c['_id'] as String?) ?? (c['id'] as String?) ?? '';
+          return cid == parentId;
+        });
+        if (parentIndex >= 0) {
+          final updatedParent = Map<String, dynamic>.from(_comments[parentIndex]);
+          final rc = (updatedParent['replies_count'] as int?) ??
+              (updatedParent['replyCount'] as int?) ??
+              (updatedParent['repliesCount'] as int?) ??
+              0;
+          updatedParent['replies_count'] = rc + 1;
+          _comments[parentIndex] = updatedParent;
+        }
+      }
     });
     final createdRaw = await _svc.addComment(widget.postId, uid, text, parentId: _replyParentId);
     if (createdRaw != null) {
       Map<String, dynamic> created = createdRaw;
       if (created['user'] == null) {
-        final me = await _svc.getUserById(uid);
-        if (me != null) {
+        final meUser = await _svc.getUserById(uid);
+        if (meUser != null) {
           created = {
             ...created,
-            'user': me,
+            'user': meUser,
             'created_at': created['created_at'] ?? created['createdAt'] ?? DateTime.now().toIso8601String(),
             'content': created['content'] ?? created['text'] ?? text,
           };
         }
       }
-      setState(() {
-        final idx = _comments.indexWhere((x) => (x['_id'] ?? x['id']) == tempId);
-        if (idx >= 0) {
-          _comments[idx] = created;
-        } else {
-          _comments = [created, ..._comments];
-        }
-        _replyParentId = null;
-        _replyingTo = null;
-      });
+      if (!isReply) {
+        setState(() {
+          final idx = _comments.indexWhere((x) => (x['_id'] ?? x['id']) == tempId);
+          if (idx >= 0) {
+            _comments[idx] = created;
+          } else {
+            _comments = [created, ..._comments];
+          }
+          _replyParentId = null;
+          _replyingTo = null;
+        });
+      } else {
+        final parentId = _replyParentId!;
+        setState(() {
+          final existingReplies = List<Map<String, dynamic>>.from(_replies[parentId] ?? const []);
+          final idx = existingReplies.indexWhere((r) => (r['_id'] ?? r['id']) == tempId);
+          if (idx >= 0) {
+            existingReplies[idx] = created;
+          } else {
+            existingReplies.insert(0, created);
+          }
+          _replies[parentId] = existingReplies;
+          _svc.setRepliesCache(parentId, existingReplies);
+          final parentIndex = _comments.indexWhere((c) {
+            final cid = (c['_id'] as String?) ?? (c['id'] as String?) ?? '';
+            return cid == parentId;
+          });
+          if (parentIndex >= 0) {
+            final updatedParent = Map<String, dynamic>.from(_comments[parentIndex]);
+            final rc = (updatedParent['replies_count'] as int?) ??
+                (updatedParent['replyCount'] as int?) ??
+                (updatedParent['repliesCount'] as int?) ??
+                0;
+            updatedParent['replies_count'] = (rc > 0 ? rc : 0) + 1;
+            _comments[parentIndex] = updatedParent;
+          }
+          _replyParentId = null;
+          _replyingTo = null;
+        });
+      }
       _controller.clear();
     }
     if (mounted) setState(() => _posting = false);
@@ -264,6 +330,7 @@ class _CommentsSheetState extends State<CommentsSheet> {
     if (!mounted) return;
     setState(() {
       _replies[commentId] = list;
+      _svc.setRepliesCache(commentId, list);
       _loadingReplies.remove(commentId);
     });
   }

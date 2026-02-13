@@ -2,6 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 import 'dart:async';
 import 'package:cached_network_image/cached_network_image.dart';
+import 'package:video_player/video_player.dart';
+import '../api/api_client.dart';
 import '../models/story_model.dart';
 import '../services/feed_service.dart';
 import 'package:image_picker/image_picker.dart';
@@ -33,6 +35,9 @@ class _StoryViewerScreenState extends State<StoryViewerScreen> {
   final TextEditingController _messageController = TextEditingController();
   final FeedService _feedService = FeedService();
   final Set<String> _viewedItemIds = <String>{};
+  VideoPlayerController? _videoCtl;
+  Future<void>? _initVideo;
+  Map<String, String>? _videoHeaders;
 
   @override
   void initState() {
@@ -40,6 +45,14 @@ class _StoryViewerScreenState extends State<StoryViewerScreen> {
     _currentGroupIndex = widget.initialIndex;
     _pageController = PageController(initialPage: widget.initialIndex);
     _storyController = PageController();
+    ApiClient().getToken().then((token) {
+      if (!mounted) return;
+      if (token != null && token.isNotEmpty) {
+        setState(() {
+          _videoHeaders = {'Authorization': 'Bearer $token'};
+        });
+      }
+    });
     _startAutoPlay();
   }
 
@@ -48,6 +61,7 @@ class _StoryViewerScreenState extends State<StoryViewerScreen> {
     _autoPlayTimer?.cancel();
     _pageController.dispose();
     _storyController.dispose();
+    _videoCtl?.dispose();
     super.dispose();
   }
 
@@ -72,6 +86,7 @@ class _StoryViewerScreenState extends State<StoryViewerScreen> {
       _viewedItemIds.add(currentStory.id);
       _feedService.markItemViewed(currentStory.id).catchError((_) {});
     }
+    _setupCurrentStoryMedia(currentStory);
 
     final isImage = currentStory.mediaType == StoryMediaType.image;
     final durationMs = isImage
@@ -102,6 +117,7 @@ class _StoryViewerScreenState extends State<StoryViewerScreen> {
         duration: const Duration(milliseconds: 300),
         curve: Curves.easeInOut,
       );
+      _setupCurrentStoryMedia(widget.storyGroups[_currentGroupIndex].stories[_currentStoryIndex]);
       _startAutoPlay();
     } else {
       _nextGroup();
@@ -118,6 +134,7 @@ class _StoryViewerScreenState extends State<StoryViewerScreen> {
         duration: const Duration(milliseconds: 300),
         curve: Curves.easeInOut,
       );
+      _setupCurrentStoryMedia(widget.storyGroups[_currentGroupIndex].stories[_currentStoryIndex]);
       _startAutoPlay();
     } else {
       _previousGroup();
@@ -229,6 +246,10 @@ class _StoryViewerScreenState extends State<StoryViewerScreen> {
                   _progress = 0.0;
                 });
                 _storyController.jumpToPage(0);
+                final group = widget.storyGroups[_currentGroupIndex];
+                if (group.stories.isNotEmpty) {
+                  _setupCurrentStoryMedia(group.stories[0]);
+                }
                 _startAutoPlay();
               },
               itemCount: widget.storyGroups.length,
@@ -500,15 +521,25 @@ class _StoryViewerScreenState extends State<StoryViewerScreen> {
                 child: isImage && hasUrl
                     ? CachedNetworkImage(
                         imageUrl: story.mediaUrl,
+                        httpHeaders: _videoHeaders,
                         fit: BoxFit.contain,
                         placeholder: (_, __) => const Center(child: CircularProgressIndicator(color: Colors.white)),
                         errorWidget: (_, __, ___) => Center(child: Icon(LucideIcons.image, size: 100, color: Colors.white54)),
                       )
-                    : Center(
-                        child: story.mediaType == StoryMediaType.video
-                            ? Icon(LucideIcons.play, size: 100, color: Colors.white54)
-                            : Icon(LucideIcons.image, size: 100, color: Colors.white54),
-                      ),
+                    : (story.mediaType == StoryMediaType.video && hasUrl && _videoCtl != null && _videoCtl!.value.isInitialized)
+                        ? FittedBox(
+                            fit: BoxFit.contain,
+                            child: SizedBox(
+                              width: _videoCtl!.value.size.width,
+                              height: _videoCtl!.value.size.height,
+                              child: VideoPlayer(_videoCtl!),
+                            ),
+                          )
+                        : Center(
+                            child: story.mediaType == StoryMediaType.video
+                                ? Icon(LucideIcons.play, size: 100, color: Colors.white54)
+                                : Icon(LucideIcons.image, size: 100, color: Colors.white54),
+                          ),
               ),
             ),
             ...((story.texts ?? []).asMap().entries.map((e) {
@@ -573,6 +604,29 @@ class _StoryViewerScreenState extends State<StoryViewerScreen> {
         );
       },
     );
+  }
+
+  void _setupCurrentStoryMedia(Story story) async {
+    _videoCtl?.dispose();
+    _videoCtl = null;
+    _initVideo = null;
+    if (story.mediaType == StoryMediaType.video && story.mediaUrl.isNotEmpty) {
+      final headers = _videoHeaders ?? {};
+      try {
+        final uri = Uri.parse(story.mediaUrl);
+        _videoCtl = VideoPlayerController.networkUrl(uri, httpHeaders: headers);
+        _initVideo = _videoCtl!.initialize().then((_) {
+          _videoCtl!.setLooping(true);
+          _videoCtl!.setVolume(0);
+          _videoCtl!.play();
+          if (mounted) setState(() {});
+        });
+      } catch (_) {
+        if (mounted) setState(() {});
+      }
+    } else {
+      if (mounted) setState(() {});
+    }
   }
 
   void _openProductSheet(String url) {

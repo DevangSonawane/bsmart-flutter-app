@@ -473,7 +473,7 @@ class FeedService {
                   userName: (user['username'] as String?) ?? 'User',
                   userAvatar: user['avatar_url'] as String?,
                   mediaUrl: (preview['media'] is Map && (preview['media'] as Map)['url'] is String)
-                      ? (preview['media'] as Map)['url'] as String
+                      ? _normalizeUrl(((preview['media'] as Map)['url'] as String))
                       : '',
                   mediaType: (preview['media'] is Map && (preview['media'] as Map)['type'] == 'image')
                       ? StoryMediaType.image
@@ -495,7 +495,7 @@ class FeedService {
     return items.map<Story>((it) {
       final Map m = it as Map;
       final media = m['media'] as Map?;
-      final mediaUrl = media?['url'] as String? ?? '';
+      final mediaUrl = _normalizeUrl(media?['url'] as String? ?? '');
       final mediaType = (media?['type'] == 'image') ? StoryMediaType.image : StoryMediaType.video;
       final texts = (m['texts'] is List) ? (m['texts'] as List).whereType<Map>().map((e) => Map<String, dynamic>.from(e)).toList() : null;
       final mentions = (m['mentions'] is List) ? (m['mentions'] as List).whereType<Map>().map((e) => Map<String, dynamic>.from(e)).toList() : null;

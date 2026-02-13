@@ -35,7 +35,9 @@ class StoriesApi {
   }
 
   Future<Map<String, dynamic>> create(List<Map<String, dynamic>> itemsPayload) async {
-    final res = await _client.post(_path('/stories'), body: {'items': itemsPayload});
+    final body = {'items': itemsPayload};
+    print('Creating story with body: $body');
+    final res = await _client.post(_path('/stories'), body: body);
     return (res as Map).cast<String, dynamic>();
   }
 
@@ -43,24 +45,7 @@ class StoriesApi {
     try {
       return await create(itemsPayload);
     } catch (e) {
-      try {
-        final res = await _client.post(_path('/stories/create'), body: {'items': itemsPayload});
-        return (res as Map).cast<String, dynamic>();
-      } catch (_) {
-        final single = itemsPayload.isNotEmpty ? itemsPayload.first : <String, dynamic>{};
-        try {
-          final res = await _client.post(_path('/stories'), body: {'item': single});
-          return (res as Map).cast<String, dynamic>();
-        } catch (_) {
-          final media = single['media'] is Map ? single['media'] as Map : <String, dynamic>{};
-          final minimal = {
-            'mediaUrl': media['url'] ?? single['url'] ?? '',
-            'type': media['type'] ?? single['type'] ?? 'image',
-          };
-          final res = await _client.post(_path('/stories'), body: minimal);
-          return (res as Map).cast<String, dynamic>();
-        }
-      }
+      rethrow;
     }
   }
 

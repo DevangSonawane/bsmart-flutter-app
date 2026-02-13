@@ -7,6 +7,9 @@ import '../utils/current_user.dart';
 import '../api/api_exceptions.dart';
 import '../config/api_config.dart';
 import '../api/api_client.dart';
+import 'package:flutter_redux/flutter_redux.dart';
+import '../state/app_state.dart';
+import '../state/feed_actions.dart';
 
 /// Modal matching React PostDetailModal: image left, details + comments right.
 class PostDetailModal extends StatefulWidget {
@@ -469,6 +472,9 @@ class _PostDetailModalState extends State<PostDetailModal> {
                                                                       if (mounted) {
                                                                         Navigator.pop(context);
                                                                         messenger.showSnackBar(const SnackBar(content: Text('Post deleted')));
+                                                                        try {
+                                                                          StoreProvider.of<AppState>(context).dispatch(RemovePost(widget.postId));
+                                                                        } catch (_) {}
                                                                         if (widget.onClose != null) widget.onClose!();
                                                                         Navigator.of(context).pop();
                                                                       }

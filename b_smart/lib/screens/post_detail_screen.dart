@@ -7,6 +7,9 @@ import '../utils/current_user.dart';
 import '../api/api_exceptions.dart';
 import '../config/api_config.dart';
 import '../api/api_client.dart';
+import 'package:flutter_redux/flutter_redux.dart';
+import '../state/app_state.dart';
+import '../state/feed_actions.dart';
 
 /// Full-screen post detail page for mobile / deep link (/post/:postId).
 /// Reuses same data and UI as PostDetailModal but as a routed screen with AppBar.
@@ -377,6 +380,9 @@ class _PostDetailScreenState extends State<PostDetailScreen> {
                                                                                 if (mounted) {
                                                                                   Navigator.pop(context);
                                                                                   messenger.showSnackBar(const SnackBar(content: Text('Post deleted')));
+                                                                                  try {
+                                                                                    StoreProvider.of<AppState>(context).dispatch(RemovePost(widget.postId));
+                                                                                  } catch (_) {}
                                                                                   Navigator.of(context).pop();
                                                                                 }
                                                                               } else {

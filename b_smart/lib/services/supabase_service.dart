@@ -1,5 +1,7 @@
 import 'dart:typed_data';
 import '../api/api.dart';
+import 'dart:convert';
+import 'package:shared_preferences/shared_preferences.dart';
 
 /// Service layer that was previously calling Supabase directly.
 ///
@@ -20,6 +22,37 @@ class SupabaseService {
   }
   bool? getCommentLikeOverride(String commentId) {
     return _commentLikeOverrides[commentId];
+  }
+  final Map<String, List<Map<String, dynamic>>> _repliesCache = {};
+  void setRepliesCache(String commentId, List<Map<String, dynamic>> replies) {
+    _repliesCache[commentId] = List<Map<String, dynamic>>.from(replies);
+    () async {
+      try {
+        final prefs = await SharedPreferences.getInstance();
+        await prefs.setString('replies_cache_$commentId', jsonEncode(replies));
+      } catch (_) {}
+    }();
+  }
+  List<Map<String, dynamic>> getRepliesCached(String commentId) {
+    return List<Map<String, dynamic>>.from(_repliesCache[commentId] ?? const []);
+  }
+  Future<Map<String, List<Map<String, dynamic>>>> loadRepliesCacheFor(List<String> commentIds) async {
+    final result = <String, List<Map<String, dynamic>>>{};
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      for (final id in commentIds) {
+        final raw = prefs.getString('replies_cache_$id');
+        if (raw != null && raw.isNotEmpty) {
+          final parsed = jsonDecode(raw);
+          if (parsed is List) {
+            final list = parsed.map((e) => (e as Map).cast<String, dynamic>()).toList().cast<Map<String, dynamic>>();
+            _repliesCache[id] = list;
+            result[id] = list;
+          }
+        }
+      }
+    } catch (_) {}
+    return result;
   }
 
   // ── Users ──────────────────────────────────────────────────────────────────
@@ -337,9 +370,11 @@ class SupabaseService {
     try {
       final res = await _commentsApi.getReplies(commentId, page: page, limit: limit);
       final replies = res['replies'] as List<dynamic>? ?? [];
-      return replies.cast<Map<String, dynamic>>();
+      final casted = replies.cast<Map<String, dynamic>>();
+      setRepliesCache(commentId, casted);
+      return casted;
     } catch (_) {
-      return [];
+      return getRepliesCached(commentId);
     }
   }
 
