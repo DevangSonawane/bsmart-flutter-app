@@ -5,6 +5,7 @@ import 'dart:ui' as ui;
 import 'package:flutter/rendering.dart';
 import 'package:flutter/material.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
+import 'package:flutter_image_compress/flutter_image_compress.dart';
 import '../api/api.dart';
 import '../config/api_config.dart';
 
@@ -179,7 +180,19 @@ class _StoryEditingScreenState extends State<StoryEditingScreen> {
         return;
       }
       final bytes = byteData.buffer.asUint8List();
-      final upload = await _uploadWithRetry(bytes.toList(), 'story_${DateTime.now().millisecondsSinceEpoch}.png');
+      var jpg = await FlutterImageCompress.compressWithList(
+        bytes,
+        quality: 85,
+        format: CompressFormat.jpeg,
+      );
+      if (jpg.length > 4 * 1024 * 1024) {
+        jpg = await FlutterImageCompress.compressWithList(
+          jpg,
+          quality: 70,
+          format: CompressFormat.jpeg,
+        );
+      }
+      final upload = await _uploadWithRetry(jpg, 'story_${DateTime.now().millisecondsSinceEpoch}.jpg');
       String? url;
       if (upload is Map) {
         url = upload['fileUrl'] as String? ?? upload['url'] as String? ?? upload['file_url'] as String?;

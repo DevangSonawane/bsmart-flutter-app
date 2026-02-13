@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
+import 'dart:typed_data';
+import 'package:photo_manager/photo_manager.dart';
 import '../models/media_model.dart';
 import '../services/create_service.dart';
 import 'create_edit_preview_screen.dart';
@@ -14,8 +16,8 @@ class CreateUploadScreen extends StatefulWidget {
 class _CreateUploadScreenState extends State<CreateUploadScreen> {
   final CreateService _createService = CreateService();
   final ImagePicker _picker = ImagePicker();
-  final List<MediaItem> _selectedMedia = [];
-  List<MediaItem> _galleryMedia = [];
+  final List<AssetEntity> _assets = [];
+  final Set<String> _selectedIds = {};
 
   @override
   void initState() {
@@ -49,7 +51,7 @@ class _CreateUploadScreenState extends State<CreateUploadScreen> {
           type: type,
           filePath: file.path,
           createdAt: DateTime.now(),
-          duration: type == MediaType.video ? const Duration(seconds: 15) : null, // Approx duration as we can't easily get it without video_player
+          duration: type == MediaType.video ? const Duration(seconds: 15) : null,
         );
         
         if (!mounted) return;
@@ -80,50 +82,82 @@ class _CreateUploadScreenState extends State<CreateUploadScreen> {
     }
   }
 
-  void _loadGalleryMedia() {
-    // Gallery media is now handled by system picker
-    setState(() {
-      _galleryMedia = [];
-    });
+  Future<void> _loadGalleryMedia() async {
+    final PermissionState ps = await PhotoManager.requestPermissionExtend();
+    if (!ps.isAuth) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Gallery permission denied')),
+        );
+      }
+      return;
+    }
+    final List<AssetPathEntity> paths = await PhotoManager.getAssetPathList(
+      type: RequestType.common,
+      filterOption: FilterOptionGroup(
+        orders: [OrderOption(type: OrderOptionType.createDate, asc: false)],
+      ),
+    );
+    if (paths.isEmpty) {
+      if (mounted) {
+        setState(() {});
+      }
+      return;
+    }
+    final AssetPathEntity recent = paths.first;
+    final List<AssetEntity> assets = await recent.getAssetListPaged(page: 0, size: 120);
+    if (mounted) {
+      setState(() {
+        _assets
+          ..clear()
+          ..addAll(assets);
+      });
+    }
   }
 
-  void _toggleMediaSelection(MediaItem media) {
+  void _toggleMediaSelection(String id) {
     setState(() {
-      if (_selectedMedia.any((m) => m.id == media.id)) {
-        _selectedMedia.removeWhere((m) => m.id == media.id);
+      if (_selectedIds.contains(id)) {
+        _selectedIds.remove(id);
       } else {
-        _selectedMedia.add(media);
+        _selectedIds.add(id);
       }
     });
   }
 
   void _proceedToEdit() {
-    if (_selectedMedia.isEmpty) {
+    if (_selectedIds.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Please select at least one media item')),
       );
       return;
     }
 
-    // Validate media
-    for (final media in _selectedMedia) {
+    final AssetEntity first = _assets.firstWhere((a) => _selectedIds.contains(a.id));
+    first.originFile.then((file) {
+      if (file == null) return;
+      final media = MediaItem(
+        id: first.id,
+        type: first.type == AssetType.video ? MediaType.video : MediaType.image,
+        filePath: file.path,
+        createdAt: first.createDateTime,
+        duration: first.type == AssetType.video ? Duration(seconds: first.duration) : null,
+      );
       if (!_createService.validateMedia(media)) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(content: Text('Video must be 60 seconds or less')),
         );
         return;
       }
-    }
-
-    // Navigate to edit screen with first media (for carousel, would handle all)
-    Navigator.of(context).push(
-      MaterialPageRoute(
-        builder: (context) => CreateEditPreviewScreen(
-          media: _selectedMedia.first,
-          selectedFilter: null,
+      Navigator.of(context).push(
+        MaterialPageRoute(
+          builder: (context) => CreateEditPreviewScreen(
+            media: media,
+            selectedFilter: null,
+          ),
         ),
-      ),
-    );
+      );
+    });
   }
 
   @override
@@ -165,13 +199,13 @@ class _CreateUploadScreenState extends State<CreateUploadScreen> {
                     ),
                   ],
                 ),
-                if (_selectedMedia.isNotEmpty)
+                if (_selectedIds.isNotEmpty)
                   ElevatedButton(
                     onPressed: _proceedToEdit,
                     style: ElevatedButton.styleFrom(
                       backgroundColor: Colors.blue,
                     ),
-                    child: Text('Next (${_selectedMedia.length})'),
+                    child: Text('Next (${_selectedIds.length})'),
                   ),
               ],
             ),
@@ -179,7 +213,7 @@ class _CreateUploadScreenState extends State<CreateUploadScreen> {
 
           // Gallery Grid
           Expanded(
-            child: _galleryMedia.isEmpty 
+            child: _assets.isEmpty 
               ? Center(
                   child: Column(
                     mainAxisAlignment: MainAxisAlignment.center,
@@ -216,21 +250,27 @@ class _CreateUploadScreenState extends State<CreateUploadScreen> {
                 crossAxisSpacing: 4,
                 mainAxisSpacing: 4,
               ),
-              itemCount: _galleryMedia.length,
+              itemCount: _assets.length,
               itemBuilder: (context, index) {
-                final media = _galleryMedia[index];
-                final isSelected = _selectedMedia.any((m) => m.id == media.id);
+                final asset = _assets[index];
+                final isSelected = _selectedIds.contains(asset.id);
 
                 return GestureDetector(
-                  onTap: () => _toggleMediaSelection(media),
+                  onTap: () => _toggleMediaSelection(asset.id),
                   child: Stack(
                     fit: StackFit.expand,
                     children: [
                       Container(
                         color: Colors.grey[800],
-                        child: media.type == MediaType.video
-                            ? const Icon(Icons.videocam, color: Colors.white54)
-                            : const Icon(Icons.image, color: Colors.white54),
+                        child: FutureBuilder<Uint8List?>(
+                          future: asset.thumbnailDataWithSize(const ThumbnailSize(300, 300)),
+                          builder: (context, snap) {
+                            if (snap.connectionState != ConnectionState.done || snap.data == null) {
+                              return const Center(child: Icon(Icons.image, color: Colors.white54));
+                            }
+                            return Image.memory(snap.data!, fit: BoxFit.cover);
+                          },
+                        ),
                       ),
                       if (isSelected)
                         Container(
@@ -241,7 +281,7 @@ class _CreateUploadScreenState extends State<CreateUploadScreen> {
                             size: 30,
                           ),
                         ),
-                      if (media.type == MediaType.video)
+                      if (asset.type == AssetType.video)
                         Positioned(
                           bottom: 4,
                           right: 4,
@@ -252,7 +292,7 @@ class _CreateUploadScreenState extends State<CreateUploadScreen> {
                               borderRadius: BorderRadius.circular(4),
                             ),
                             child: Text(
-                              '${media.duration?.inSeconds ?? 0}s',
+                              '${asset.duration}s',
                               style: const TextStyle(
                                 color: Colors.white,
                                 fontSize: 10,

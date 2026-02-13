@@ -5,6 +5,7 @@ import 'dart:ui' as ui;
 import 'package:flutter/material.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 import 'package:image_picker/image_picker.dart';
+import 'package:flutter_image_compress/flutter_image_compress.dart';
 import '../services/supabase_service.dart';
 import '../utils/current_user.dart';
 import '../config/api_config.dart';
@@ -225,6 +226,58 @@ class _CreatePostScreenState extends State<CreatePostScreen> {
     }
   }
 
+  Future<void> _takePhoto() async {
+    try {
+      final x = await _picker.pickImage(source: ImageSource.camera);
+      if (x == null) return;
+      final item = _CreatePostMediaItem(sourcePath: x.path, isVideo: false);
+      if (mounted) {
+        setState(() {
+          if (_step == 'select') {
+            _media = [item];
+            _currentIndex = 0;
+            _step = 'crop';
+          } else {
+            _media.add(item);
+            _currentIndex = _media.length - 1;
+          }
+        });
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Could not capture photo: $e')),
+        );
+      }
+    }
+  }
+
+  Future<void> _recordVideo() async {
+    try {
+      final x = await _picker.pickVideo(source: ImageSource.camera, maxDuration: const Duration(seconds: 60));
+      if (x == null) return;
+      final item = _CreatePostMediaItem(sourcePath: x.path, isVideo: true);
+      if (mounted) {
+        setState(() {
+          if (_step == 'select') {
+            _media = [item];
+            _currentIndex = 0;
+            _step = 'crop';
+          } else {
+            _media.add(item);
+            _currentIndex = _media.length - 1;
+          }
+        });
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Could not record video: $e')),
+        );
+      }
+    }
+  }
+
   Future<void> _cropCurrent() async {
     final item = _currentMedia;
     if (item == null) return;
@@ -399,8 +452,28 @@ class _CreatePostScreenState extends State<CreatePostScreen> {
         if (!await file.exists()) continue;
         final bytes = await file.readAsBytes();
         final isImage = !item.isVideo;
-        final Uint8List toUpload = isImage ? await _processImageBytes(Uint8List.fromList(bytes), item) : Uint8List.fromList(bytes);
-        final ext = isImage ? 'png' : path.split('.').last;
+        Uint8List toUpload;
+        String ext;
+        if (isImage) {
+          final processed = await _processImageBytes(Uint8List.fromList(bytes), item);
+          var jpg = await FlutterImageCompress.compressWithList(
+            processed,
+            quality: 85,
+            format: CompressFormat.jpeg,
+          );
+          if (jpg.length > 4 * 1024 * 1024) {
+            jpg = await FlutterImageCompress.compressWithList(
+              jpg,
+              quality: 70,
+              format: CompressFormat.jpeg,
+            );
+          }
+          toUpload = Uint8List.fromList(jpg);
+          ext = 'jpg';
+        } else {
+          toUpload = Uint8List.fromList(bytes);
+          ext = path.split('.').last;
+        }
         final filename = '$userId/${DateTime.now().millisecondsSinceEpoch}_${item.hashCode % 100000}.$ext';
         final uploaded = await UploadApi().uploadFileBytes(bytes: toUpload, filename: filename);
         final serverFileName = (uploaded['fileName'] ?? uploaded['filename'] ?? filename).toString();
@@ -565,6 +638,33 @@ class _CreatePostScreenState extends State<CreatePostScreen> {
               textAlign: TextAlign.center,
             ),
             const SizedBox(height: 24),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                ElevatedButton(
+                  onPressed: _takePhoto,
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: const Color(0xFF0095F6),
+                    foregroundColor: Colors.white,
+                    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                  ),
+                  child: const Text('Take Photo'),
+                ),
+                const SizedBox(width: 12),
+                ElevatedButton(
+                  onPressed: _recordVideo,
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: const Color(0xFF0095F6),
+                    foregroundColor: Colors.white,
+                    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                  ),
+                  child: const Text('Record Video'),
+                ),
+              ],
+            ),
+            const SizedBox(height: 12),
             ElevatedButton(
               onPressed: _pickMedia,
               style: ElevatedButton.styleFrom(
@@ -573,7 +673,7 @@ class _CreatePostScreenState extends State<CreatePostScreen> {
                 padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
                 shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
               ),
-              child: const Text('Select From Computer'),
+              child: const Text('Select From Gallery'),
             ),
           ],
         ),

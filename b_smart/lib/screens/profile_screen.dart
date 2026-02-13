@@ -270,7 +270,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                 onTap: () {
                   Navigator.of(ctx).pop();
                   WidgetsBinding.instance.addPostFrameCallback((_) {
-                    if (mounted) Navigator.of(context).pushNamed('/create');
+                    if (mounted) Navigator.of(context).pushNamed('/create_post');
                   });
                 },
               ),

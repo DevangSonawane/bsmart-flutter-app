@@ -72,5 +72,7 @@
 	<string>We need access to your camera to take photos and videos for posting.</string>
 	<key>NSMicrophoneUsageDescription</key>
 	<string>We need access to your microphone to record videos with sound.</string>
+	<key>NSLocationWhenInUseUsageDescription</key>
+	<string>We need your location to tag posts with your current place.</string>
 </dict>
 </plist>

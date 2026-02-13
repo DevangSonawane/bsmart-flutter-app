@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'dart:io';
 import '../models/media_model.dart';
 import '../models/content_moderation_model.dart';
 import '../services/create_service.dart';
@@ -7,6 +8,9 @@ import 'content_moderation_dialog.dart';
 import '../api/posts_api.dart';
 import '../api/upload_api.dart';
 import '../utils/current_user.dart';
+import 'package:flutter_image_compress/flutter_image_compress.dart';
+import 'package:geolocator/geolocator.dart';
+import 'package:geocoding/geocoding.dart';
 
 class CreatePostDetailsScreen extends StatefulWidget {
   final MediaItem media;
@@ -220,7 +224,25 @@ class _CreatePostDetailsScreenState extends State<CreatePostDetailsScreen> {
          throw Exception('File path is missing');
       }
 
-      final uploadRes = await UploadApi().uploadFile(filePath);
+      Map<String, dynamic> uploadRes;
+      if (widget.media.type == MediaType.image) {
+        final bytes = await File(filePath).readAsBytes();
+        var jpg = await FlutterImageCompress.compressWithList(
+          bytes,
+          quality: 85,
+          format: CompressFormat.jpeg,
+        );
+        if (jpg.length > 4 * 1024 * 1024) {
+          jpg = await FlutterImageCompress.compressWithList(
+            jpg,
+            quality: 70,
+            format: CompressFormat.jpeg,
+          );
+        }
+        uploadRes = await UploadApi().uploadFileBytes(bytes: jpg, filename: 'post_${DateTime.now().millisecondsSinceEpoch}.jpg');
+      } else {
+        uploadRes = await UploadApi().uploadFile(filePath);
+      }
       final fileName = uploadRes['fileName'] as String;
       final fileUrl = uploadRes['fileUrl'] as String?;
 
@@ -265,6 +287,37 @@ class _CreatePostDetailsScreenState extends State<CreatePostDetailsScreen> {
         );
       }
     }
+  }
+
+  Future<void> _fetchCurrentLocation() async {
+    try {
+      LocationPermission permission = await Geolocator.checkPermission();
+      if (permission == LocationPermission.denied) {
+        permission = await Geolocator.requestPermission();
+      }
+      if (permission == LocationPermission.deniedForever || permission == LocationPermission.denied) {
+        return;
+      }
+      final pos = await Geolocator.getCurrentPosition(desiredAccuracy: LocationAccuracy.medium);
+      final placemarks = await placemarkFromCoordinates(pos.latitude, pos.longitude);
+      if (placemarks.isNotEmpty) {
+        final p = placemarks.first;
+        final parts = <String>[
+          if ((p.name ?? '').isNotEmpty) p.name!,
+          if ((p.subLocality ?? '').isNotEmpty) p.subLocality!,
+          if ((p.locality ?? '').isNotEmpty) p.locality!,
+          if ((p.administrativeArea ?? '').isNotEmpty) p.administrativeArea!,
+          if ((p.country ?? '').isNotEmpty) p.country!,
+        ];
+        setState(() {
+          _location = parts.where((e) => e.trim().isNotEmpty).toList().join(', ');
+        });
+      } else {
+        setState(() {
+          _location = '${pos.latitude.toStringAsFixed(4)}, ${pos.longitude.toStringAsFixed(4)}';
+        });
+      }
+    } catch (_) {}
   }
 
   @override
@@ -447,7 +500,7 @@ class _CreatePostDetailsScreenState extends State<CreatePostDetailsScreen> {
             ListTile(
               leading: const Icon(Icons.location_on_outlined),
               title: const Text('Add Location'),
-              subtitle: Text(_location ?? 'No location'),
+              subtitle: Text(_location ?? 'Fetching current location...'),
               trailing: const Icon(Icons.chevron_right),
               onTap: () => _showLocationDialog(),
             ),
@@ -538,21 +591,36 @@ class _CreatePostDetailsScreenState extends State<CreatePostDetailsScreen> {
   }
 
   void _showLocationDialog() {
+    _fetchCurrentLocation();
     showDialog(
       context: context,
       builder: (context) => AlertDialog(
         title: const Text('Add Location'),
-        content: TextField(
-          decoration: const InputDecoration(
-            hintText: 'Search location...',
-            prefixIcon: Icon(Icons.search),
-          ),
-          onSubmitted: (value) {
-            setState(() {
-              _location = value;
-            });
-            Navigator.pop(context);
-          },
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            ListTile(
+              leading: const Icon(Icons.my_location),
+              title: const Text('Use current location'),
+              subtitle: Text(_location ?? 'Detecting...'),
+              onTap: () {
+                Navigator.pop(context);
+              },
+            ),
+            const SizedBox(height: 8),
+            TextField(
+              decoration: const InputDecoration(
+                hintText: 'Search location...',
+                prefixIcon: Icon(Icons.search),
+              ),
+              onSubmitted: (value) {
+                setState(() {
+                  _location = value;
+                });
+                Navigator.pop(context);
+              },
+            ),
+          ],
         ),
         actions: [
           TextButton(

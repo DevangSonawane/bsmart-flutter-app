@@ -25,6 +25,8 @@ import 'own_story_viewer_screen.dart';
 import '../utils/current_user.dart';
 import '../api/api_exceptions.dart';
 import '../api/api_client.dart';
+import 'package:geolocator/geolocator.dart';
+import 'package:geocoding/geocoding.dart';
 
 class HomeDashboard extends StatefulWidget {
   final int? initialIndex;
@@ -39,6 +41,8 @@ class _HomeDashboardState extends State<HomeDashboard> {
   final FeedService _feedService = FeedService();
   final SupabaseService _supabase = SupabaseService();
   final WalletService _walletService = WalletService();
+  String? _currentLocation;
+  bool _locationLoading = false;
 
   List<Map<String, dynamic>> _storyUsers = [];
   List<StoryGroup> _storyGroups = [];
@@ -59,6 +63,7 @@ class _HomeDashboardState extends State<HomeDashboard> {
     WidgetsBinding.instance.addPostFrameCallback((_) {
       final store = StoreProvider.of<AppState>(context);
       _loadData(store);
+      _fetchCurrentLocation();
     });
   }
 
@@ -98,6 +103,42 @@ class _HomeDashboardState extends State<HomeDashboard> {
       if (currentUserId != null && currentProfile != null) {
         store.dispatch(SetProfile(currentProfile));
       }
+    }
+  }
+
+  Future<void> _fetchCurrentLocation() async {
+    try {
+      if (mounted) setState(() => _locationLoading = true);
+      LocationPermission permission = await Geolocator.checkPermission();
+      if (permission == LocationPermission.denied) {
+        permission = await Geolocator.requestPermission();
+      }
+      if (permission == LocationPermission.deniedForever || permission == LocationPermission.denied) {
+        if (mounted) setState(() => _locationLoading = false);
+        return;
+      }
+      final pos = await Geolocator.getCurrentPosition(desiredAccuracy: LocationAccuracy.low);
+      final placemarks = await placemarkFromCoordinates(pos.latitude, pos.longitude);
+      String loc;
+      if (placemarks.isNotEmpty) {
+        final p = placemarks.first;
+        final parts = <String>[
+          if ((p.name ?? '').isNotEmpty) p.name!,
+          if ((p.subLocality ?? '').isNotEmpty) p.subLocality!,
+          if ((p.locality ?? '').isNotEmpty) p.locality!,
+          if ((p.administrativeArea ?? '').isNotEmpty) p.administrativeArea!,
+          if ((p.country ?? '').isNotEmpty) p.country!,
+        ];
+        loc = parts.where((e) => e.trim().isNotEmpty).toList().join(', ');
+      } else {
+        loc = '${pos.latitude.toStringAsFixed(4)}, ${pos.longitude.toStringAsFixed(4)}';
+      }
+      if (mounted) setState(() {
+        _currentLocation = loc;
+        _locationLoading = false;
+      });
+    } catch (_) {
+      if (mounted) setState(() => _locationLoading = false);
     }
   }
 
@@ -349,7 +390,7 @@ class _HomeDashboardState extends State<HomeDashboard> {
   Widget _buildLocationSelector({required bool isDark}) {
     return InkWell(
       onTap: () {
-        // TODO: hook up location picker.
+        _fetchCurrentLocation();
       },
       child: Container(
         width: double.infinity,
@@ -381,7 +422,9 @@ class _HomeDashboardState extends State<HomeDashboard> {
                       ),
                     ),
                     TextSpan(
-                      text: 'Plat No.20, 2nd Floor, Shivaram Nivas, Sri S...',
+                      text: _currentLocation == null
+                          ? (_locationLoading ? 'Detecting current location...' : 'Tap to detect location')
+                          : _currentLocation!,
                       style: TextStyle(
                         color: isDark ? Colors.white70 : Colors.black54,
                         fontSize: 13,
@@ -536,9 +579,8 @@ class _HomeDashboardState extends State<HomeDashboard> {
                 subtitle: Text('Photo or video', style: TextStyle(fontSize: 12, color: Theme.of(ctx).colorScheme.onSurfaceVariant)),
                 onTap: () {
                   Navigator.of(ctx).pop();
-                  // Defer push to next frame so sheet closes first (matches React: modal overlay, no route conflict)
                   WidgetsBinding.instance.addPostFrameCallback((_) {
-                    if (mounted) Navigator.of(context).pushNamed('/create');
+                    if (mounted) Navigator.of(context).pushNamed('/create_post');
                   });
                 },
               ),
@@ -781,7 +823,7 @@ class _HomeDashboardState extends State<HomeDashboard> {
           Sidebar(
             currentIndex: _currentIndex,
             onNavTap: _onNavTap,
-            onCreatePost: () => Navigator.of(context).pushNamed('/create'),
+            onCreatePost: () => Navigator.of(context).pushNamed('/create_post'),
             onUploadReel: () => Navigator.of(context).pushNamed('/create'),
           ),
           Expanded(

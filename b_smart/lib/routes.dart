@@ -5,6 +5,7 @@ import 'screens/auth/forgot_password_screen.dart';
 import 'screens/auth/verify_otp_screen.dart';
 import 'screens/home_dashboard.dart';
 import 'screens/create_post_screen.dart';
+import 'screens/create_screen.dart';
 import 'screens/profile_screen.dart';
 import 'screens/reels_screen.dart';
 import 'screens/ads_screen.dart';
@@ -29,7 +30,7 @@ final Map<String, WidgetBuilder> appRoutes = {
   '/home': (ctx) => const HomeDashboard(),
   // Do not add '/' here when MaterialApp uses home: - it would be redundant and trigger an assertion
   '/create_post': (ctx) => const CreatePostScreen(),
-  '/create': (ctx) => const CreatePostScreen(),
+  '/create': (ctx) => const CreateScreen(),
   '/profile': (ctx) => const ProfileScreen(),
   '/reels': (ctx) => const ReelsScreen(),
   '/ads': (ctx) => const AdsScreen(),

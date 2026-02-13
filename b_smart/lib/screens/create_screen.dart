@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import '../theme/instagram_theme.dart';
 import '../widgets/clay_container.dart';
-import 'create_camera_screen.dart';
+import 'story_camera_screen.dart';
 import 'create_upload_screen.dart';
 
 class CreateScreen extends StatefulWidget {
@@ -52,7 +52,7 @@ class _CreateScreenState extends State<CreateScreen> {
                   });
                 },
                 children: const [
-                  CreateCameraScreen(),
+                  StoryCameraScreen(),
                   CreateUploadScreen(),
                 ],
               ),
