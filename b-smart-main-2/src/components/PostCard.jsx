@@ -82,16 +82,27 @@ const PostCard = ({ post, onCommentClick, onDelete }) => {
 
     useEffect(() => {
         if (post) {
-            // New API structure uses is_liked_by_me and likes_count
-            if (typeof post.is_liked_by_me !== 'undefined') {
+            // Check for likes array first as requested
+            if (post.likes && Array.isArray(post.likes)) {
+                const userId = userObject ? (userObject._id || userObject.id) : null;
+                const userLiked = userId ? post.likes.some(like => {
+                    // Handle string IDs
+                    if (typeof like === 'string') return String(like) === String(userId);
+                    // Handle object IDs
+                    const likeId = like.user_id || like._id || like.id;
+                    const likeUserId = like.user ? (like.user._id || like.user.id) : null;
+                    return String(likeId) === String(userId) || String(likeUserId) === String(userId);
+                }) : false;
+                
+                setIsLiked(userLiked);
+                setLikeCount(post.likes.length);
+            } else if (typeof post.is_liked_by_me !== 'undefined') {
+                // Fallback to API provided boolean
                 setIsLiked(post.is_liked_by_me);
                 setLikeCount(post.likes_count || 0);
             } else {
-                // Fallback for old structure
-                const likes = post.likes || [];
-                const userLiked = userObject ? likes.some(like => like.user_id === userObject.id) : false;
-                setIsLiked(userLiked);
-                setLikeCount(likes.length);
+                setIsLiked(false);
+                setLikeCount(0);
             }
 
             // New API structure provides comments array
@@ -149,8 +160,11 @@ const PostCard = ({ post, onCommentClick, onDelete }) => {
         try {
             // Determine if we are using new API or old Supabase
             if (post._id) {
-                // New API call would go here - for now just optimistic
-                // await api.post(`/posts/${post._id}/like`);
+                if (newIsLiked) {
+                    await api.post(`/posts/${post._id}/like`);
+                } else {
+                    await api.post(`/posts/${post._id}/unlike`);
+                }
             } else {
                 const likes = post.likes || [];
                 let newLikes;

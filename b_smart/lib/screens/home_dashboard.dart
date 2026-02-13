@@ -21,6 +21,7 @@ import 'ads_screen.dart';
 import 'promote_screen.dart';
 import 'reels_screen.dart';
 import 'story_viewer_screen.dart';
+import 'own_story_viewer_screen.dart';
 import '../utils/current_user.dart';
 import '../api/api_exceptions.dart';
 import '../api/api_client.dart';
@@ -41,6 +42,9 @@ class _HomeDashboardState extends State<HomeDashboard> {
 
   List<Map<String, dynamic>> _storyUsers = [];
   List<StoryGroup> _storyGroups = [];
+  List<Story> _myStories = [];
+  bool _yourStoryHasActive = false;
+  Map<String, Map<String, bool>> _storyStatuses = {};
   int _currentIndex = 0;
   int _balance = 0;
   /// Current user profile from `users` table (same source as React web app) for header avatar.
@@ -63,17 +67,31 @@ class _HomeDashboardState extends State<HomeDashboard> {
     // Use REST API-backed CurrentUser helper for the authenticated user ID.
     final currentUserId = await CurrentUser.id;
     final currentProfile = currentUserId != null ? await _supabase.getUserById(currentUserId) : null;
-    // Same as React Home.jsx: fetch all posts, users(id, username, avatar_url), order by created_at desc
+    // Same as React Home.jsx: fetch all posts, order by created_at desc
     final fetched = await _feedService.fetchFeedFromBackend(currentUserId: currentUserId);
-    final users = await _supabase.fetchUsers(limit: 10, excludeUserId: currentUserId);
     final bal = await _walletService.getCoinBalance();
-    final groups = _buildStoryGroupsFromUsers(users);
+    // Stories feed from backend
+    final groups = await _feedService.fetchStoriesFeed();
+    final statuses = _computeStoryStatuses(groups);
+    final users = groups.map((g) {
+      return {
+        'id': g.userId,
+        'username': g.userName,
+        'avatar_url': g.userAvatar,
+      };
+    }).toList();
+    final my = currentUserId != null
+        ? groups.where((g) => g.userId == currentUserId).expand((g) => g.stories).toList()
+        : _buildMyStories(currentProfile);
     if (mounted) {
       store.dispatch(SetFeedPosts(fetched));
       setState(() {
         _currentUserProfile = currentProfile;
         _storyUsers = users;
         _storyGroups = groups;
+        _storyStatuses = statuses;
+        _myStories = my;
+        _yourStoryHasActive = _myStories.isNotEmpty;
         _balance = bal;
       });
       // Preload profile into Redux so ProfileScreen opens instantly
@@ -389,7 +407,9 @@ class _HomeDashboardState extends State<HomeDashboard> {
 
   List<StoryGroup> _buildStoryGroupsFromUsers(List<Map<String, dynamic>> users) {
     final now = DateTime.now();
-    return users.map((u) {
+    return users.asMap().entries.map((entry) {
+      final idx = entry.key;
+      final u = entry.value;
       final username = (u['username'] ?? u['full_name'] ?? 'User').toString();
       final userId = (u['id'] ?? '').toString();
       return StoryGroup(
@@ -397,6 +417,8 @@ class _HomeDashboardState extends State<HomeDashboard> {
         userName: username,
         userAvatar: u['avatar_url'] as String?,
         isOnline: true,
+        isCloseFriend: idx < 2,
+        isSubscribedCreator: idx == 1,
         stories: [
           Story(
             id: 'story-$userId',
@@ -406,10 +428,49 @@ class _HomeDashboardState extends State<HomeDashboard> {
             mediaUrl: 'https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?w=400',
             mediaType: StoryMediaType.image,
             createdAt: now.subtract(const Duration(hours: 2)),
+            views: 0,
+            isViewed: idx % 3 == 0,
+            productUrl: idx == 0 ? 'https://bsmart.asynk.store/product/123' : null,
+            externalLink: idx == 3 ? 'https://example.com' : null,
+            hasPollQuiz: idx == 4,
           ),
         ],
       );
     }).toList();
+  }
+
+  Map<String, Map<String, bool>> _computeStoryStatuses(List<StoryGroup> groups) {
+    final map = <String, Map<String, bool>>{};
+    for (final g in groups) {
+      final hasUnseen = g.stories.any((s) => s.isViewed == false);
+      final allViewed = g.stories.isNotEmpty && g.stories.every((s) => s.isViewed == true);
+      map[g.userId] = {
+        'isCloseFriend': g.isCloseFriend,
+        'hasUnseen': hasUnseen,
+        'allViewed': allViewed,
+        'isSubscribedCreator': g.isSubscribedCreator,
+        'segments': g.stories.length > 1,
+      };
+    }
+    return map;
+  }
+
+  List<Story> _buildMyStories(Map<String, dynamic>? profile) {
+    final now = DateTime.now();
+    if (profile == null) return [];
+    return [
+      Story(
+        id: 'my-story-1',
+        userId: (profile['id'] ?? 'me').toString(),
+        userName: (profile['username'] ?? profile['full_name'] ?? 'You').toString(),
+        userAvatar: profile['avatar_url'] as String?,
+        mediaUrl: 'https://images.unsplash.com/photo-1606787366850-de6330128bfc?w=400',
+        mediaType: StoryMediaType.image,
+        createdAt: now.subtract(const Duration(minutes: 30)),
+        views: 12,
+        isViewed: false,
+      ),
+    ];
   }
 
   void _onStoryTap(int userIndex) {
@@ -630,8 +691,26 @@ class _HomeDashboardState extends State<HomeDashboard> {
                         _buildLocationSelector(isDark: isDark),
                         StoriesRow(
                           users: _storyUsers,
-                          onYourStoryTap: () {},
+                          onYourStoryTap: () {
+                            if (_yourStoryHasActive) {
+                              Navigator.of(context).push(
+                                MaterialPageRoute(
+                                  builder: (_) => OwnStoryViewerScreen(
+                                    stories: _myStories,
+                                    userName: (_currentUserProfile?['username'] ?? _currentUserProfile?['full_name'] ?? 'You').toString(),
+                                  ),
+                                ),
+                              );
+                            } else {
+                              Navigator.of(context).pushNamed('/story-camera');
+                            }
+                          },
+                          onYourStoryAddTap: () {
+                            Navigator.of(context).pushNamed('/story-camera');
+                          },
                           onUserStoryTap: _storyGroups.isEmpty ? null : _onStoryTap,
+                          yourStoryHasActive: _yourStoryHasActive,
+                          userStatuses: _storyStatuses,
                         ),
                         if (posts.isEmpty)
                           Padding(

@@ -12,6 +12,7 @@ class FeedService {
 
   final PostsApi _postsApi = PostsApi();
   final AuthApi _authApi = AuthApi();
+  final StoriesApi _storiesApi = StoriesApi();
   String _absoluteUrl(String url) {
     if (url.startsWith('http://') || url.startsWith('https://')) return url;
     final base = ApiConfig.baseUrl;
@@ -443,6 +444,88 @@ class FeedService {
   // Get stories for online users
   List<StoryGroup> getStories() {
     return [];
+  }
+
+  /// Fetch stories feed from backend and map to [StoryGroup]s.
+  Future<List<StoryGroup>> fetchStoriesFeed() async {
+    final feed = await _storiesApi.feed();
+    return feed.map<StoryGroup>((item) {
+      final Map data = item as Map;
+      final user = data['user'] as Map<String, dynamic>? ?? {};
+      final preview = data['preview_item'] as Map<String, dynamic>? ?? {};
+      final itemsCount = (data['items_count'] as int?) ?? 0;
+      final seen = (data['seen'] as bool?) ?? false;
+      final storyId = (data['_id'] as String?) ?? (data['id'] as String?);
+      return StoryGroup(
+        userId: (user['_id'] as String?) ?? (user['id'] as String?) ?? 'unknown',
+        userName: (user['username'] as String?) ?? 'User',
+        userAvatar: user['avatar_url'] as String?,
+        isOnline: true,
+        isCloseFriend: false,
+        isSubscribedCreator: false,
+        storyId: storyId,
+        stories: preview.isEmpty
+            ? <Story>[]
+            : <Story>[
+                Story(
+                  id: (preview['_id'] as String?) ?? 'item',
+                  userId: (user['_id'] as String?) ?? 'unknown',
+                  userName: (user['username'] as String?) ?? 'User',
+                  userAvatar: user['avatar_url'] as String?,
+                  mediaUrl: (preview['media'] is Map && (preview['media'] as Map)['url'] is String)
+                      ? (preview['media'] as Map)['url'] as String
+                      : '',
+                  mediaType: (preview['media'] is Map && (preview['media'] as Map)['type'] == 'image')
+                      ? StoryMediaType.image
+                      : StoryMediaType.video,
+                  createdAt: DateTime.tryParse(preview['createdAt'] as String? ?? '') ?? DateTime.now(),
+                  views: (data['views_count'] as int?) ?? 0,
+                  isViewed: seen,
+                  expiresAt: DateTime.tryParse(preview['expiresAt'] as String? ?? ''),
+                  isDeleted: (preview['isDeleted'] as bool?) ?? false,
+                ),
+              ],
+      );
+    }).toList();
+  }
+
+  /// Fetch all items for a specific story.
+  Future<List<Story>> fetchStoryItems(String storyId, {String? ownerUserName, String? ownerAvatar}) async {
+    final items = await _storiesApi.items(storyId);
+    return items.map<Story>((it) {
+      final Map m = it as Map;
+      final media = m['media'] as Map?;
+      final mediaUrl = media?['url'] as String? ?? '';
+      final mediaType = (media?['type'] == 'image') ? StoryMediaType.image : StoryMediaType.video;
+      final texts = (m['texts'] is List) ? (m['texts'] as List).whereType<Map>().map((e) => Map<String, dynamic>.from(e)).toList() : null;
+      final mentions = (m['mentions'] is List) ? (m['mentions'] as List).whereType<Map>().map((e) => Map<String, dynamic>.from(e)).toList() : null;
+      final transform = (m['transform'] is Map) ? Map<String, dynamic>.from(m['transform'] as Map) : null;
+      final filter = (m['filter'] is Map) ? Map<String, dynamic>.from(m['filter'] as Map) : null;
+      final int? durationSec = (media?['durationSec'] is int) ? (media?['durationSec'] as int) : (m['durationSec'] as int?);
+      return Story(
+        id: (m['_id'] as String?) ?? 'item',
+        userId: (m['user_id'] as String?) ?? '',
+        userName: ownerUserName ?? '',
+        userAvatar: ownerAvatar,
+        mediaUrl: mediaUrl,
+        mediaType: mediaType,
+        createdAt: DateTime.tryParse(m['createdAt'] as String? ?? '') ?? DateTime.now(),
+        views: 0,
+        isViewed: false,
+        expiresAt: DateTime.tryParse(m['expiresAt'] as String? ?? ''),
+        isDeleted: (m['isDeleted'] as bool?) ?? false,
+        texts: texts,
+        mentions: mentions,
+        transform: transform,
+        filter: filter,
+        durationSec: durationSec,
+      );
+    }).toList();
+  }
+
+  /// Mark an item as viewed.
+  Future<void> markItemViewed(String itemId) async {
+    await _storiesApi.viewItem(itemId);
   }
 
   // Get current user for profile icon

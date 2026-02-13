@@ -3,6 +3,10 @@ import 'package:lucide_icons_flutter/lucide_icons.dart';
 import 'dart:async';
 import 'package:cached_network_image/cached_network_image.dart';
 import '../models/story_model.dart';
+import '../services/feed_service.dart';
+import 'package:image_picker/image_picker.dart';
+import '../api/api.dart';
+import '../api/api_exceptions.dart';
 
 class StoryViewerScreen extends StatefulWidget {
   final List<StoryGroup> storyGroups;
@@ -25,6 +29,10 @@ class _StoryViewerScreenState extends State<StoryViewerScreen> {
   int _currentStoryIndex = 0;
   Timer? _autoPlayTimer;
   double _progress = 0.0;
+  bool _paused = false;
+  final TextEditingController _messageController = TextEditingController();
+  final FeedService _feedService = FeedService();
+  final Set<String> _viewedItemIds = <String>{};
 
   @override
   void initState() {
@@ -46,16 +54,34 @@ class _StoryViewerScreenState extends State<StoryViewerScreen> {
   void _startAutoPlay() {
     _autoPlayTimer?.cancel();
     _progress = 0.0;
+    _paused = false;
     
     final currentGroup = widget.storyGroups[_currentGroupIndex];
+    // Lazy-load items for current group if missing
+    if (currentGroup.stories.isEmpty && (currentGroup.storyId ?? '').isNotEmpty) {
+      _fetchGroupItems(_currentGroupIndex);
+      return;
+    }
     if (_currentStoryIndex >= currentGroup.stories.length) {
       _nextGroup();
       return;
     }
 
-    _autoPlayTimer = Timer.periodic(const Duration(milliseconds: 50), (timer) {
+    final currentStory = currentGroup.stories[_currentStoryIndex];
+    if (!_viewedItemIds.contains(currentStory.id)) {
+      _viewedItemIds.add(currentStory.id);
+      _feedService.markItemViewed(currentStory.id).catchError((_) {});
+    }
+
+    final isImage = currentStory.mediaType == StoryMediaType.image;
+    final durationMs = isImage
+        ? 5000
+        : ((currentStory.durationSec ?? 5) * 1000);
+    final tickMs = 50;
+    final ticks = (durationMs / tickMs).clamp(1, 100000).toInt();
+    _autoPlayTimer = Timer.periodic(Duration(milliseconds: tickMs), (timer) {
       setState(() {
-        _progress += 0.02; // 5 seconds per story
+        _progress += 1.0 / ticks;
       });
 
       if (_progress >= 1.0) {
@@ -110,6 +136,7 @@ class _StoryViewerScreenState extends State<StoryViewerScreen> {
         curve: Curves.easeInOut,
       );
       _storyController.jumpToPage(0);
+      _fetchGroupItems(_currentGroupIndex);
       _startAutoPlay();
     } else {
       Navigator.of(context).pop();
@@ -145,10 +172,20 @@ class _StoryViewerScreenState extends State<StoryViewerScreen> {
 
     final currentGroup = widget.storyGroups[_currentGroupIndex];
     final currentStory = currentGroup.stories[_currentStoryIndex];
+    final isExpired = currentStory.expiresAt != null && DateTime.now().isAfter(currentStory.expiresAt!);
+    final isUnavailable = isExpired || currentStory.isDeleted;
 
     return Scaffold(
       backgroundColor: Colors.black,
       body: GestureDetector(
+        onLongPressStart: (_) {
+          _autoPlayTimer?.cancel();
+          setState(() => _paused = true);
+        },
+        onLongPressEnd: (_) {
+          setState(() => _paused = false);
+          _startAutoPlay();
+        },
         onTapDown: (details) {
           final screenWidth = MediaQuery.of(context).size.width;
           if (details.globalPosition.dx < screenWidth / 2) {
@@ -160,6 +197,24 @@ class _StoryViewerScreenState extends State<StoryViewerScreen> {
         onVerticalDragEnd: (details) {
           if (details.primaryVelocity != null && details.primaryVelocity! > 0) {
             Navigator.of(context).pop();
+          } else {
+            final s = currentStory;
+            if ((s.productUrl ?? '').isNotEmpty) {
+              _openProductSheet(s.productUrl!);
+            } else if ((s.externalLink ?? '').isNotEmpty) {
+              _openLinkSheet(s.externalLink!);
+            } else if (s.hasPollQuiz) {
+              _openPollSheet();
+            }
+          }
+        },
+        onHorizontalDragEnd: (details) {
+          if (details.primaryVelocity != null) {
+            if (details.primaryVelocity! > 0) {
+              _previousGroup();
+            } else {
+              _nextGroup();
+            }
           }
         },
         child: Stack(
@@ -262,10 +317,85 @@ class _StoryViewerScreenState extends State<StoryViewerScreen> {
                           ],
                         ),
                       ),
+                      PopupMenuButton<String>(
+                        icon: const Icon(Icons.more_horiz, color: Colors.white),
+                        itemBuilder: (_) => [
+                          const PopupMenuItem(value: 'report', child: Text('Report')),
+                          PopupMenuItem(value: 'mute', child: Text('Mute ${currentGroup.userName}\'s story')),
+                          if (currentGroup.isCloseFriend) const PopupMenuItem(value: 'close_friends', child: Text('Close Friends')),
+                        ],
+                      ),
                       IconButton(
                         icon: Icon(LucideIcons.x, color: Colors.white),
                         onPressed: () => Navigator.of(context).pop(),
                       ),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+            if (isUnavailable)
+              Positioned.fill(
+                child: Container(
+                  color: Colors.black.withAlpha(160),
+                  child: Center(
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        const Icon(Icons.error_outline, color: Colors.white70, size: 48),
+                        const SizedBox(height: 12),
+                        Text(
+                          isExpired ? 'This story has expired' : 'This story is no longer available',
+                          style: const TextStyle(color: Colors.white),
+                        ),
+                        const SizedBox(height: 8),
+                        ElevatedButton(onPressed: _nextGroup, child: const Text('Next story')),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+            if (_paused)
+              const Center(child: Icon(Icons.pause_circle, size: 72, color: Colors.white54)),
+            // Bottom message bar
+            Positioned(
+              bottom: 24,
+              left: 16,
+              right: 16,
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: const [
+                      Text('❤️ 😂 😮 😢 👏 🔥 🎉 💯', style: TextStyle(color: Colors.white70)),
+                    ],
+                  ),
+                  const SizedBox(height: 8),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: TextField(
+                          controller: _messageController,
+                          style: const TextStyle(color: Colors.white),
+                          decoration: InputDecoration(
+                            hintText: 'Send message',
+                            hintStyle: const TextStyle(color: Colors.white54),
+                            filled: true,
+                            fillColor: Colors.white10,
+                            border: OutlineInputBorder(borderRadius: BorderRadius.circular(24)),
+                            contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      ElevatedButton(
+                        onPressed: _messageController.text.isNotEmpty ? () {} : null,
+                        style: ElevatedButton.styleFrom(backgroundColor: Colors.blue, foregroundColor: Colors.white),
+                        child: const Text('Send'),
+                      ),
+                      const SizedBox(width: 8),
+                      IconButton(onPressed: _quickAddStory, icon: const Icon(Icons.camera_alt, color: Colors.white)),
                     ],
                   ),
                 ],
@@ -277,25 +407,204 @@ class _StoryViewerScreenState extends State<StoryViewerScreen> {
     );
   }
 
+  Future<void> _quickAddStory() async {
+    try {
+      final source = await showModalBottomSheet<ImageSource>(
+        context: context,
+        builder: (ctx) => SafeArea(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              ListTile(
+                leading: const Icon(Icons.camera_alt),
+                title: const Text('Use Camera'),
+                onTap: () => Navigator.pop(ctx, ImageSource.camera),
+              ),
+              ListTile(
+                leading: const Icon(Icons.photo_library),
+                title: const Text('Choose from Gallery'),
+                onTap: () => Navigator.pop(ctx, ImageSource.gallery),
+              ),
+            ],
+          ),
+        ),
+      );
+      if (source == null) return;
+      final picker = ImagePicker();
+      final xfile = await picker.pickImage(source: source, imageQuality: 85);
+      if (xfile == null) return;
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Uploading...')));
+      final bytes = await xfile.readAsBytes();
+      final upload = await UploadApi().uploadFileBytes(bytes: bytes.toList(), filename: 'story.jpg');
+      final url = (upload['fileUrl'] as String?) ??
+          (upload['url'] as String?) ??
+          (upload['file_url'] as String?) ??
+          (upload['data'] is Map ? (upload['data']['url'] as String?) : null) ??
+          '';
+      if (url.isEmpty) {
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Upload failed')));
+        return;
+      }
+      final payload = {
+        'media': {'url': url, 'type': 'image'},
+        'transform': {'x': 0.5, 'y': 0.5, 'scale': 1, 'rotation': 0},
+        'filter': {'name': 'none', 'intensity': 0},
+        'texts': [],
+        'mentions': [],
+      };
+      await StoriesApi().createFlexible([payload]);
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Posted to your story')));
+    } catch (e) {
+      final msg = e is ApiException ? e.message : 'Failed to add story';
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg)));
+    }
+  }
+
+  Future<void> _fetchGroupItems(int groupIndex) async {
+    final g = widget.storyGroups[groupIndex];
+    final sid = g.storyId;
+    if (sid == null || sid.isEmpty) return;
+    try {
+      final items = await _feedService.fetchStoryItems(sid, ownerUserName: g.userName, ownerAvatar: g.userAvatar);
+      setState(() {
+        widget.storyGroups[groupIndex] = StoryGroup(
+          userId: g.userId,
+          userName: g.userName,
+          userAvatar: g.userAvatar,
+          isOnline: g.isOnline,
+          isCloseFriend: g.isCloseFriend,
+          isSubscribedCreator: g.isSubscribedCreator,
+          storyId: g.storyId,
+          stories: items,
+        );
+        _currentStoryIndex = 0;
+        _progress = 0.0;
+      });
+    } catch (_) {
+      // ignore
+    }
+  }
+
   Widget _buildStoryContent(Story story) {
     final isImage = story.mediaType == StoryMediaType.image;
     final hasUrl = story.mediaUrl.isNotEmpty && (story.mediaUrl.startsWith('http://') || story.mediaUrl.startsWith('https://'));
-    return Container(
-      width: double.infinity,
-      height: double.infinity,
-      color: Colors.black,
-      child: isImage && hasUrl
-          ? CachedNetworkImage(
-              imageUrl: story.mediaUrl,
-              fit: BoxFit.contain,
-              placeholder: (_, __) => const Center(child: CircularProgressIndicator(color: Colors.white)),
-              errorWidget: (_, __, ___) => Center(child: Icon(LucideIcons.image, size: 100, color: Colors.white54)),
-            )
-          : Center(
-              child: story.mediaType == StoryMediaType.video
-                  ? Icon(LucideIcons.play, size: 100, color: Colors.white54)
-                  : Icon(LucideIcons.image, size: 100, color: Colors.white54),
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final cw = constraints.maxWidth;
+        final ch = constraints.maxHeight;
+        return Stack(
+          children: [
+            Positioned.fill(
+              child: Container(
+                color: Colors.black,
+                child: isImage && hasUrl
+                    ? CachedNetworkImage(
+                        imageUrl: story.mediaUrl,
+                        fit: BoxFit.contain,
+                        placeholder: (_, __) => const Center(child: CircularProgressIndicator(color: Colors.white)),
+                        errorWidget: (_, __, ___) => Center(child: Icon(LucideIcons.image, size: 100, color: Colors.white54)),
+                      )
+                    : Center(
+                        child: story.mediaType == StoryMediaType.video
+                            ? Icon(LucideIcons.play, size: 100, color: Colors.white54)
+                            : Icon(LucideIcons.image, size: 100, color: Colors.white54),
+                      ),
+              ),
             ),
+            ...((story.texts ?? []).asMap().entries.map((e) {
+              final t = e.value;
+              final left = ((t['x'] as num?) ?? 0) * cw;
+              final top = ((t['y'] as num?) ?? 0) * ch;
+              final rotation = (t['rotation'] as num?) ?? 0;
+              final fontSize = (t['fontSize'] as num?) ?? 14;
+              final colorStr = (t['color'] as String?) ?? '#ffffff';
+              Color color = Colors.white;
+              if (colorStr.startsWith('#') && (colorStr.length == 7 || colorStr.length == 9)) {
+                final hex = colorStr.substring(1);
+                final val = int.tryParse(hex, radix: 16);
+                if (val != null) {
+                  color = Color(colorStr.length == 9 ? val : (0xFF000000 | val));
+                }
+              }
+              final hasBg = (t['background'] as bool?) ?? false;
+              return Positioned(
+                left: left.clamp(0, cw - 8),
+                top: top.clamp(0, ch - 8),
+                child: Transform.rotate(
+                  angle: rotation.toDouble() * 3.1415926535 / 180.0,
+                  child: Container(
+                    padding: EdgeInsets.symmetric(horizontal: hasBg ? 6 : 0, vertical: hasBg ? 4 : 0),
+                    decoration: BoxDecoration(
+                      color: hasBg ? Colors.black.withValues(alpha: 0.4) : Colors.transparent,
+                      borderRadius: hasBg ? BorderRadius.circular(8) : null,
+                    ),
+                    child: Text(
+                      (t['content'] as String?) ?? '',
+                      style: TextStyle(
+                        color: color,
+                        fontSize: fontSize.toDouble(),
+                        fontFamily: (t['fontFamily'] as String?) ?? null,
+                      ),
+                      textAlign: _toAlign((t['align'] as String?) ?? 'left'),
+                    ),
+                  ),
+                ),
+              );
+            }).toList()),
+            ...((story.mentions ?? []).asMap().entries.map((e) {
+              final m = e.value;
+              final left = ((m['x'] as num?) ?? 0) * cw;
+              final top = ((m['y'] as num?) ?? 0) * ch;
+              final username = (m['username'] as String?) ?? '';
+              return Positioned(
+                left: left.clamp(0, cw - 8),
+                top: top.clamp(0, ch - 8),
+                child: Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                  decoration: BoxDecoration(
+                    color: Colors.white.withValues(alpha: 0.3),
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  child: Text('@$username', style: const TextStyle(color: Colors.white, fontSize: 12)),
+                ),
+              );
+            }).toList()),
+          ],
+        );
+      },
+    );
+  }
+
+  void _openProductSheet(String url) {
+    showModalBottomSheet(
+      context: context,
+      builder: (_) => Container(
+        padding: const EdgeInsets.all(16),
+        child: Column(mainAxisSize: MainAxisSize.min, children: [const Text('Product'), Text(url)]),
+      ),
+    );
+  }
+
+  void _openLinkSheet(String url) {
+    showModalBottomSheet(
+      context: context,
+      builder: (_) => Container(
+        padding: const EdgeInsets.all(16),
+        child: Column(mainAxisSize: MainAxisSize.min, children: [const Text('Link'), Text(url)]),
+      ),
+    );
+  }
+
+  void _openPollSheet() {
+    showModalBottomSheet(
+      context: context,
+      builder: (_) => Container(
+        padding: const EdgeInsets.all(16),
+        child: Column(mainAxisSize: MainAxisSize.min, children: [
+          const Text('Poll / Quiz'),
+          ElevatedButton(onPressed: () => Navigator.pop(context), child: const Text('Vote')),
+        ]),
+      ),
     );
   }
 
@@ -309,6 +618,17 @@ class _StoryViewerScreenState extends State<StoryViewerScreen> {
       return '${difference.inMinutes}m ago';
     } else {
       return 'Just now';
+    }
+  }
+
+  TextAlign _toAlign(String a) {
+    switch (a) {
+      case 'center':
+        return TextAlign.center;
+      case 'right':
+        return TextAlign.right;
+      default:
+        return TextAlign.left;
     }
   }
 }

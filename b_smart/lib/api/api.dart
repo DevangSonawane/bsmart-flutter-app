@@ -6,3 +6,4 @@ export 'users_api.dart';
 export 'posts_api.dart';
 export 'comments_api.dart';
 export 'upload_api.dart';
+export 'stories_api.dart';
