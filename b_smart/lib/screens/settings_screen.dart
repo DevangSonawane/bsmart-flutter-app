@@ -130,7 +130,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   width: 40,
                   height: 40,
                   decoration: BoxDecoration(color: DesignTokens.instaPink.withOpacity(0.12), shape: BoxShape.circle),
-                  child: Icon(LucideIcons.moon, color: DesignTokens.instaPink, size: 20),
+                  child: Icon(isDark ? LucideIcons.moon : LucideIcons.sun, color: DesignTokens.instaPink, size: 20),
                 ),
                 const SizedBox(width: 16),
                 Expanded(

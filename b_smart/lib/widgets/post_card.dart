@@ -35,6 +35,7 @@ class _PostCardState extends State<PostCard> {
   Future<void>? _initVideo;
   Map<String, String>? _imageHeaders;
   String? _resolvedImageUrl;
+  double? _mediaAspect;
 
   @override
   void initState() {
@@ -87,6 +88,7 @@ class _PostCardState extends State<PostCard> {
     _videoCtl?.dispose();
     _videoCtl = null;
     _initVideo = null;
+    _mediaAspect = null;
   }
 
   @override
@@ -161,6 +163,31 @@ class _PostCardState extends State<PostCard> {
     if (mounted) setState(() => _resolvedImageUrl = candidates.first);
   }
 
+  void _computeImageAspect(ImageProvider provider) {
+    final imageStream = provider.resolve(const ImageConfiguration());
+    ImageStreamListener? listener;
+    listener = ImageStreamListener((ImageInfo info, bool _) {
+      final w = info.image.width.toDouble();
+      final h = info.image.height.toDouble();
+      if (h > 0) {
+        final ar = w / h;
+        if (mounted) setState(() => _mediaAspect = _normalizedAspect(ar));
+      }
+      imageStream.removeListener(listener!);
+    }, onError: (_, __) {
+      imageStream.removeListener(listener!);
+    });
+    imageStream.addListener(listener);
+  }
+
+  double _normalizedAspect(double raw) {
+    if (raw.isNaN || raw <= 0) return 1.0;
+    if (widget.post.isAd) return 1.0;
+    if (raw < 0.9) return 4 / 5;
+    if (raw > 1.2) return 16 / 9;
+    return 1.0;
+  }
+
   Future<void> _initVideoFromCandidates(List<String> candidates) async {
     // Ensure headers are ready; if not, fetch token quickly
     if (_imageHeaders == null) {
@@ -180,7 +207,11 @@ class _PostCardState extends State<PostCard> {
         _videoCtl!.setLooping(true);
         _videoCtl!.setVolume(0);
         _videoCtl!.play();
-        if (mounted) setState(() {});
+        if (mounted) {
+          setState(() {
+            _mediaAspect = _normalizedAspect(_videoCtl!.value.aspectRatio);
+          });
+        }
         return;
       } catch (_) {
         // Try next candidate
@@ -298,48 +329,13 @@ class _PostCardState extends State<PostCard> {
 
           // Media
           if (post.mediaUrls.isNotEmpty)
-            AspectRatio(
-              aspectRatio: 1,
-              child: ClipRect(
-                child: (post.mediaType.name == 'video' || post.mediaType.name == 'reel')
-                    ? (_videoCtl != null
-                        ? FutureBuilder(
-                            future: _initVideo,
-                            builder: (ctx, snap) {
-                              if (snap.connectionState != ConnectionState.done) {
-                                return Container(
-                                  color: isDark ? const Color(0xFF1E1E1E) : Colors.grey.shade200,
-                                  child: Center(
-                                    child: CircularProgressIndicator(
-                                      strokeWidth: 2,
-                                      color: DesignTokens.instaPink,
-                                    ),
-                                  ),
-                                );
-                              }
-                              return FittedBox(
-                                fit: BoxFit.cover,
-                                clipBehavior: Clip.hardEdge,
-                                child: SizedBox(
-                                  width: _videoCtl!.value.size.width,
-                                  height: _videoCtl!.value.size.height,
-                                  child: VideoPlayer(_videoCtl!),
-                                ),
-                              );
-                            },
-                          )
-                        : Container(
-                            color: isDark ? const Color(0xFF1E1E1E) : Colors.grey.shade200,
-                            child: Center(
-                              child: CircularProgressIndicator(
-                                strokeWidth: 2,
-                                color: DesignTokens.instaPink,
-                              ),
-                            ),
-                          ))
-                    : CachedNetworkImage(
+            ClipRect(
+              child: post.isAd
+                  // Ads: strict 1:1 ratio like web
+                  ? AspectRatio(
+                      aspectRatio: 1,
+                      child: CachedNetworkImage(
                         imageUrl: _resolvedImageUrl ?? post.mediaUrls.first,
-                        // Include auth signature in cacheKey so header changes bust cache
                         cacheKey:
                             '${_resolvedImageUrl ?? post.mediaUrls.first}#${_imageHeaders?['Authorization'] ?? ''}',
                         httpHeaders: _imageHeaders,
@@ -361,7 +357,76 @@ class _PostCardState extends State<PostCard> {
                           ),
                         ),
                       ),
-              ),
+                    )
+                  // Regular posts: contain within min/max height like React
+                  : ConstrainedBox(
+                      constraints: const BoxConstraints(
+                        minHeight: 300,
+                        maxHeight: 600,
+                      ),
+                      child: SizedBox(
+                        width: double.infinity,
+                        child: (post.mediaType.name == 'video' || post.mediaType.name == 'reel')
+                            ? (_videoCtl != null
+                                ? FutureBuilder(
+                                    future: _initVideo,
+                                    builder: (ctx, snap) {
+                                      if (snap.connectionState != ConnectionState.done) {
+                                        return Container(
+                                          color: isDark ? const Color(0xFF1E1E1E) : Colors.black,
+                                          child: Center(
+                                            child: CircularProgressIndicator(
+                                              strokeWidth: 2,
+                                              color: DesignTokens.instaPink,
+                                            ),
+                                          ),
+                                        );
+                                      }
+                                      return FittedBox(
+                                        fit: BoxFit.contain,
+                                        clipBehavior: Clip.hardEdge,
+                                        child: SizedBox(
+                                          width: _videoCtl!.value.size.width,
+                                          height: _videoCtl!.value.size.height,
+                                          child: VideoPlayer(_videoCtl!),
+                                        ),
+                                      );
+                                    },
+                                  )
+                                : Container(
+                                    color: isDark ? const Color(0xFF1E1E1E) : Colors.black,
+                                    child: Center(
+                                      child: CircularProgressIndicator(
+                                        strokeWidth: 2,
+                                        color: DesignTokens.instaPink,
+                                      ),
+                                    ),
+                                  ))
+                            : CachedNetworkImage(
+                                imageUrl: _resolvedImageUrl ?? post.mediaUrls.first,
+                                cacheKey:
+                                    '${_resolvedImageUrl ?? post.mediaUrls.first}#${_imageHeaders?['Authorization'] ?? ''}',
+                                httpHeaders: _imageHeaders,
+                                fit: BoxFit.contain,
+                                width: double.infinity,
+                                placeholder: (ctx, url) => Container(
+                                  color: isDark ? const Color(0xFF1E1E1E) : Colors.black,
+                                  child: Center(
+                                    child: CircularProgressIndicator(
+                                      strokeWidth: 2,
+                                      color: DesignTokens.instaPink,
+                                    ),
+                                  ),
+                                ),
+                                errorWidget: (ctx, url, err) => Container(
+                                  color: isDark ? const Color(0xFF1E1E1E) : Colors.black,
+                                  child: Center(
+                                    child: Icon(LucideIcons.imageOff, size: 48, color: mutedColor),
+                                  ),
+                                ),
+                              ),
+                      ),
+                    ),
             )
           else
             AspectRatio(
@@ -376,7 +441,7 @@ class _PostCardState extends State<PostCard> {
 
           // Action bar: like, comment, share, save (Instagram order)
           Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 4),
+            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
             child: Row(
               children: [
                 AnimatedScale(

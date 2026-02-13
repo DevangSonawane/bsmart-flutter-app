@@ -343,8 +343,8 @@ class _ProfileScreenState extends State<ProfileScreen> {
                 height: 64,
                 decoration: BoxDecoration(
                   shape: BoxShape.circle,
-                  border: Border.all(color: Colors.grey.shade200),
-                  color: Colors.white,
+                  border: Border.all(color: Theme.of(context).dividerColor),
+                  color: Theme.of(context).cardColor,
                 ),
                 padding: const EdgeInsets.all(2),
                 child: ClipOval(
@@ -352,7 +352,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                 ),
               ),
               const SizedBox(height: 6),
-              SizedBox(width: 72, child: Text(h.title, textAlign: TextAlign.center, overflow: TextOverflow.ellipsis, style: const TextStyle(fontSize: 12))),
+              SizedBox(width: 72, child: Text(h.title, textAlign: TextAlign.center, overflow: TextOverflow.ellipsis, style: TextStyle(fontSize: 12, color: Theme.of(context).colorScheme.onSurface))),
             ],
           );
         },

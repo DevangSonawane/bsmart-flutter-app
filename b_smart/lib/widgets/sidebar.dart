@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 import '../theme/design_tokens.dart';
+import '../theme/theme_scope.dart';
 
 /// Desktop sidebar matching React: collapsible on hover, nav items, Create dropdown.
 class Sidebar extends StatefulWidget {
@@ -30,6 +31,9 @@ class _SidebarState extends State<Sidebar> {
 
   @override
   Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final isDark = theme.brightness == Brightness.dark;
+    final inactiveColor = isDark ? Colors.grey.shade200 : Colors.grey.shade800;
     return MouseRegion(
       onEnter: (_) => setState(() => _hovered = true),
       onExit: (_) => setState(() {
@@ -40,8 +44,8 @@ class _SidebarState extends State<Sidebar> {
         duration: const Duration(milliseconds: 300),
         width: _hovered ? _wideWidth : _narrowWidth,
         decoration: BoxDecoration(
-          color: Colors.white,
-          border: Border(right: BorderSide(color: Colors.grey.shade200)),
+          color: theme.scaffoldBackgroundColor,
+          border: Border(right: BorderSide(color: isDark ? Colors.grey.shade800 : Colors.grey.shade200)),
         ),
         child: Column(
           children: [
@@ -90,8 +94,8 @@ class _SidebarState extends State<Sidebar> {
               child: ListView(
                 padding: const EdgeInsets.symmetric(horizontal: 12),
                 children: [
-                  _NavItem(icon: LucideIcons.house, label: 'Home', index: 0, currentIndex: widget.currentIndex, hovered: _hovered, onTap: () => widget.onNavTap(0)),
-                  _NavItem(icon: LucideIcons.target, label: 'Ads', index: 1, currentIndex: widget.currentIndex, hovered: _hovered, onTap: () => widget.onNavTap(1)),
+                  _NavItem(icon: LucideIcons.house, label: 'Home', index: 0, currentIndex: widget.currentIndex, hovered: _hovered, onTap: () => widget.onNavTap(0), inactiveColor: inactiveColor),
+                  _NavItem(icon: LucideIcons.target, label: 'Ads', index: 1, currentIndex: widget.currentIndex, hovered: _hovered, onTap: () => widget.onNavTap(1), inactiveColor: inactiveColor),
                   _CreateItem(
                     currentIndex: widget.currentIndex,
                     hovered: _hovered,
@@ -107,12 +111,40 @@ class _SidebarState extends State<Sidebar> {
                       widget.onUploadReel?.call();
                     },
                   ),
-                  _NavItem(icon: LucideIcons.megaphone, label: 'Promote', index: 3, currentIndex: widget.currentIndex, hovered: _hovered, onTap: () => widget.onNavTap(3)),
-                  _NavItem(icon: LucideIcons.clapperboard, label: 'Reels', index: 4, currentIndex: widget.currentIndex, hovered: _hovered, onTap: () => widget.onNavTap(4)),
-                  _NavItem(icon: LucideIcons.user, label: 'Profile', index: 5, currentIndex: widget.currentIndex, hovered: _hovered, onTap: () => widget.onNavTap(5)), // 5 = profile (navigate in parent)
+                  _NavItem(icon: LucideIcons.megaphone, label: 'Promote', index: 3, currentIndex: widget.currentIndex, hovered: _hovered, onTap: () => widget.onNavTap(3), inactiveColor: inactiveColor),
+                  _NavItem(icon: LucideIcons.clapperboard, label: 'Reels', index: 4, currentIndex: widget.currentIndex, hovered: _hovered, onTap: () => widget.onNavTap(4), inactiveColor: inactiveColor),
+                  _NavItem(icon: LucideIcons.user, label: 'Profile', index: 5, currentIndex: widget.currentIndex, hovered: _hovered, onTap: () => widget.onNavTap(5), inactiveColor: inactiveColor),
                   const SizedBox(height: 16),
-                  _NavItem(icon: LucideIcons.menu, label: 'More', index: -1, currentIndex: -2, hovered: _hovered, onTap: () {}),
+                  _NavItem(icon: LucideIcons.menu, label: 'More', index: -1, currentIndex: -2, hovered: _hovered, onTap: () {}, inactiveColor: inactiveColor),
                 ],
+              ),
+            ),
+            Padding(
+              padding: const EdgeInsets.all(12),
+              child: Material(
+                color: Colors.transparent,
+                child: InkWell(
+                  onTap: () => ThemeScope.of(context).toggle(),
+                  borderRadius: BorderRadius.circular(12),
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                    child: Row(
+                      mainAxisAlignment: _hovered ? MainAxisAlignment.start : MainAxisAlignment.center,
+                      children: [
+                        Icon(isDark ? LucideIcons.moon : LucideIcons.sun, size: 22, color: inactiveColor),
+                        if (_hovered) ...[
+                          const SizedBox(width: 12),
+                          Text('Appearance', style: TextStyle(color: inactiveColor, fontWeight: FontWeight.w500)),
+                          const Spacer(),
+                          Switch(
+                            value: isDark,
+                            onChanged: (_) => ThemeScope.of(context).toggle(),
+                          ),
+                        ],
+                      ],
+                    ),
+                  ),
+                ),
               ),
             ),
           ],
@@ -129,6 +161,7 @@ class _NavItem extends StatelessWidget {
   final int currentIndex;
   final bool hovered;
   final VoidCallback onTap;
+  final Color inactiveColor;
 
   const _NavItem({
     required this.icon,
@@ -137,6 +170,7 @@ class _NavItem extends StatelessWidget {
     required this.currentIndex,
     required this.hovered,
     required this.onTap,
+    required this.inactiveColor,
   });
 
   @override
@@ -154,7 +188,7 @@ class _NavItem extends StatelessWidget {
             padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
             child: Row(
               children: [
-                Icon(icon, size: 24, color: active ? DesignTokens.instaPink : Colors.grey.shade800),
+                Icon(icon, size: 24, color: active ? DesignTokens.instaPink : inactiveColor),
                 if (hovered) ...[
                   const SizedBox(width: 16),
                   Expanded(
@@ -163,7 +197,7 @@ class _NavItem extends StatelessWidget {
                       style: TextStyle(
                         fontSize: 16,
                         fontWeight: active ? FontWeight.bold : FontWeight.w500,
-                        color: active ? DesignTokens.instaPink : Colors.grey.shade800,
+                        color: active ? DesignTokens.instaPink : inactiveColor,
                       ),
                       overflow: TextOverflow.ellipsis,
                     ),
@@ -200,6 +234,8 @@ class _CreateItem extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final active = dropdownOpen;
+    final theme = Theme.of(context);
+    final isDark = theme.brightness == Brightness.dark;
     return Padding(
       padding: const EdgeInsets.only(bottom: 4),
       child: Stack(
@@ -246,9 +282,9 @@ class _CreateItem extends StatelessWidget {
                   width: 192,
                   padding: const EdgeInsets.symmetric(vertical: 8),
                   decoration: BoxDecoration(
-                    color: Colors.white,
+                            color: theme.cardColor,
                     borderRadius: BorderRadius.circular(12),
-                    border: Border.all(color: Colors.grey.shade100),
+                            border: Border.all(color: isDark ? Colors.grey.shade800 : Colors.grey.shade100),
                   ),
                   child: Column(
                     mainAxisSize: MainAxisSize.min,

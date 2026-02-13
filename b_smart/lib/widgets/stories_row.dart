@@ -25,6 +25,8 @@ class StoriesRow extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final isDark = theme.brightness == Brightness.dark;
     return SizedBox(
       height: 100,
       child: ListView.separated(
@@ -109,6 +111,8 @@ class _StoryItem extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final isDark = theme.brightness == Brightness.dark;
     return Column(
       children: [
         GestureDetector(
@@ -126,7 +130,7 @@ class _StoryItem extends StatelessWidget {
             padding: EdgeInsets.all(segmentsCount > 1 ? 2 : 3),
             child: CircleAvatar(
               radius: 28,
-              backgroundColor: Colors.white,
+              backgroundColor: isDark ? Colors.black : Colors.white,
               backgroundImage: avatarUrl != null ? NetworkImage(avatarUrl!) : null,
               child: avatarUrl == null ? Icon(LucideIcons.user, color: Colors.grey) : null,
             ),
@@ -175,7 +179,7 @@ class _StoryItem extends StatelessWidget {
             label,
             overflow: TextOverflow.ellipsis,
             textAlign: TextAlign.center,
-            style: const TextStyle(fontSize: 12),
+            style: TextStyle(fontSize: 12, color: theme.colorScheme.onSurface),
           ),
         ),
       ],

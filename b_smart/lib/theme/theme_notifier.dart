@@ -1,5 +1,6 @@
 import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'dart:ui' as ui;
 
 const String _kDarkModeKey = 'dark_mode';
 
@@ -12,8 +13,15 @@ class ThemeNotifier extends ChangeNotifier {
 
   static Future<ThemeNotifier> create() async {
     final prefs = await SharedPreferences.getInstance();
-    final isDark = prefs.getBool(_kDarkModeKey) ?? false;
-    return ThemeNotifier(initialDark: isDark);
+    final stored = prefs.getBool(_kDarkModeKey);
+    bool initial;
+    if (stored != null) {
+      initial = stored;
+    } else {
+      final brightness = ui.PlatformDispatcher.instance.platformBrightness;
+      initial = brightness == ui.Brightness.dark;
+    }
+    return ThemeNotifier(initialDark: initial);
   }
 
   Future<void> setDark(bool value) async {
