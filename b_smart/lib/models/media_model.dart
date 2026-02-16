@@ -57,6 +57,37 @@ class PostDraft {
   });
 }
 
+enum UploadMode {
+  post,
+  story,
+  reel,
+  live;
+
+  String get displayName {
+    switch (this) {
+      case UploadMode.post:
+        return 'POST';
+      case UploadMode.story:
+        return 'STORY';
+      case UploadMode.reel:
+        return 'REEL';
+      case UploadMode.live:
+        return 'LIVE';
+    }
+  }
+
+  double get aspectRatio {
+    switch (this) {
+      case UploadMode.post:
+        return 1.0;
+      case UploadMode.story:
+      case UploadMode.reel:
+      case UploadMode.live:
+        return 9 / 16;
+    }
+  }
+}
+
 class Filter {
   final String id;
   final String name;

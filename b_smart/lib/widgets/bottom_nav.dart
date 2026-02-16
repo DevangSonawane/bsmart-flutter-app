@@ -37,7 +37,7 @@ class _BottomNavState extends State<BottomNav> {
       child: SafeArea(
         top: false,
         child: SizedBox(
-          height: 60,
+          height: 42,
           child: Row(
             mainAxisAlignment: MainAxisAlignment.spaceAround,
             children: [
@@ -59,7 +59,7 @@ class _BottomNavState extends State<BottomNav> {
       onTap: () => widget.onTap(index),
       borderRadius: BorderRadius.circular(12),
       child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 0),
         child: Icon(
           icon,
           size: 26,
@@ -72,7 +72,7 @@ class _BottomNavState extends State<BottomNav> {
   Widget _buildCreateButton(BuildContext context) {
     final theme = Theme.of(context);
     return Transform.translate(
-      offset: const Offset(0, -12),
+      offset: const Offset(0, -8),
       child: GestureDetector(
         onTap: () {
           setState(() => _rotating = true);

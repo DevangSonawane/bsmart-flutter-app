@@ -125,6 +125,14 @@ class _InstagramFeedScreenState extends State<InstagramFeedScreen> {
     });
   }
 
+  void _handleFollow(FeedPost post) {
+    setState(() {
+      final index = _feedPosts.indexWhere((p) => p.id == post.id);
+      if (index != -1) {
+        _feedPosts[index] = _feedService.toggleFollow(post);
+      }
+    });
+  }
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -595,6 +603,14 @@ class _InstagramFeedScreenState extends State<InstagramFeedScreen> {
             onPressed: () {},
           ),
           const Spacer(),
+          IconButton(
+            icon: Icon(
+              post.isFollowed ? Icons.person_add_alt_1 : Icons.person_add_alt_1_outlined,
+              color: post.isFollowed ? InstagramTheme.primaryPink : InstagramTheme.textBlack,
+              size: 28,
+            ),
+            onPressed: () => _handleFollow(post),
+          ),
           IconButton(
             icon: Icon(
               post.isSaved ? Icons.bookmark : Icons.bookmark_border,

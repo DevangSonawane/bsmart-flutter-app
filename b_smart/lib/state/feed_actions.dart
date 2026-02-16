@@ -29,6 +29,12 @@ class UpdatePostSaved {
   UpdatePostSaved(this.postId, this.saved);
 }
 
+class UpdatePostFollowed {
+  final String postId;
+  final bool followed;
+  UpdatePostFollowed(this.postId, this.followed);
+}
+
 class RemovePost {
   final String postId;
   RemovePost(this.postId);

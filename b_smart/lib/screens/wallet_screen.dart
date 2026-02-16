@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 import '../services/wallet_service.dart';
+import '../models/account_details_model.dart';
 import '../theme/instagram_theme.dart';
 import '../theme/design_tokens.dart';
 import '../widgets/clay_container.dart';
@@ -8,6 +9,8 @@ import 'coins_history_screen.dart';
 import 'account_details_screen.dart';
 import '../models/ledger_model.dart';
 enum _HistoryState { hidden, minimal, expanded }
+enum _MenuSection { none, accountDetails, redeem, help }
+enum _TransactionQuickFilter { all, earned, spent, expired }
 
 class WalletScreen extends StatefulWidget {
   const WalletScreen({super.key});
@@ -16,7 +19,7 @@ class WalletScreen extends StatefulWidget {
   State<WalletScreen> createState() => _WalletScreenState();
 }
 
-class _WalletScreenState extends State<WalletScreen> {
+class _WalletScreenState extends State<WalletScreen> with TickerProviderStateMixin {
   final WalletService _walletService = WalletService();
   int _coinBalance = 0;
   double _equivalentValue = 0;
@@ -33,12 +36,22 @@ class _WalletScreenState extends State<WalletScreen> {
   String _coinsComparator = 'any'; // any, =, >=, <=
   int? _coinsValue;
   _HistoryState _historyState = _HistoryState.hidden;
+  _MenuSection _menuOpen = _MenuSection.none;
+  _TransactionQuickFilter _transactionQuickFilter = _TransactionQuickFilter.all;
+  final _nameController = TextEditingController();
+  final _accountNumberController = TextEditingController();
+  final _bankNameController = TextEditingController();
+  final _ifscController = TextEditingController();
+  String _selectedPaymentMethod = 'UPI';
+  bool _isSavingDetails = false;
+  AccountDetails? _existingDetails;
 
   @override
   void initState() {
     super.initState();
     _loadBalance();
     _seedTransactions();
+    _loadAccountDetails();
   }
 
   Future<void> _loadBalance() async {
@@ -59,19 +72,6 @@ class _WalletScreenState extends State<WalletScreen> {
         title: const Text('Wallet'),
         backgroundColor: Colors.transparent,
         foregroundColor: InstagramTheme.textBlack,
-        actions: [
-          IconButton(
-            icon: const Icon(Icons.history),
-            tooltip: 'Coins History',
-            onPressed: () {
-              Navigator.of(context).push(
-                MaterialPageRoute(
-                  builder: (context) => const CoinsHistoryScreen(),
-                ),
-              );
-            },
-          ),
-        ],
       ),
       body: RefreshIndicator(
         onRefresh: () async {
@@ -122,6 +122,17 @@ class _WalletScreenState extends State<WalletScreen> {
                         ),
                       ],
                     ),
+                    if (!_isLifeTime)
+                      Padding(
+                        padding: const EdgeInsets.only(top: 4),
+                        child: Align(
+                          alignment: Alignment.centerRight,
+                          child: Text(
+                            _monthName(DateTime.now().month),
+                            style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w600),
+                          ),
+                        ),
+                      ),
                     const SizedBox(height: 8),
                     Row(
                       crossAxisAlignment: CrossAxisAlignment.end,
@@ -137,14 +148,6 @@ class _WalletScreenState extends State<WalletScreen> {
                         ),
                       ],
                     ),
-                    if (!_isLifeTime)
-                      Padding(
-                        padding: const EdgeInsets.only(top: 6),
-                        child: Text(
-                          _monthName(DateTime.now().month),
-                          style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w600),
-                        ),
-                      ),
                     const SizedBox(height: 12),
                     Row(
                       mainAxisAlignment: MainAxisAlignment.spaceBetween,
@@ -152,21 +155,21 @@ class _WalletScreenState extends State<WalletScreen> {
                         Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
+                            const Text('Total Earned', style: TextStyle(color: Colors.white)),
                             Text(
                               (_isLifeTime ? _totalEarnedLifetime : _totalEarnedMonth).toString(),
                               style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
                             ),
-                            const Text('Total Earned', style: TextStyle(color: Colors.white)),
                           ],
                         ),
                         Column(
                           crossAxisAlignment: CrossAxisAlignment.end,
                           children: [
+                            const Text('Total Spent', style: TextStyle(color: Colors.white)),
                             Text(
                               (_isLifeTime ? _totalSpentLifetime : _totalSpentMonth).toString(),
                               style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
                             ),
-                            const Text('Total Spent', style: TextStyle(color: Colors.white)),
                           ],
                         ),
                       ],
@@ -232,25 +235,22 @@ class _WalletScreenState extends State<WalletScreen> {
           icon: Icons.account_balance_wallet_outlined,
           title: 'Account Details',
           subtitle: 'Manage payout account',
-          onTap: () {
-            Navigator.of(context).push(
-              MaterialPageRoute(
-                builder: (context) => const AccountDetailsScreen(),
-              ),
-            );
-          },
+          section: _MenuSection.accountDetails,
+          buildContent: () => _buildAccountDetailsInline(),
         ),
         _buildMenuItem(
           icon: Icons.redeem_outlined,
           title: 'Redeem Coins',
           subtitle: 'Use coins for orders',
-          onTap: _showRedeemDialog,
+          section: _MenuSection.redeem,
+          buildContent: () => _buildRedeemInline(),
         ),
         _buildMenuItem(
           icon: Icons.help_outline,
           title: 'Help',
           subtitle: 'Wallet & coins FAQs',
-          onTap: _showHelpDialog,
+          section: _MenuSection.help,
+          buildContent: () => _buildHelpInline(),
         ),
       ],
     );
@@ -301,6 +301,24 @@ class _WalletScreenState extends State<WalletScreen> {
         timestamp: now.subtract(const Duration(hours: 3)),
         status: LedgerTransactionStatus.completed,
         description: 'Redeemed on order #9c2656b4',
+      ),
+      LedgerTransaction(
+        id: 't5',
+        userId: 'me',
+        type: LedgerTransactionType.adReward,
+        amount: 20,
+        timestamp: now.subtract(const Duration(days: 2, hours: 4)),
+        status: LedgerTransactionStatus.failed,
+        description: 'Expired bonus coins',
+      ),
+      LedgerTransaction(
+        id: 't6',
+        userId: 'me',
+        type: LedgerTransactionType.payout,
+        amount: -50,
+        timestamp: now.subtract(const Duration(days: 5)),
+        status: LedgerTransactionStatus.blocked,
+        description: 'Expired cashback redemption',
       ),
     ];
     _recalculateTotals();
@@ -361,19 +379,21 @@ class _WalletScreenState extends State<WalletScreen> {
                   ),
                 ),
                 const SizedBox(width: 8),
-                PopupMenuButton<_HistoryState>(
-                  tooltip: 'View',
-                  icon: const Icon(Icons.expand_more),
-                  onSelected: (sel) {
-                    setState(() {
-                      _historyState = sel;
-                    });
-                  },
-                  itemBuilder: (ctx) => const [
-                    PopupMenuItem(value: _HistoryState.hidden, child: Text('Hide')),
-                    PopupMenuItem(value: _HistoryState.minimal, child: Text('Minimal')),
-                    PopupMenuItem(value: _HistoryState.expanded, child: Text('Show All')),
-                  ],
+                AnimatedRotation(
+                  turns: _historyState == _HistoryState.hidden ? 0.0 : 0.25,
+                  duration: const Duration(milliseconds: 180),
+                  curve: Curves.linear,
+                  child: IconButton(
+                    tooltip: 'Toggle view',
+                    icon: const Icon(Icons.chevron_right),
+                    onPressed: () {
+                      setState(() {
+                        _historyState = _historyState == _HistoryState.hidden
+                            ? _HistoryState.minimal
+                            : _HistoryState.hidden;
+                      });
+                    },
+                  ),
                 ),
               ],
             ),
@@ -388,24 +408,177 @@ class _WalletScreenState extends State<WalletScreen> {
               border: Border.all(color: InstagramTheme.borderGrey),
             ),
             constraints: BoxConstraints(maxHeight: _historyState == _HistoryState.expanded ? 300 : 180),
-            child: _historyState == _HistoryState.expanded
-                ? Scrollbar(
-                    interactive: true,
-                    child: ListView.separated(
-                      padding: const EdgeInsets.all(8),
-                      itemBuilder: (ctx, i) => _buildTransactionRow(display[i]),
-                      separatorBuilder: (ctx, i) => const Divider(height: 1),
-                      itemCount: display.length,
-                    ),
-                  )
-                : ListView.separated(
-                    shrinkWrap: true,
-                    physics: const NeverScrollableScrollPhysics(),
-                    padding: const EdgeInsets.all(8),
-                    itemBuilder: (ctx, i) => _buildTransactionRow(display[i]),
-                    separatorBuilder: (ctx, i) => const Divider(height: 1),
-                    itemCount: display.length,
+            child: Column(
+              children: [
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
+                  child: Row(
+                    children: [
+                      Expanded(
+                        child: GestureDetector(
+                          onTap: () {
+                            setState(() {
+                              _transactionQuickFilter = _TransactionQuickFilter.all;
+                            });
+                          },
+                          child: Container(
+                            height: 32,
+                            decoration: BoxDecoration(
+                              borderRadius: BorderRadius.circular(16),
+                              color: _transactionQuickFilter == _TransactionQuickFilter.all
+                                  ? InstagramTheme.primaryPink.withValues(alpha: 0.1)
+                                  : Colors.transparent,
+                              border: Border.all(
+                                color: _transactionQuickFilter == _TransactionQuickFilter.all
+                                    ? InstagramTheme.primaryPink
+                                    : InstagramTheme.borderGrey,
+                              ),
+                            ),
+                            alignment: Alignment.center,
+                            child: Text(
+                              'All',
+                              style: TextStyle(
+                                fontSize: 12,
+                                fontWeight: FontWeight.w600,
+                                color: _transactionQuickFilter == _TransactionQuickFilter.all
+                                    ? InstagramTheme.primaryPink
+                                    : (isDark ? Colors.white : InstagramTheme.textBlack),
+                              ),
+                            ),
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: GestureDetector(
+                          onTap: () {
+                            setState(() {
+                              _transactionQuickFilter = _TransactionQuickFilter.earned;
+                            });
+                          },
+                          child: Container(
+                            height: 32,
+                            decoration: BoxDecoration(
+                              borderRadius: BorderRadius.circular(16),
+                              color: _transactionQuickFilter == _TransactionQuickFilter.earned
+                                  ? InstagramTheme.primaryPink.withValues(alpha: 0.1)
+                                  : Colors.transparent,
+                              border: Border.all(
+                                color: _transactionQuickFilter == _TransactionQuickFilter.earned
+                                    ? InstagramTheme.primaryPink
+                                    : InstagramTheme.borderGrey,
+                              ),
+                            ),
+                            alignment: Alignment.center,
+                            child: Text(
+                              'Earned',
+                              style: TextStyle(
+                                fontSize: 12,
+                                fontWeight: FontWeight.w600,
+                                color: _transactionQuickFilter == _TransactionQuickFilter.earned
+                                    ? InstagramTheme.primaryPink
+                                    : (isDark ? Colors.white : InstagramTheme.textBlack),
+                              ),
+                            ),
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: GestureDetector(
+                          onTap: () {
+                            setState(() {
+                              _transactionQuickFilter = _TransactionQuickFilter.spent;
+                            });
+                          },
+                          child: Container(
+                            height: 32,
+                            decoration: BoxDecoration(
+                              borderRadius: BorderRadius.circular(16),
+                              color: _transactionQuickFilter == _TransactionQuickFilter.spent
+                                  ? InstagramTheme.primaryPink.withValues(alpha: 0.1)
+                                  : Colors.transparent,
+                              border: Border.all(
+                                color: _transactionQuickFilter == _TransactionQuickFilter.spent
+                                    ? InstagramTheme.primaryPink
+                                    : InstagramTheme.borderGrey,
+                              ),
+                            ),
+                            alignment: Alignment.center,
+                            child: Text(
+                              'Spent',
+                              style: TextStyle(
+                                fontSize: 12,
+                                fontWeight: FontWeight.w600,
+                                color: _transactionQuickFilter == _TransactionQuickFilter.spent
+                                    ? InstagramTheme.primaryPink
+                                    : (isDark ? Colors.white : InstagramTheme.textBlack),
+                              ),
+                            ),
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: GestureDetector(
+                          onTap: () {
+                            setState(() {
+                              _transactionQuickFilter = _TransactionQuickFilter.expired;
+                            });
+                          },
+                          child: Container(
+                            height: 32,
+                            decoration: BoxDecoration(
+                              borderRadius: BorderRadius.circular(16),
+                              color: _transactionQuickFilter == _TransactionQuickFilter.expired
+                                  ? InstagramTheme.primaryPink.withValues(alpha: 0.1)
+                                  : Colors.transparent,
+                              border: Border.all(
+                                color: _transactionQuickFilter == _TransactionQuickFilter.expired
+                                    ? InstagramTheme.primaryPink
+                                    : InstagramTheme.borderGrey,
+                              ),
+                            ),
+                            alignment: Alignment.center,
+                            child: Text(
+                              'Expired',
+                              style: TextStyle(
+                                fontSize: 12,
+                                fontWeight: FontWeight.w600,
+                                color: _transactionQuickFilter == _TransactionQuickFilter.expired
+                                    ? InstagramTheme.primaryPink
+                                    : (isDark ? Colors.white : InstagramTheme.textBlack),
+                              ),
+                            ),
+                          ),
+                        ),
+                      ),
+                    ],
                   ),
+                ),
+                const Divider(height: 1),
+                Expanded(
+                  child: _historyState == _HistoryState.expanded
+                      ? Scrollbar(
+                          interactive: true,
+                          child: ListView.separated(
+                            padding: const EdgeInsets.all(8),
+                            itemBuilder: (ctx, i) => _buildTransactionRow(display[i]),
+                            separatorBuilder: (ctx, i) => const Divider(height: 1),
+                            itemCount: display.length,
+                          ),
+                        )
+                      : ListView.separated(
+                          shrinkWrap: true,
+                          physics: const NeverScrollableScrollPhysics(),
+                          padding: const EdgeInsets.all(8),
+                          itemBuilder: (ctx, i) => _buildTransactionRow(display[i]),
+                          separatorBuilder: (ctx, i) => const Divider(height: 1),
+                          itemCount: display.length,
+                        ),
+                ),
+              ],
+            ),
           ),
       ],
     );
@@ -489,6 +662,19 @@ class _WalletScreenState extends State<WalletScreen> {
             if (v > _coinsValue!) return false;
             break;
         }
+      }
+      switch (_transactionQuickFilter) {
+        case _TransactionQuickFilter.all:
+          break;
+        case _TransactionQuickFilter.earned:
+          if (t.amount <= 0) return false;
+          break;
+        case _TransactionQuickFilter.spent:
+          if (t.amount >= 0) return false;
+          break;
+        case _TransactionQuickFilter.expired:
+          if (t.status == LedgerTransactionStatus.completed) return false;
+          break;
       }
       return true;
     }).toList();
@@ -690,51 +876,78 @@ class _WalletScreenState extends State<WalletScreen> {
     required IconData icon,
     required String title,
     required String subtitle,
-    required VoidCallback onTap,
+    required _MenuSection section,
+    required Widget Function() buildContent,
   }) {
+    final open = _menuOpen == section;
     return Container(
       margin: const EdgeInsets.only(bottom: 12),
       child: ClayContainer(
         borderRadius: 16,
         color: InstagramTheme.surfaceWhite,
-        onTap: onTap,
+        onTap: () {
+          setState(() {
+            _menuOpen = open ? _MenuSection.none : section;
+          });
+        },
         child: Padding(
           padding: const EdgeInsets.all(16),
-          child: Row(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Container(
-                padding: const EdgeInsets.all(10),
-                decoration: BoxDecoration(
-                  color: InstagramTheme.primaryPink.withValues(alpha: 0.1),
-                  borderRadius: BorderRadius.circular(12),
-                ),
-                child: Icon(icon, color: InstagramTheme.primaryPink, size: 24),
-              ),
-              const SizedBox(width: 16),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      title,
-                      style: const TextStyle(
-                        fontSize: 16,
-                        fontWeight: FontWeight.bold,
-                        color: InstagramTheme.textBlack,
-                      ),
+              Row(
+                children: [
+                  Container(
+                    padding: const EdgeInsets.all(10),
+                    decoration: BoxDecoration(
+                      color: InstagramTheme.primaryPink.withValues(alpha: 0.1),
+                      borderRadius: BorderRadius.circular(12),
                     ),
-                    const SizedBox(height: 2),
-                    Text(
-                      subtitle,
-                      style: const TextStyle(
-                        fontSize: 12,
-                        color: InstagramTheme.textGrey,
-                      ),
+                    child: Icon(icon, color: InstagramTheme.primaryPink, size: 24),
+                  ),
+                  const SizedBox(width: 16),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          title,
+                          style: const TextStyle(
+                            fontSize: 16,
+                            fontWeight: FontWeight.bold,
+                            color: InstagramTheme.textBlack,
+                          ),
+                        ),
+                        const SizedBox(height: 2),
+                        Text(
+                          subtitle,
+                          style: const TextStyle(
+                            fontSize: 12,
+                            color: InstagramTheme.textGrey,
+                          ),
+                        ),
+                      ],
                     ),
-                  ],
+                  ),
+                  AnimatedRotation(
+                    turns: open ? 0.25 : 0.0,
+                    duration: const Duration(milliseconds: 180),
+                    curve: Curves.linear,
+                    child: const Icon(Icons.chevron_right, color: InstagramTheme.textGrey),
+                  ),
+                ],
+              ),
+              ClipRect(
+                child: AnimatedSize(
+                  duration: const Duration(milliseconds: 180),
+                  curve: Curves.easeInOut,
+                  alignment: Alignment.topLeft,
+                  child: Padding(
+                    padding: const EdgeInsets.only(top: 12),
+                    child: open ? buildContent() : const SizedBox.shrink(),
+                  ),
                 ),
               ),
-              const Icon(Icons.chevron_right, color: InstagramTheme.textGrey),
             ],
           ),
         ),
@@ -766,6 +979,214 @@ class _WalletScreenState extends State<WalletScreen> {
             child: const Text('Got it', style: TextStyle(color: InstagramTheme.primaryPink)),
           ),
         ],
+      ),
+    );
+  }
+
+  void _unfocus(BuildContext context) {
+    final currentFocus = FocusScope.of(context);
+    if (!currentFocus.hasPrimaryFocus && currentFocus.focusedChild != null) {
+      FocusManager.instance.primaryFocus?.unfocus();
+    }
+  }
+
+  void _loadAccountDetails() {
+    final details = _walletService.getAccountDetails();
+    if (details != null) {
+      setState(() {
+        _existingDetails = details;
+        _nameController.text = details.accountHolderName;
+        _accountNumberController.text = details.accountNumber;
+        _selectedPaymentMethod = details.paymentMethod;
+        _bankNameController.text = details.bankName ?? '';
+        _ifscController.text = details.ifscCode ?? '';
+      });
+    }
+  }
+
+  Future<void> _saveAccountInline() async {
+    setState(() {
+      _isSavingDetails = true;
+    });
+    final details = AccountDetails(
+      id: _existingDetails?.id ?? 'acc-${DateTime.now().millisecondsSinceEpoch}',
+      accountHolderName: _nameController.text.trim(),
+      paymentMethod: _selectedPaymentMethod,
+      accountNumber: _accountNumberController.text.trim(),
+      bankName: _selectedPaymentMethod == 'Bank' ? _bankNameController.text.trim() : null,
+      ifscCode: _selectedPaymentMethod == 'Bank' ? _ifscController.text.trim() : null,
+      createdAt: _existingDetails?.createdAt ?? DateTime.now(),
+      updatedAt: DateTime.now(),
+    );
+    final ok = await _walletService.saveAccountDetails(details);
+    setState(() {
+      _isSavingDetails = false;
+      if (ok) {
+        _existingDetails = details;
+      }
+    });
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(ok ? 'Account details saved' : 'Failed to save'),
+        backgroundColor: ok ? Colors.green : Colors.red,
+      ),
+    );
+  }
+
+  Widget _buildAccountDetailsInline() {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    return Container(
+      margin: const EdgeInsets.only(bottom: 12),
+      decoration: BoxDecoration(
+        color: isDark ? const Color(0xFF1E1E1E) : Colors.white,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: InstagramTheme.borderGrey),
+      ),
+      padding: const EdgeInsets.all(12),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          SegmentedButton<String>(
+            segments: const [
+              ButtonSegment(value: 'UPI', label: Text('UPI')),
+              ButtonSegment(value: 'Bank', label: Text('Bank')),
+              ButtonSegment(value: 'PayPal', label: Text('PayPal')),
+            ],
+            selected: {_selectedPaymentMethod},
+            onSelectionChanged: (s) => setState(() => _selectedPaymentMethod = s.first),
+            showSelectedIcon: false,
+            style: ButtonStyle(
+              visualDensity: const VisualDensity(horizontal: -2, vertical: -2),
+              tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+            ),
+          ),
+          const SizedBox(height: 8),
+          TextField(
+            controller: _nameController,
+            decoration: const InputDecoration(
+              labelText: 'Account Holder Name',
+              prefixIcon: Icon(Icons.person),
+            ),
+          ),
+          const SizedBox(height: 8),
+          TextField(
+            controller: _accountNumberController,
+            decoration: InputDecoration(
+              labelText: _selectedPaymentMethod == 'UPI'
+                  ? 'UPI ID'
+                  : _selectedPaymentMethod == 'Bank'
+                      ? 'Account Number'
+                      : 'Email / ID',
+              prefixIcon: const Icon(Icons.account_balance_wallet),
+            ),
+          ),
+          if (_selectedPaymentMethod == 'Bank') ...[
+            const SizedBox(height: 8),
+            TextField(
+              controller: _bankNameController,
+              decoration: const InputDecoration(
+                labelText: 'Bank Name',
+                prefixIcon: Icon(Icons.account_balance),
+              ),
+            ),
+            const SizedBox(height: 8),
+            TextField(
+              controller: _ifscController,
+              decoration: const InputDecoration(
+                labelText: 'IFSC Code',
+                prefixIcon: Icon(Icons.code),
+              ),
+            ),
+          ],
+          const SizedBox(height: 12),
+          Row(
+            children: [
+              Expanded(
+                child: ElevatedButton(
+                  onPressed: _isSavingDetails ? null : () {
+                    _unfocus(context);
+                    _saveAccountInline();
+                  },
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: InstagramTheme.primaryPink,
+                    foregroundColor: Colors.white,
+                    padding: const EdgeInsets.symmetric(vertical: 12),
+                  ),
+                  child: _isSavingDetails
+                      ? const SizedBox(
+                          height: 18, width: 18,
+                          child: CircularProgressIndicator(strokeWidth: 2, valueColor: AlwaysStoppedAnimation<Color>(Colors.white)),
+                        )
+                      : const Text('Save'),
+                ),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildRedeemInline() {
+    final controller = TextEditingController();
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    return Container(
+      margin: const EdgeInsets.only(bottom: 12),
+      decoration: BoxDecoration(
+        color: isDark ? const Color(0xFF1E1E1E) : Colors.white,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: InstagramTheme.borderGrey),
+      ),
+      padding: const EdgeInsets.all(12),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text('Available: $_coinBalance coins', style: const TextStyle(fontWeight: FontWeight.w600)),
+          const SizedBox(height: 8),
+          TextField(
+            controller: controller,
+            keyboardType: TextInputType.number,
+            decoration: const InputDecoration(labelText: 'Coins to redeem', prefixIcon: Icon(Icons.redeem)),
+          ),
+          const SizedBox(height: 12),
+          Row(
+            children: [
+              Expanded(
+                child: ElevatedButton(
+                  onPressed: () {
+                    _unfocus(context);
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(content: Text('Redeem flow is stubbed')),
+                    );
+                  },
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: InstagramTheme.primaryPink,
+                    foregroundColor: Colors.white,
+                    padding: const EdgeInsets.symmetric(vertical: 12),
+                  ),
+                  child: const Text('Redeem'),
+                ),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildHelpInline() {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    return Container(
+      margin: const EdgeInsets.only(bottom: 12),
+      decoration: BoxDecoration(
+        color: isDark ? const Color(0xFF1E1E1E) : Colors.white,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: InstagramTheme.borderGrey),
+      ),
+      padding: const EdgeInsets.all(12),
+      child: const Text(
+        'Manage your wallet balance, view transactions, and redeem coins.',
+        style: TextStyle(color: InstagramTheme.textGrey),
       ),
     );
   }

@@ -207,6 +207,16 @@ class _HomeDashboardState extends State<HomeDashboard> {
     StoreProvider.of<AppState>(context).dispatch(UpdatePostSaved(post.id, saved));
   }
 
+  void _onFollowPost(FeedPost post) {
+    final followed = !post.isFollowed;
+    StoreProvider.of<AppState>(context).dispatch(UpdatePostFollowed(post.id, followed));
+    final messenger = ScaffoldMessenger.of(context);
+    messenger.showSnackBar(SnackBar(
+      content: Text(followed ? 'Following ${post.userName}' : 'Unfollowed ${post.userName}'),
+      behavior: SnackBarBehavior.floating,
+      duration: const Duration(seconds: 1),
+    ));
+  }
   void _onMorePost(BuildContext context, FeedPost post) {
     final messenger = ScaffoldMessenger.of(context);
     showModalBottomSheet(
@@ -534,9 +544,8 @@ class _HomeDashboardState extends State<HomeDashboard> {
   }
 
   void _onNavTap(int idx) {
-    // Create (center) opens create modal: post vs reel choice (React parity)
     if (idx == 2) {
-      _showCreateModal();
+      Navigator.of(context).pushNamed('/story-camera');
       return;
     }
     // Profile from sidebar (desktop)
@@ -795,6 +804,7 @@ class _HomeDashboardState extends State<HomeDashboard> {
                                 onComment: () => _onCommentPost(p),
                                 onShare: () => _onSharePost(p),
                                 onSave: () => _onSavePost(p),
+                                onFollow: () => _onFollowPost(p),
                                 onMore: () => _onMorePost(context, p),
                               );
                             },
@@ -823,7 +833,7 @@ class _HomeDashboardState extends State<HomeDashboard> {
           Sidebar(
             currentIndex: _currentIndex,
             onNavTap: _onNavTap,
-            onCreatePost: () => Navigator.of(context).pushNamed('/create_post'),
+            onCreatePost: () => Navigator.of(context).pushNamed('/create'),
             onUploadReel: () => Navigator.of(context).pushNamed('/create'),
           ),
           Expanded(

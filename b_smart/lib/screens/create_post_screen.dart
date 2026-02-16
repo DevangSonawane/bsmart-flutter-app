@@ -11,6 +11,7 @@ import '../utils/current_user.dart';
 import '../config/api_config.dart';
 import '../api/upload_api.dart';
 import '../api/posts_api.dart';
+import '../models/media_model.dart';
 
 /// Single media item in the create-post flow (select → crop → edit → share).
 class _CreatePostMediaItem {
@@ -139,7 +140,8 @@ const _adjustments = [
 const _popularEmojis = ['😂', '😮', '😍', '😢', '👏', '🔥', '🎉', '💯', '❤️', '🤣', '🥰', '😘', '😭', '😊'];
 
 class CreatePostScreen extends StatefulWidget {
-  const CreatePostScreen({Key? key}) : super(key: key);
+  final MediaItem? initialMedia;
+  const CreatePostScreen({Key? key, this.initialMedia}) : super(key: key);
 
   @override
   State<CreatePostScreen> createState() => _CreatePostScreenState();
@@ -182,6 +184,16 @@ class _CreatePostScreenState extends State<CreatePostScreen> {
   void initState() {
     super.initState();
     _loadCurrentUserProfile();
+    final m = widget.initialMedia;
+    if (m != null && m.filePath != null) {
+      final item = _CreatePostMediaItem(
+        sourcePath: m.filePath!,
+        isVideo: m.type == MediaType.video,
+      );
+      _media = [item];
+      _currentIndex = 0;
+      _step = 'crop';
+    }
   }
 
   @override

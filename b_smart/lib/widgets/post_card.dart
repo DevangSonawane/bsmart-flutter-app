@@ -14,6 +14,7 @@ class PostCard extends StatefulWidget {
   final VoidCallback? onComment;
   final VoidCallback? onShare;
   final VoidCallback? onSave;
+  final VoidCallback? onFollow;
   final VoidCallback? onMore;
 
   const PostCard({
@@ -23,6 +24,7 @@ class PostCard extends StatefulWidget {
     this.onComment,
     this.onShare,
     this.onSave,
+    this.onFollow,
     this.onMore,
   }) : super(key: key);
 
@@ -30,16 +32,49 @@ class PostCard extends StatefulWidget {
   State<PostCard> createState() => _PostCardState();
 }
 
-class _PostCardState extends State<PostCard> {
+class _PostCardState extends State<PostCard> with SingleTickerProviderStateMixin {
   VideoPlayerController? _videoCtl;
   Future<void>? _initVideo;
   Map<String, String>? _imageHeaders;
   String? _resolvedImageUrl;
   double? _mediaAspect;
+  late final AnimationController _heartController;
+  late final Animation<double> _heartScale;
+  late final Animation<double> _heartOpacity;
+  bool _isHeartAnimating = false;
 
   @override
   void initState() {
     super.initState();
+    _heartController = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 700),
+    );
+    _heartScale = TweenSequence<double>([
+      TweenSequenceItem(
+        tween: Tween(begin: 0.0, end: 1.3).chain(CurveTween(curve: Curves.easeOut)),
+        weight: 50,
+      ),
+      TweenSequenceItem(
+        tween: Tween(begin: 1.3, end: 1.0).chain(CurveTween(curve: Curves.easeIn)),
+        weight: 50,
+      ),
+    ]).animate(_heartController);
+    _heartOpacity = TweenSequence<double>([
+      TweenSequenceItem(
+        tween: Tween(begin: 0.0, end: 1.0).chain(CurveTween(curve: Curves.easeOut)),
+        weight: 40,
+      ),
+      TweenSequenceItem(
+        tween: Tween(begin: 1.0, end: 0.0).chain(CurveTween(curve: Curves.easeIn)),
+        weight: 60,
+      ),
+    ]).animate(_heartController);
+    _heartController.addStatusListener((status) {
+      if (status == AnimationStatus.completed || status == AnimationStatus.dismissed) {
+        _isHeartAnimating = false;
+      }
+    });
     ApiClient().getToken().then((token) {
       if (!mounted) return;
       if (token != null && token.isNotEmpty) {
@@ -67,11 +102,24 @@ class _PostCardState extends State<PostCard> {
   }
   bool _likeAnim = false;
   void _onLikePressed() {
+    _toggleLike();
+  }
+
+  void _toggleLike({bool onlyLike = false}) {
+    final shouldLike = !widget.post.isLiked;
+    if (onlyLike && !shouldLike) return;
     setState(() => _likeAnim = true);
     widget.onLike?.call();
     Future.delayed(const Duration(milliseconds: 180), () {
       if (mounted) setState(() => _likeAnim = false);
     });
+  }
+
+  void _onMediaDoubleTap() {
+    if (_isHeartAnimating) return;
+    _toggleLike(onlyLike: true);
+    _isHeartAnimating = true;
+    _heartController.forward(from: 0);
   }
 
   void _setupMedia() {
@@ -93,6 +141,7 @@ class _PostCardState extends State<PostCard> {
 
   @override
   void dispose() {
+    _heartController.dispose();
     _disposeVideo();
     super.dispose();
   }
@@ -234,7 +283,7 @@ class _PostCardState extends State<PostCard> {
     final mutedColor = theme.textTheme.bodyMedium?.color ?? Colors.grey.shade600;
 
     return Container(
-      margin: const EdgeInsets.only(bottom: 12),
+      margin: const EdgeInsets.only(bottom: 0),
       decoration: BoxDecoration(
         color: surfaceColor,
         borderRadius: BorderRadius.circular(0),
@@ -248,7 +297,6 @@ class _PostCardState extends State<PostCard> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // Header: avatar, name, three dots (Instagram style) — tap avatar/name → user profile (same as React PostCard)
           Padding(
             padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
             child: Row(
@@ -327,106 +375,96 @@ class _PostCardState extends State<PostCard> {
             ),
           ),
 
-          // Media
           if (post.mediaUrls.isNotEmpty)
-            ClipRect(
-              child: post.isAd
-                  // Ads: strict 1:1 ratio like web
-                  ? AspectRatio(
-                      aspectRatio: 1,
-                      child: CachedNetworkImage(
-                        imageUrl: _resolvedImageUrl ?? post.mediaUrls.first,
-                        cacheKey:
-                            '${_resolvedImageUrl ?? post.mediaUrls.first}#${_imageHeaders?['Authorization'] ?? ''}',
-                        httpHeaders: _imageHeaders,
-                        fit: BoxFit.cover,
-                        width: double.infinity,
-                        placeholder: (ctx, url) => Container(
-                          color: isDark ? const Color(0xFF1E1E1E) : Colors.grey.shade200,
-                          child: Center(
-                            child: CircularProgressIndicator(
-                              strokeWidth: 2,
-                              color: DesignTokens.instaPink,
-                            ),
-                          ),
-                        ),
-                        errorWidget: (ctx, url, err) => Container(
-                          color: isDark ? const Color(0xFF1E1E1E) : Colors.grey.shade200,
-                          child: Center(
-                            child: Icon(LucideIcons.imageOff, size: 48, color: mutedColor),
-                          ),
-                        ),
-                      ),
-                    )
-                  // Regular posts: contain within min/max height like React
-                  : ConstrainedBox(
-                      constraints: const BoxConstraints(
-                        minHeight: 300,
-                        maxHeight: 600,
-                      ),
-                      child: SizedBox(
-                        width: double.infinity,
-                        child: (post.mediaType.name == 'video' || post.mediaType.name == 'reel')
-                            ? (_videoCtl != null
-                                ? FutureBuilder(
-                                    future: _initVideo,
-                                    builder: (ctx, snap) {
-                                      if (snap.connectionState != ConnectionState.done) {
-                                        return Container(
-                                          color: isDark ? const Color(0xFF1E1E1E) : Colors.black,
-                                          child: Center(
+            AspectRatio(
+              aspectRatio: 1.0, // Square container like Instagram
+              child: GestureDetector(
+                behavior: HitTestBehavior.opaque,
+                onDoubleTap: _onMediaDoubleTap,
+                child: Stack(
+                  alignment: Alignment.center,
+                  children: [
+                    Container(
+                      color: isDark ? Colors.black : Colors.grey.shade200,
+                      child: post.isAd
+                          ? CachedNetworkImage(
+                              imageUrl: _resolvedImageUrl ?? post.mediaUrls.first,
+                              cacheKey:
+                                  '${_resolvedImageUrl ?? post.mediaUrls.first}#${_imageHeaders?['Authorization'] ?? ''}',
+                              httpHeaders: _imageHeaders,
+                              fit: BoxFit.contain,
+                              width: double.infinity,
+                              placeholder: (ctx, url) => Center(
+                                child: CircularProgressIndicator(
+                                  strokeWidth: 2,
+                                  color: DesignTokens.instaPink,
+                                ),
+                              ),
+                              errorWidget: (ctx, url, err) => Center(
+                                child: Icon(LucideIcons.imageOff, size: 48, color: mutedColor),
+                              ),
+                            )
+                          : (post.mediaType.name == 'video' || post.mediaType.name == 'reel')
+                              ? (_videoCtl != null
+                                  ? FutureBuilder(
+                                      future: _initVideo,
+                                      builder: (ctx, snap) {
+                                        if (snap.connectionState != ConnectionState.done) {
+                                          return Center(
                                             child: CircularProgressIndicator(
                                               strokeWidth: 2,
                                               color: DesignTokens.instaPink,
                                             ),
+                                          );
+                                        }
+                                        return Center(
+                                          child: AspectRatio(
+                                            aspectRatio: _videoCtl!.value.aspectRatio,
+                                            child: VideoPlayer(_videoCtl!),
                                           ),
                                         );
-                                      }
-                                      return FittedBox(
-                                        fit: BoxFit.contain,
-                                        clipBehavior: Clip.hardEdge,
-                                        child: SizedBox(
-                                          width: _videoCtl!.value.size.width,
-                                          height: _videoCtl!.value.size.height,
-                                          child: VideoPlayer(_videoCtl!),
-                                        ),
-                                      );
-                                    },
-                                  )
-                                : Container(
-                                    color: isDark ? const Color(0xFF1E1E1E) : Colors.black,
-                                    child: Center(
+                                      },
+                                    )
+                                  : Center(
                                       child: CircularProgressIndicator(
                                         strokeWidth: 2,
                                         color: DesignTokens.instaPink,
                                       ),
-                                    ),
-                                  ))
-                            : CachedNetworkImage(
-                                imageUrl: _resolvedImageUrl ?? post.mediaUrls.first,
-                                cacheKey:
-                                    '${_resolvedImageUrl ?? post.mediaUrls.first}#${_imageHeaders?['Authorization'] ?? ''}',
-                                httpHeaders: _imageHeaders,
-                                fit: BoxFit.contain,
-                                width: double.infinity,
-                                placeholder: (ctx, url) => Container(
-                                  color: isDark ? const Color(0xFF1E1E1E) : Colors.black,
-                                  child: Center(
+                                    ))
+                              : CachedNetworkImage(
+                                  imageUrl: _resolvedImageUrl ?? post.mediaUrls.first,
+                                  cacheKey:
+                                      '${_resolvedImageUrl ?? post.mediaUrls.first}#${_imageHeaders?['Authorization'] ?? ''}',
+                                  httpHeaders: _imageHeaders,
+                                  fit: BoxFit.contain,
+                                  width: double.infinity,
+                                  placeholder: (ctx, url) => Center(
                                     child: CircularProgressIndicator(
                                       strokeWidth: 2,
                                       color: DesignTokens.instaPink,
                                     ),
                                   ),
-                                ),
-                                errorWidget: (ctx, url, err) => Container(
-                                  color: isDark ? const Color(0xFF1E1E1E) : Colors.black,
-                                  child: Center(
+                                  errorWidget: (ctx, url, err) => Center(
                                     child: Icon(LucideIcons.imageOff, size: 48, color: mutedColor),
                                   ),
                                 ),
-                              ),
+                    ),
+                    IgnorePointer(
+                      child: FadeTransition(
+                        opacity: _heartOpacity,
+                        child: ScaleTransition(
+                          scale: _heartScale,
+                          child: Icon(
+                            LucideIcons.heart,
+                            size: 96,
+                            color: Colors.white.withOpacity(0.9),
+                          ),
+                        ),
                       ),
                     ),
+                  ],
+                ),
+              ),
             )
           else
             AspectRatio(
@@ -441,7 +479,7 @@ class _PostCardState extends State<PostCard> {
 
           // Action bar: like, comment, share, save (Instagram order)
           Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
+            padding: const EdgeInsets.symmetric(horizontal: 0.5, vertical: 0.5),
             child: Row(
               children: [
                 AnimatedScale(
@@ -471,6 +509,16 @@ class _PostCardState extends State<PostCard> {
                   constraints: const BoxConstraints(minWidth: 44, minHeight: 44),
                 ),
                 const Spacer(),
+                IconButton(
+                  onPressed: widget.onFollow ?? () {},
+                  icon: Icon(
+                    post.isFollowed ? LucideIcons.userCheck : LucideIcons.userPlus,
+                    size: 26,
+                    color: textColor,
+                  ),
+                  padding: EdgeInsets.zero,
+                  constraints: const BoxConstraints(minWidth: 44, minHeight: 44),
+                ),
                 IconButton(
                   onPressed: widget.onSave ?? () {},
                   icon: Icon(
@@ -502,7 +550,7 @@ class _PostCardState extends State<PostCard> {
           // Caption: "username caption" (Instagram style)
           if ((post.caption ?? '').trim().isNotEmpty) ...[
             Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 2),
               child: RichText(
                 maxLines: 3,
                 overflow: TextOverflow.ellipsis,
@@ -523,7 +571,7 @@ class _PostCardState extends State<PostCard> {
           // Comments preview line: "View all X comments"
           if (post.comments > 0)
             Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 2),
               child: GestureDetector(
                 onTap: widget.onComment,
                 child: Text(
@@ -543,7 +591,7 @@ class _PostCardState extends State<PostCard> {
             child: Text(
               _formatTimeAgo(post.createdAt),
               style: TextStyle(
-                fontSize: 12,
+                fontSize: 10,
                 color: mutedColor,
                 fontWeight: FontWeight.w400,
               ),
