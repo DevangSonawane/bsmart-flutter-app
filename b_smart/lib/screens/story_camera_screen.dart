@@ -1,7 +1,11 @@
 import 'dart:async';
+import 'dart:convert';
 import 'dart:io';
 import 'dart:typed_data';
+import 'dart:ui' as ui;
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart';
+import 'package:flutter_image_compress/flutter_image_compress.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 import 'package:camera/camera.dart';
 import 'package:permission_handler/permission_handler.dart';
@@ -9,12 +13,368 @@ import 'package:photo_manager/photo_manager.dart';
 import '../models/media_model.dart';
 import 'create_post_screen.dart';
 import 'create_upload_screen.dart';
+import '../api/api.dart';
+import '../config/api_config.dart';
 
 class StoryCameraScreen extends StatefulWidget {
   const StoryCameraScreen({super.key});
 
   @override
   State<StoryCameraScreen> createState() => _StoryCameraScreenState();
+}
+
+enum _StoryElementType { text, sticker }
+
+class _StoryOverlayElement {
+  final _StoryElementType type;
+  final String? text;
+  final String? style;
+  final Color? color;
+  final String? sticker;
+  final Offset position;
+  final double scale;
+  final double rotation;
+
+  _StoryOverlayElement._({
+    required this.type,
+    this.text,
+    this.style,
+    this.color,
+    this.sticker,
+    required this.position,
+    required this.scale,
+    required this.rotation,
+  });
+
+  factory _StoryOverlayElement.text(String text, {String style = 'Classic', Color color = Colors.white}) {
+    return _StoryOverlayElement._(
+      type: _StoryElementType.text,
+      text: text,
+      style: style,
+      color: color,
+      position: const Offset(100, 100),
+      scale: 1.0,
+      rotation: 0.0,
+    );
+  }
+
+  factory _StoryOverlayElement.sticker(String label) {
+    return _StoryOverlayElement._(
+      type: _StoryElementType.sticker,
+      sticker: label,
+      position: const Offset(120, 120),
+      scale: 1.0,
+      rotation: 0.0,
+    );
+  }
+
+  _StoryOverlayElement copyWith({
+    String? text,
+    String? style,
+    Color? color,
+    Offset? position,
+    double? scale,
+    double? rotation,
+  }) {
+    return _StoryOverlayElement._(
+      type: type,
+      text: text ?? this.text,
+      style: style ?? this.style,
+      color: color ?? this.color,
+      sticker: sticker,
+      position: position ?? this.position,
+      scale: scale ?? this.scale,
+      rotation: rotation ?? this.rotation,
+    );
+  }
+}
+
+class _StoryElementWidget extends StatefulWidget {
+  final _StoryOverlayElement element;
+  final void Function(_StoryOverlayElement updated) onChanged;
+  final VoidCallback onStartDrag;
+  final void Function(Offset endPosition) onEndDrag;
+  final VoidCallback onTap;
+
+  const _StoryElementWidget({
+    super.key,
+    required this.element,
+    required this.onChanged,
+    required this.onStartDrag,
+    required this.onEndDrag,
+    required this.onTap,
+  });
+
+  @override
+  State<_StoryElementWidget> createState() => _StoryElementWidgetState();
+}
+
+class _StoryElementWidgetState extends State<_StoryElementWidget> {
+  Offset _initialFocal = Offset.zero;
+  double _initialScale = 1.0;
+  double _initialRotation = 0.0;
+  Offset _lastGlobalPos = Offset.zero;
+
+  @override
+  Widget build(BuildContext context) {
+    final e = widget.element;
+    return Positioned(
+      left: e.position.dx,
+      top: e.position.dy,
+      child: GestureDetector(
+        onTap: widget.onTap,
+        onScaleStart: (d) {
+          widget.onStartDrag();
+          _initialFocal = d.focalPoint;
+          _initialScale = e.scale;
+          _initialRotation = e.rotation;
+          _lastGlobalPos = d.focalPoint;
+        },
+        onScaleUpdate: (d) {
+          _lastGlobalPos = d.focalPoint;
+          final isSingleFinger = d.pointerCount == 1;
+          if (isSingleFinger) {
+            final delta = d.focalPoint - _initialFocal;
+            final updated = e.copyWith(position: e.position + delta);
+            widget.onChanged(updated);
+            _initialFocal = d.focalPoint;
+          } else {
+            final updated = e.copyWith(
+              scale: _initialScale * d.scale,
+              rotation: _initialRotation + d.rotation,
+            );
+            widget.onChanged(updated);
+          }
+        },
+        onScaleEnd: (d) => widget.onEndDrag(_lastGlobalPos),
+        child: Transform.rotate(
+          angle: e.rotation,
+          child: Transform.scale(
+            scale: e.scale,
+            child: Container(
+              padding: const EdgeInsets.all(8),
+              decoration: BoxDecoration(
+                color: e.type == _StoryElementType.text ? Colors.black26 : Colors.transparent,
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: e.type == _StoryElementType.text
+                  ? Text(
+                      e.text ?? '',
+                      style: TextStyle(
+                        color: e.color ?? Colors.white,
+                        fontSize: 24,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    )
+                  : Text(
+                      e.sticker ?? '',
+                      style: const TextStyle(fontSize: 32),
+                    ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _StoryStroke {
+  final Color color;
+  final double size;
+  final List<Offset> points;
+
+  _StoryStroke({
+    required this.color,
+    required this.size,
+    required this.points,
+  });
+}
+
+class _StoryDrawingPainter extends CustomPainter {
+  final List<_StoryStroke> strokes;
+
+  _StoryDrawingPainter(this.strokes);
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    for (final s in strokes) {
+      final paint = Paint()
+        ..color = s.color
+        ..strokeWidth = s.size
+        ..style = PaintingStyle.stroke
+        ..strokeCap = StrokeCap.round;
+      for (var i = 0; i < s.points.length - 1; i++) {
+        canvas.drawLine(s.points[i], s.points[i + 1], paint);
+      }
+    }
+  }
+
+  @override
+  bool shouldRepaint(covariant _StoryDrawingPainter oldDelegate) => oldDelegate.strokes != strokes;
+}
+
+class _StoryToolButton extends StatelessWidget {
+  final IconData icon;
+  final String label;
+  final VoidCallback onTap;
+
+  const _StoryToolButton({
+    required this.icon,
+    required this.label,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      children: [
+        InkWell(
+          onTap: onTap,
+          child: Container(
+            width: 44,
+            height: 44,
+            decoration: const BoxDecoration(
+              color: Colors.white24,
+              shape: BoxShape.circle,
+            ),
+            child: Icon(icon, color: Colors.white),
+          ),
+        ),
+        const SizedBox(height: 4),
+        Text(
+          label,
+          style: const TextStyle(
+            color: Colors.white70,
+            fontSize: 12,
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+const _storyFilterNames = [
+  'Original',
+  'Clarendon',
+  'Gingham',
+  'Moon',
+  'Lark',
+  'Reyes',
+  'Juno',
+];
+
+List<double> _storyFilterMatrixBase({double brightness = 1, double contrast = 1, double saturation = 1}) {
+  final b = brightness;
+  final c = contrast;
+  final s = saturation;
+  final invSat = 1 - s;
+  const lr = 0.2126, lg = 0.7152, lb = 0.0722;
+  final scale = c * b;
+  return [
+    (invSat * lr + s) * scale,
+    invSat * lg * scale,
+    invSat * lb * scale,
+    0,
+    0,
+    invSat * lr * scale,
+    (invSat * lg + s) * scale,
+    invSat * lb * scale,
+    0,
+    0,
+    invSat * lr * scale,
+    invSat * lg * scale,
+    (invSat * lb + s) * scale,
+    0,
+    0,
+    0,
+    0,
+    0,
+    1,
+    0,
+  ];
+}
+
+List<double> _storyGrayscaleMatrix({double contrast = 1.0, double brightness = 1.0}) {
+  const r = 0.2126, g = 0.7152, b = 0.0722;
+  return [
+    r * contrast * brightness,
+    g * contrast * brightness,
+    b * contrast * brightness,
+    0,
+    0,
+    r * contrast * brightness,
+    g * contrast * brightness,
+    b * contrast * brightness,
+    0,
+    0,
+    r * contrast * brightness,
+    g * contrast * brightness,
+    b * contrast * brightness,
+    0,
+    0,
+    0,
+    0,
+    0,
+    1,
+    0,
+  ];
+}
+
+List<double> _storySepiaMatrix({
+  double amount = 0.2,
+  double brightness = 1.0,
+  double contrast = 1.0,
+  double saturation = 1.0,
+}) {
+  final t = 1 - amount;
+  final r = 0.393 + 0.607 * t;
+  final g = 0.769 - 0.769 * amount;
+  final b = 0.189 - 0.189 * amount;
+  final invSat = 1 - saturation;
+  const lr = 0.2126, lg = 0.7152, lb = 0.0722;
+  final c = contrast * brightness;
+  return [
+    (r * saturation + lr * invSat) * c,
+    (g * saturation + lg * invSat) * c,
+    (b * saturation + lb * invSat) * c,
+    0,
+    0,
+    (0.349 * t + 0.349 * amount) * saturation * c + lr * invSat * c,
+    (0.686 + 0.314 * t) * saturation * c + lg * invSat * c,
+    (0.168 * t) * saturation * c + lb * invSat * c,
+    0,
+    0,
+    (0.272 * t) * saturation * c + lr * invSat * c,
+    (0.534 * t - 0.534 * amount) * saturation * c + lg * invSat * c,
+    (0.131 + 0.869 * t) * saturation * c + lb * invSat * c,
+    0,
+    0,
+    0,
+    0,
+    0,
+    1,
+    0,
+  ];
+}
+
+List<double> _storyFilterMatrixFor(String name) {
+  switch (name) {
+    case 'Clarendon':
+      return _storyFilterMatrixBase(brightness: 1.0, contrast: 1.2, saturation: 1.25);
+    case 'Gingham':
+      return _storyFilterMatrixBase(brightness: 1.05, contrast: 1.0, saturation: 1.0);
+    case 'Moon':
+      return _storyGrayscaleMatrix(contrast: 1.1, brightness: 1.1);
+    case 'Lark':
+      return _storyFilterMatrixBase(brightness: 1.0, contrast: 0.9, saturation: 1.0);
+    case 'Reyes':
+      return _storySepiaMatrix(amount: 0.22, brightness: 1.1, contrast: 0.85, saturation: 0.75);
+    case 'Juno':
+      return _storySepiaMatrix(amount: 0.2, brightness: 1.1, contrast: 1.2, saturation: 1.4);
+    case 'Original':
+    default:
+      return _storyFilterMatrixBase(brightness: 1.0, contrast: 1.0, saturation: 1.0);
+  }
 }
 
 class _StoryCameraScreenState extends State<StoryCameraScreen> with WidgetsBindingObserver {
@@ -28,6 +388,20 @@ class _StoryCameraScreenState extends State<StoryCameraScreen> with WidgetsBindi
   int _currentCameraIndex = 0;
   bool _isSwitchingCamera = false;
   final List<AssetEntity> _recentAssets = [];
+
+  bool _isStoryEditing = false;
+  File? _editingImageFile;
+  Uint8List? _editingImageBytes;
+  final GlobalKey _storyRepaintKey = GlobalKey();
+  final List<_StoryOverlayElement> _storyElements = [];
+  bool _storyShowTrash = false;
+  bool _storyDrawingMode = false;
+  bool _storyStickerMode = false;
+  final List<_StoryStroke> _storyStrokes = [];
+  final List<_StoryStroke> _storyRedo = [];
+  double _storyBrushSize = 8.0;
+  Color _storyCurrentColor = Colors.white;
+  String _storyCurrentFilter = 'Original';
 
   @override
   void initState() {
@@ -101,7 +475,8 @@ class _StoryCameraScreenState extends State<StoryCameraScreen> with WidgetsBindi
           _initializing = false;
         });
       }
-    } catch (_) {
+    } catch (e) {
+      debugPrint('Error initializing camera: $e');
       if (!mounted) return;
       setState(() {
         _initializing = false;
@@ -122,7 +497,7 @@ class _StoryCameraScreenState extends State<StoryCameraScreen> with WidgetsBindi
 
     final controller = CameraController(
       _cameras[cameraIndex],
-      ResolutionPreset.max,  // Changed to max for best quality
+      ResolutionPreset.high,
       enableAudio: true,
       imageFormatGroup: ImageFormatGroup.jpeg,
     );
@@ -137,7 +512,8 @@ class _StoryCameraScreenState extends State<StoryCameraScreen> with WidgetsBindi
       } else {
         await controller.dispose();
       }
-    } catch (_) {
+    } catch (e) {
+      debugPrint('Error initializing camera controller: $e');
       await controller.dispose();
     }
   }
@@ -215,7 +591,9 @@ class _StoryCameraScreenState extends State<StoryCameraScreen> with WidgetsBindi
           ..clear()
           ..addAll(media);
       });
-    } catch (_) {}
+    } catch (e) {
+      debugPrint('Error loading recent media: $e');
+    }
   }
 
   Future<void> _onCapturePressed() async {
@@ -224,7 +602,9 @@ class _StoryCameraScreenState extends State<StoryCameraScreen> with WidgetsBindi
     try {
       final xfile = await _controller!.takePicture();
       await _navigateToEditor(File(xfile.path), MediaType.image);
-    } catch (_) {}
+    } catch (e) {
+      debugPrint('Error capturing photo: $e');
+    }
   }
 
   Future<void> _onRecordStart() async {
@@ -235,7 +615,9 @@ class _StoryCameraScreenState extends State<StoryCameraScreen> with WidgetsBindi
       setState(() {
         _recording = true;
       });
-    } catch (_) {}
+    } catch (e) {
+      debugPrint('Error starting video recording: $e');
+    }
   }
 
   Future<void> _onRecordEnd() async {
@@ -253,7 +635,8 @@ class _StoryCameraScreenState extends State<StoryCameraScreen> with WidgetsBindi
         _recording = false;
       });
       await _navigateToEditor(File(xfile.path), MediaType.video);
-    } catch (_) {
+    } catch (e) {
+      debugPrint('Error stopping video recording: $e');
       setState(() {
         _recording = false;
       });
@@ -269,6 +652,43 @@ class _StoryCameraScreenState extends State<StoryCameraScreen> with WidgetsBindi
 
   Future<void> _navigateToEditor(File file, MediaType type) async {
     if (!mounted) return;
+    
+    if (_mode == UploadMode.story && type == MediaType.image) {
+      debugPrint('Loading image for story editor: ${file.path}');
+      
+      try {
+        final bytes = await file.readAsBytes();
+        debugPrint('Image bytes loaded: ${bytes.length} bytes');
+        
+        if (!mounted) return;
+        
+        setState(() {
+          _editingImageFile = file;
+          _editingImageBytes = bytes;
+          _isStoryEditing = true;
+          _storyElements.clear();
+          _storyStrokes.clear();
+          _storyRedo.clear();
+          _storyShowTrash = false;
+          _storyDrawingMode = false;
+          _storyStickerMode = false;
+          _storyBrushSize = 8.0;
+          _storyCurrentColor = Colors.white;
+          _storyCurrentFilter = 'Original';
+        });
+        
+        debugPrint('Story editor state updated');
+      } catch (e) {
+        debugPrint('Error loading image: $e');
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('Failed to load image: $e')),
+          );
+        }
+      }
+      return;
+    }
+    
     Navigator.of(context).push(
       MaterialPageRoute(
         builder: (context) => CreatePostScreen(
@@ -283,9 +703,9 @@ class _StoryCameraScreenState extends State<StoryCameraScreen> with WidgetsBindi
     );
   }
 
-  Widget _buildToolButton({IconData? icon, Widget? child}) {
+  Widget _buildToolButton({IconData? icon, Widget? child, VoidCallback? onTap}) {
     return GestureDetector(
-      onTap: () {},
+      onTap: onTap,
       child: Container(
         width: 44,
         height: 44,
@@ -492,7 +912,6 @@ class _StoryCameraScreenState extends State<StoryCameraScreen> with WidgetsBindi
       );
     }
 
-    // Fill screen completely like Instagram - crops slightly but no black bars
     return SizedBox.expand(
       child: FittedBox(
         fit: BoxFit.cover,
@@ -505,8 +924,911 @@ class _StoryCameraScreenState extends State<StoryCameraScreen> with WidgetsBindi
     );
   }
 
+  Widget _buildStoryEditingUi(BuildContext context) {
+    final imageBytes = _editingImageBytes;
+
+    if (imageBytes == null) {
+      debugPrint('⚠️ Image bytes are null in build');
+      return const Scaffold(
+        backgroundColor: Colors.black,
+        body: Center(
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              CircularProgressIndicator(color: Colors.white),
+              SizedBox(height: 16),
+              Text('Loading image...', style: TextStyle(color: Colors.white)),
+            ],
+          ),
+        ),
+      );
+    }
+
+    debugPrint('✅ Building story editor UI with ${imageBytes.length} bytes');
+
+    return Scaffold(
+      backgroundColor: Colors.black,
+      body: SafeArea(
+        child: Column(
+          children: [
+            Expanded(
+              child: LayoutBuilder(
+                builder: (context, constraints) {
+                  debugPrint('📐 Layout constraints: ${constraints.maxWidth}x${constraints.maxHeight}');
+
+                  return Stack(
+                    children: [
+                      GestureDetector(
+                        onPanStart: (d) => _startStoryStroke(d.localPosition),
+                        onPanUpdate: (d) => _appendStoryStroke(d.localPosition),
+                        child: RepaintBoundary(
+                          key: _storyRepaintKey,
+                          child: SizedBox(
+                            width: constraints.maxWidth,
+                            height: constraints.maxHeight,
+                            child: Stack(
+                              fit: StackFit.expand,
+                              children: [
+                                ColorFiltered(
+                                  colorFilter: ColorFilter.matrix(_storyFilterMatrixFor(_storyCurrentFilter)),
+                                  child: Image.memory(
+                                    imageBytes,
+                                    fit: BoxFit.cover,
+                                    gaplessPlayback: true,
+                                    errorBuilder: (context, error, stackTrace) {
+                                      debugPrint('❌ Error displaying image: $error');
+                                      return Container(
+                                        color: Colors.grey[900],
+                                        child: Column(
+                                          mainAxisAlignment: MainAxisAlignment.center,
+                                          children: [
+                                            const Icon(Icons.error, color: Colors.white, size: 48),
+                                            const SizedBox(height: 8),
+                                            Padding(
+                                              padding: const EdgeInsets.all(16.0),
+                                              child: Text(
+                                                'Error: $error',
+                                                style: const TextStyle(color: Colors.white),
+                                                textAlign: TextAlign.center,
+                                              ),
+                                            ),
+                                          ],
+                                        ),
+                                      );
+                                    },
+                                  ),
+                                ),
+                                CustomPaint(painter: _StoryDrawingPainter(_storyStrokes)),
+                                ..._storyElements.map(
+                                  (e) => _StoryElementWidget(
+                                    element: e,
+                                    onChanged: (updated) {
+                                      setState(() {
+                                        final idx = _storyElements.indexOf(e);
+                                        if (idx != -1) {
+                                          _storyElements[idx] = updated;
+                                        }
+                                      });
+                                    },
+                                    onStartDrag: () => setState(() => _storyShowTrash = true),
+                                    onEndDrag: (pos) {
+                                      setState(() => _storyShowTrash = false);
+                                      if (pos.dy > MediaQuery.of(context).size.height - 140) {
+                                        setState(() {
+                                          _storyElements.remove(e);
+                                        });
+                                      }
+                                    },
+                                    onTap: () {
+                                      if (e.type == _StoryElementType.text) {
+                                        _storyEditText(e);
+                                      }
+                                    },
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ),
+                      ),
+                      Positioned(
+                        left: 16,
+                        top: 16,
+                        child: ClipOval(
+                          child: Material(
+                            color: Colors.black.withAlpha(140),
+                            child: IconButton(
+                              icon: const Icon(Icons.arrow_back, color: Colors.white),
+                              onPressed: _exitStoryEditing,
+                            ),
+                          ),
+                        ),
+                      ),
+                      Positioned(
+                        right: 16,
+                        top: 16,
+                        child: ClipOval(
+                          child: Material(
+                            color: Colors.black.withAlpha(140),
+                            child: IconButton(
+                              icon: const Icon(Icons.close, color: Colors.white),
+                              onPressed: _exitStoryEditing,
+                            ),
+                          ),
+                        ),
+                      ),
+                      if (!_storyStickerMode)
+                        Positioned(
+                          left: 0,
+                          right: 0,
+                          bottom: 10,
+                          child: SizedBox(
+                            height: 100,
+                            child: Align(
+                              alignment: Alignment.bottomCenter,
+                              child: SizedBox(
+                                height: 100,
+                                child: ListView.builder(
+                                  scrollDirection: Axis.horizontal,
+                                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+                                  itemCount: _storyFilterNames.length,
+                                  itemBuilder: (context, index) {
+                                    final name = _storyFilterNames[index];
+                                    final selected = name == _storyCurrentFilter;
+                                    return GestureDetector(
+                                      onTap: () {
+                                        setState(() {
+                                          _storyCurrentFilter = name;
+                                        });
+                                      },
+                                      child: SizedBox(
+                                        width: 80,
+                                        height: 100,
+                                        child: Column(
+                                          mainAxisAlignment: MainAxisAlignment.end,
+                                          children: [
+                                            Container(
+                                              height: 60,
+                                              decoration: BoxDecoration(
+                                                borderRadius: BorderRadius.circular(18),
+                                                border: Border.all(
+                                                  color: selected ? Colors.white : Colors.white24,
+                                                  width: selected ? 2 : 1,
+                                                ),
+                                                boxShadow: selected
+                                                    ? [
+                                                        BoxShadow(
+                                                          color: Colors.black.withAlpha(100),
+                                                          blurRadius: 8,
+                                                          offset: const Offset(0, 4),
+                                                        ),
+                                                      ]
+                                                    : null,
+                                              ),
+                                              child: ClipRRect(
+                                                borderRadius: BorderRadius.circular(16),
+                                                child: ColorFiltered(
+                                                  colorFilter: ColorFilter.matrix(_storyFilterMatrixFor(name)),
+                                                  child: Image.memory(
+                                                    imageBytes,
+                                                    fit: BoxFit.cover,
+                                                    gaplessPlayback: true,
+                                                  ),
+                                                ),
+                                              ),
+                                            ),
+                                            const SizedBox(height: 2),
+                                            Text(
+                                              name,
+                                              style: TextStyle(
+                                                color: Colors.white,
+                                                fontSize: 12,
+                                                fontWeight: selected ? FontWeight.bold : FontWeight.normal,
+                                              ),
+                                            ),
+                                          ],
+                                        ),
+                                      ),
+                                    );
+                                  },
+                                ),
+                              ),
+                            ),
+                          ),
+                        ),
+                      Positioned(
+                      right: 12,
+                      top: 80,
+                      bottom: 80,
+                      child: Column(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          Column(
+                            children: [
+                              _StoryToolButton(icon: LucideIcons.type, label: 'Aa', onTap: _storyAddText),
+                              const SizedBox(height: 12),
+                              _StoryToolButton(
+                                icon: LucideIcons.pencil,
+                                label: 'Pen',
+                                onTap: () {
+                                  setState(() {
+                                    _storyDrawingMode = true;
+                                    _storyStickerMode = false;
+                                  });
+                                },
+                              ),
+                              const SizedBox(height: 12),
+                              _StoryToolButton(
+                                icon: LucideIcons.sticker,
+                                label: 'Sticker',
+                                onTap: () {
+                                  setState(() {
+                                    _storyStickerMode = true;
+                                    _storyDrawingMode = false;
+                                  });
+                                },
+                              ),
+                            ],
+                          ),
+                          if (_storyDrawingMode)
+                            Container(
+                              padding: const EdgeInsets.all(8),
+                              decoration: BoxDecoration(color: Colors.black54, borderRadius: BorderRadius.circular(12)),
+                              child: Column(
+                                children: [
+                                  Row(
+                                    children: [
+                                      IconButton(onPressed: _storyUndo, icon: const Icon(Icons.undo, color: Colors.white)),
+                                      IconButton(onPressed: _storyRedoStroke, icon: const Icon(Icons.redo, color: Colors.white)),
+                                    ],
+                                  ),
+                                  Slider(
+                                    value: _storyBrushSize,
+                                    min: 2,
+                                    max: 24,
+                                    divisions: 22,
+                                    onChanged: (v) => setState(() => _storyBrushSize = v),
+                                  ),
+                                  SizedBox(
+                                    height: 24,
+                                    child: ListView(
+                                      scrollDirection: Axis.horizontal,
+                                      children: [
+                                        for (final c in [Colors.white, Colors.black, Colors.red, Colors.yellow, Colors.green, Colors.blue, Colors.purple])
+                                          GestureDetector(
+                                            onTap: () => setState(() => _storyCurrentColor = c),
+                                            child: Container(
+                                              width: 24,
+                                              height: 24,
+                                              margin: const EdgeInsets.symmetric(horizontal: 4),
+                                              decoration: BoxDecoration(color: c, shape: BoxShape.circle, border: Border.all(color: Colors.white)),
+                                            ),
+                                          ),
+                                      ],
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                        ],
+                      ),
+                    ),
+                    if (_storyStickerMode)
+                      Positioned(
+                        left: 0,
+                        right: 0,
+                        bottom: 120,
+                        child: Container(
+                          height: 160,
+                          padding: const EdgeInsets.all(8),
+                          decoration: BoxDecoration(color: Colors.black.withAlpha(140)),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              const Text('Stickers', style: TextStyle(color: Colors.white70)),
+                              const SizedBox(height: 8),
+                              SizedBox(
+                                height: 100,
+                                child: ListView(
+                                  scrollDirection: Axis.horizontal,
+                                  children: [
+                                    for (final s in ['🔥', '😊', '🎉', '⭐', '💥', '💖', '😂'])
+                                      GestureDetector(
+                                        onTap: () => _storyAddSticker(s),
+                                        child: Container(
+                                          width: 80,
+                                          margin: const EdgeInsets.symmetric(horizontal: 6),
+                                          decoration: BoxDecoration(color: Colors.white12, borderRadius: BorderRadius.circular(8), border: Border.all(color: Colors.white24)),
+                                          child: Center(child: Text(s, style: const TextStyle(fontSize: 28))),
+                                        ),
+                                      ),
+                                  ],
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
+                    if (_storyShowTrash)
+                      Positioned(
+                        left: 0,
+                        right: 0,
+                        bottom: 24,
+                        child: Center(
+                          child: Container(
+                            width: 80,
+                            height: 80,
+                            decoration: BoxDecoration(color: Colors.redAccent.withAlpha(160), shape: BoxShape.circle),
+                            child: const Icon(Icons.delete, color: Colors.white),
+                          ),
+                        ),
+                      ),
+                  ],
+                );
+              },
+            ),
+          ),
+          Padding(
+            padding: const EdgeInsets.all(12),
+            child: Row(
+              children: [
+                Expanded(
+                  child: ElevatedButton.icon(
+                    onPressed: _storyPostYourStory,
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: Colors.blue,
+                      foregroundColor: Colors.white,
+                      padding: const EdgeInsets.symmetric(vertical: 12),
+                    ),
+                    icon: const CircleAvatar(radius: 10, backgroundColor: Colors.white, child: Icon(Icons.person, size: 12, color: Colors.blue)),
+                    label: const Text('Your Story'),
+                  ),
+                ),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: ElevatedButton.icon(
+                    onPressed: _storyPostCloseFriends,
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: const Color(0xFF22C55E),
+                      foregroundColor: Colors.white,
+                      padding: const EdgeInsets.symmetric(vertical: 12),
+                    ),
+                    icon: const Icon(Icons.star),
+                    label: const Text('Close Friends'),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    ),
+  );
+}
+
+  void _exitStoryEditing() {
+    setState(() {
+      _isStoryEditing = false;
+      _editingImageFile = null;
+      _editingImageBytes = null;
+      _storyElements.clear();
+      _storyStrokes.clear();
+      _storyRedo.clear();
+      _storyShowTrash = false;
+      _storyDrawingMode = false;
+      _storyStickerMode = false;
+    });
+  }
+
+  void _startStoryStroke(Offset pos) {
+    if (!_storyDrawingMode) return;
+    setState(() {
+      _storyStrokes.add(_StoryStroke(color: _storyCurrentColor, size: _storyBrushSize, points: [pos]));
+      _storyRedo.clear();
+    });
+  }
+
+  void _appendStoryStroke(Offset pos) {
+    if (!_storyDrawingMode || _storyStrokes.isEmpty) return;
+    setState(() {
+      _storyStrokes.last.points.add(pos);
+    });
+  }
+
+  void _storyUndo() {
+    if (_storyStrokes.isEmpty) return;
+    setState(() {
+      _storyRedo.add(_storyStrokes.removeLast());
+    });
+  }
+
+  void _storyRedoStroke() {
+    if (_storyRedo.isEmpty) return;
+    setState(() {
+      _storyStrokes.add(_storyRedo.removeLast());
+    });
+  }
+
+  void _storyAddSticker(String label) {
+    setState(() {
+      _storyElements.add(_StoryOverlayElement.sticker(label));
+      _storyStickerMode = false;
+    });
+  }
+
+  void _storyAddText() {
+    final controller = TextEditingController();
+    String style = 'Classic';
+    Color color = _storyCurrentColor;
+    showModalBottomSheet<_StoryOverlayElement>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.grey[900],
+      builder: (ctx) => Padding(
+        padding: EdgeInsets.only(bottom: MediaQuery.of(ctx).viewInsets.bottom),
+        child: Container(
+          padding: const EdgeInsets.all(16),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              TextField(
+                controller: controller,
+                autofocus: true,
+                style: const TextStyle(color: Colors.white),
+                decoration: const InputDecoration(
+                  hintText: 'Enter text',
+                  hintStyle: TextStyle(color: Colors.white54),
+                  enabledBorder: UnderlineInputBorder(
+                    borderSide: BorderSide(color: Colors.white54),
+                  ),
+                  focusedBorder: UnderlineInputBorder(
+                    borderSide: BorderSide(color: Colors.white),
+                  ),
+                ),
+              ),
+              const SizedBox(height: 12),
+              SizedBox(
+                height: 32,
+                child: ListView(
+                  scrollDirection: Axis.horizontal,
+                  children: [
+                    for (final s in ['Classic', 'Modern', 'Neon', 'Typewriter', 'Strong'])
+                      GestureDetector(
+                        onTap: () => style = s,
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                          margin: const EdgeInsets.only(right: 8),
+                          decoration: BoxDecoration(color: Colors.grey.shade700, borderRadius: BorderRadius.circular(16)),
+                          child: Text(s, style: const TextStyle(color: Colors.white)),
+                        ),
+                      ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 12),
+              SizedBox(
+                height: 24,
+                child: ListView(
+                  scrollDirection: Axis.horizontal,
+                  children: [
+                    for (final c in [Colors.white, Colors.black, Colors.red, Colors.yellow, Colors.green, Colors.blue, Colors.purple])
+                      GestureDetector(
+                        onTap: () => color = c,
+                        child: Container(
+                          width: 24,
+                          height: 24,
+                          margin: const EdgeInsets.symmetric(horizontal: 4),
+                          decoration: BoxDecoration(color: c, shape: BoxShape.circle, border: Border.all(color: Colors.white)),
+                        ),
+                      ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 12),
+              Row(
+                children: [
+                  Expanded(
+                    child: OutlinedButton(
+                      onPressed: () => Navigator.pop(ctx),
+                      style: OutlinedButton.styleFrom(
+                        foregroundColor: Colors.white,
+                        side: const BorderSide(color: Colors.white),
+                      ),
+                      child: const Text('Cancel'),
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: ElevatedButton(
+                      onPressed: () {
+                        final text = controller.text.trim().isEmpty ? 'Tap to edit' : controller.text.trim();
+                        Navigator.pop(ctx, _StoryOverlayElement.text(text, style: style, color: color));
+                      },
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: Colors.blue,
+                        foregroundColor: Colors.white,
+                      ),
+                      child: const Text('Add'),
+                    ),
+                  ),
+                ],
+              ),
+            ],
+          ),
+        ),
+      ),
+    ).then((value) {
+      if (value != null && mounted) {
+        setState(() {
+          _storyCurrentColor = value.color ?? _storyCurrentColor;
+          _storyElements.add(value);
+        });
+      }
+    });
+  }
+
+  Future<void> _storyEditText(_StoryOverlayElement e) async {
+    final controller = TextEditingController(text: e.text);
+    String style = e.style ?? 'Classic';
+    Color color = e.color ?? Colors.white;
+    final updated = await showModalBottomSheet<_StoryOverlayElement>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.grey[900],
+      builder: (ctx) => Padding(
+        padding: EdgeInsets.only(bottom: MediaQuery.of(ctx).viewInsets.bottom),
+        child: Container(
+          padding: const EdgeInsets.all(16),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              TextField(
+                controller: controller,
+                autofocus: true,
+                style: const TextStyle(color: Colors.white),
+                decoration: const InputDecoration(
+                  hintText: 'Enter text',
+                  hintStyle: TextStyle(color: Colors.white54),
+                  enabledBorder: UnderlineInputBorder(
+                    borderSide: BorderSide(color: Colors.white54),
+                  ),
+                  focusedBorder: UnderlineInputBorder(
+                    borderSide: BorderSide(color: Colors.white),
+                  ),
+                ),
+              ),
+              const SizedBox(height: 12),
+              SizedBox(
+                height: 32,
+                child: ListView(
+                  scrollDirection: Axis.horizontal,
+                  children: [
+                    for (final s in ['Classic', 'Modern', 'Neon', 'Typewriter', 'Strong'])
+                      GestureDetector(
+                        onTap: () => style = s,
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                          margin: const EdgeInsets.only(right: 8),
+                          decoration: BoxDecoration(color: Colors.grey.shade700, borderRadius: BorderRadius.circular(16)),
+                          child: Text(s, style: const TextStyle(color: Colors.white)),
+                        ),
+                      ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 12),
+              SizedBox(
+                height: 24,
+                child: ListView(
+                  scrollDirection: Axis.horizontal,
+                  children: [
+                    for (final c in [Colors.white, Colors.black, Colors.red, Colors.yellow, Colors.green, Colors.blue, Colors.purple])
+                      GestureDetector(
+                        onTap: () => color = c,
+                        child: Container(
+                          width: 24,
+                          height: 24,
+                          margin: const EdgeInsets.symmetric(horizontal: 4),
+                          decoration: BoxDecoration(color: c, shape: BoxShape.circle, border: Border.all(color: Colors.white)),
+                        ),
+                      ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 12),
+              Row(
+                children: [
+                  Expanded(
+                    child: OutlinedButton(
+                      onPressed: () => Navigator.pop(ctx),
+                      style: OutlinedButton.styleFrom(
+                        foregroundColor: Colors.white,
+                        side: const BorderSide(color: Colors.white),
+                      ),
+                      child: const Text('Cancel'),
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: ElevatedButton(
+                      onPressed: () => Navigator.pop(ctx, e.copyWith(text: controller.text, style: style, color: color)),
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: Colors.blue,
+                        foregroundColor: Colors.white,
+                      ),
+                      child: const Text('Apply'),
+                    ),
+                  ),
+                ],
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+    if (updated != null) {
+      setState(() {
+        final idx = _storyElements.indexOf(e);
+        if (idx != -1) {
+          _storyElements[idx] = updated;
+        }
+      });
+    }
+  }
+
+  Future<void> _storyPostYourStory() async {
+    await _storyPostToApi(isCloseFriends: false);
+  }
+
+  Future<void> _storyPostCloseFriends() async {
+    await _storyPostToApi(isCloseFriends: true);
+  }
+
+  Future<void> _storyPostToApi({bool isCloseFriends = false}) async {
+    try {
+      debugPrint('\n════════════════════════════════════════');
+      debugPrint('🚀 Starting Story Post');
+      debugPrint('════════════════════════════════════════');
+      debugPrint('Close Friends: $isCloseFriends');
+
+      await Future.delayed(const Duration(milliseconds: 300));
+
+      final boundary = _storyRepaintKey.currentContext?.findRenderObject() as RenderRepaintBoundary?;
+      if (boundary == null) {
+        debugPrint('❌ RepaintBoundary is null');
+        debugPrint('Context: ${_storyRepaintKey.currentContext}');
+        _storyShowError('Unable to capture story. Please try again.');
+        return;
+      }
+
+      debugPrint('✅ RepaintBoundary found');
+
+      if (mounted) {
+        ScaffoldMessenger.of(context).clearSnackBars();
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Row(
+              children: [
+                SizedBox(width: 20, height: 20, child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2)),
+                SizedBox(width: 16),
+                Text('Posting story...'),
+              ],
+            ),
+            duration: Duration(seconds: 30),
+          ),
+        );
+      }
+
+      debugPrint('\n📸 Capturing image from RepaintBoundary...');
+      final ui.Image image = await boundary.toImage(pixelRatio: 2.0);
+      debugPrint('✅ Image captured: ${image.width}x${image.height}');
+
+      final byteData = await image.toByteData(format: ui.ImageByteFormat.png);
+      if (byteData == null) {
+        debugPrint('❌ ByteData is null');
+        _storyShowError('Failed to capture image');
+        return;
+      }
+
+      final bytes = byteData.buffer.asUint8List();
+      debugPrint('✅ PNG bytes: ${bytes.length} (${(bytes.length / 1024 / 1024).toStringAsFixed(2)} MB)');
+
+      var jpg = await FlutterImageCompress.compressWithList(
+        bytes,
+        quality: 85,
+        format: CompressFormat.jpeg,
+      );
+      debugPrint('✅ JPEG compressed: ${jpg.length} bytes (${(jpg.length / 1024 / 1024).toStringAsFixed(2)} MB)');
+
+      if (jpg.length > 4 * 1024 * 1024) {
+        debugPrint('⚠️ File too large, re-compressing...');
+        jpg = await FlutterImageCompress.compressWithList(
+          jpg,
+          quality: 70,
+          format: CompressFormat.jpeg,
+        );
+        debugPrint('✅ JPEG re-compressed: ${jpg.length} bytes (${(jpg.length / 1024 / 1024).toStringAsFixed(2)} MB)');
+      }
+
+      debugPrint('\n════════════════════════════════════════');
+      debugPrint('📤 STEP 1: Uploading to /api/stories/upload');
+      debugPrint('════════════════════════════════════════');
+
+      final uploadResponse = await _storyUploadWithRetry(jpg);
+
+      debugPrint('📦 Upload response type: ${uploadResponse.runtimeType}');
+      debugPrint('📦 Upload response keys: ${uploadResponse.keys.toList()}');
+      debugPrint('📦 Upload response: $uploadResponse');
+
+      Map<String, dynamic>? mediaPayload;
+
+      if (uploadResponse.containsKey('media')) {
+        mediaPayload = uploadResponse['media'] as Map<String, dynamic>?;
+        debugPrint('✅ Found media in response["media"]');
+      } else if (uploadResponse.containsKey('url') && uploadResponse.containsKey('type')) {
+        mediaPayload = uploadResponse;
+        debugPrint('✅ Using full response as media payload');
+      } else if (uploadResponse.containsKey('data')) {
+        final data = uploadResponse['data'];
+        if (data is Map) {
+          mediaPayload = data as Map<String, dynamic>;
+          debugPrint('✅ Found media in response["data"]');
+        }
+      } else if (uploadResponse.containsKey('fileUrl') || uploadResponse.containsKey('file_url')) {
+        final url = uploadResponse['fileUrl'] ?? uploadResponse['file_url'];
+        mediaPayload = {
+          'url': url,
+          'type': 'image',
+          'width': image.width,
+          'height': image.height,
+        };
+        debugPrint('✅ Constructed media payload from fileUrl');
+      }
+
+      if (mediaPayload == null) {
+        debugPrint('❌ Could not extract media payload from response');
+        debugPrint('Response structure: $uploadResponse');
+        _storyShowError('Upload failed: Invalid response format. Check console.');
+        return;
+      }
+
+      debugPrint('✅ Media payload: $mediaPayload');
+
+      debugPrint('\n════════════════════════════════════════');
+      debugPrint('📝 STEP 2: Creating story via /api/stories');
+      debugPrint('════════════════════════════════════════');
+
+      final screenSize = MediaQuery.of(context).size;
+
+      final storyItem = <String, dynamic>{
+        'media': mediaPayload,
+        'filter': {
+          'name': _storyCurrentFilter.toLowerCase(),
+          'intensity': 1.0,
+        },
+        'texts': _storyElements
+            .where((e) => e.type == _StoryElementType.text)
+            .map((e) => {
+                  'content': e.text ?? '',
+                  'fontSize': 24.0,
+                  'fontFamily': (e.style ?? 'classic').toLowerCase(),
+                  'color': '#${(e.color ?? Colors.white).value.toRadixString(16).substring(2, 8).toUpperCase()}',
+                  'align': 'center',
+                  'x': e.position.dx / screenSize.width,
+                  'y': e.position.dy / screenSize.height,
+                })
+            .toList(),
+        'mentions': [],
+      };
+
+      if (isCloseFriends) {
+        storyItem['isCloseFriends'] = true;
+      }
+
+      debugPrint('📋 Story item payload:');
+      debugPrint(jsonEncode(storyItem));
+
+      final createResponse = await StoriesApi().create([storyItem]).timeout(const Duration(seconds: 15));
+
+      debugPrint('✅ Create response: $createResponse');
+      debugPrint('\n════════════════════════════════════════');
+      debugPrint('🎉 Story posted successfully!');
+      debugPrint('════════════════════════════════════════\n');
+
+      if (mounted) {
+        ScaffoldMessenger.of(context).clearSnackBars();
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(isCloseFriends ? 'Posted to Close Friends ✓' : 'Posted to Your Story ✓'),
+            backgroundColor: Colors.green,
+            duration: const Duration(seconds: 2),
+          ),
+        );
+      }
+
+      await Future.delayed(const Duration(milliseconds: 500));
+      if (mounted) {
+        _exitStoryEditing();
+      }
+    } on SocketException catch (e) {
+      debugPrint('\n❌ SocketException: $e');
+      _storyShowError('No internet connection');
+    } on TimeoutException catch (e) {
+      debugPrint('\n❌ TimeoutException: $e');
+      _storyShowError('Request timed out. Please try again.');
+    } catch (e, stackTrace) {
+      debugPrint('\n❌❌❌ ERROR ❌❌❌');
+      debugPrint('Error type: ${e.runtimeType}');
+      debugPrint('Error message: $e');
+      debugPrint('Stack trace:');
+      debugPrint(stackTrace.toString());
+      debugPrint('════════════════════════════════════════\n');
+
+      String errorMessage = 'Failed to post story';
+
+      if (e.toString().contains('ApiException') || e.toString().contains('Exception')) {
+        final match = RegExp(r'Exception: (.+)').firstMatch(e.toString());
+        if (match != null) {
+          errorMessage = match.group(1) ?? errorMessage;
+        }
+      }
+
+      _storyShowError('$errorMessage\n\nCheck console for details');
+    }
+  }
+
+  Future<Map<String, dynamic>> _storyUploadWithRetry(List<int> bytes, {int maxRetries = 3}) async {
+    int attempts = 0;
+    Exception? lastException;
+    
+    while (attempts < maxRetries) {
+      try {
+        attempts++;
+        debugPrint('Upload attempt $attempts of $maxRetries');
+        
+        // Call the /api/stories/upload endpoint
+        final response = await StoriesApi().upload(bytes).timeout(const Duration(seconds: 20));
+        
+        debugPrint('✓ Upload successful on attempt $attempts');
+        return response;
+      } catch (e) {
+        lastException = e as Exception;
+        debugPrint('✗ Upload attempt $attempts failed: $e');
+        
+        if (attempts < maxRetries) {
+          final delay = Duration(seconds: attempts * 2);
+          debugPrint('Retrying in ${delay.inSeconds} seconds...');
+          await Future.delayed(delay);
+        }
+      }
+    }
+    
+    throw lastException ?? Exception('Upload failed after $maxRetries attempts');
+  }
+
+  void _storyShowError(String message) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).clearSnackBars();
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(message),
+        backgroundColor: Colors.red,
+        duration: const Duration(seconds: 5),
+        action: SnackBarAction(
+          label: 'Retry',
+          textColor: Colors.white,
+          onPressed: () => _storyPostToApi(),
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
+    if (_isStoryEditing) {
+      return _buildStoryEditingUi(context);
+    }
+
     if (_initializing) {
       return const Scaffold(
         backgroundColor: Colors.black,
@@ -575,7 +1897,7 @@ class _StoryCameraScreenState extends State<StoryCameraScreen> with WidgetsBindi
                   children: [
                     IconButton(
                       icon: const Icon(LucideIcons.x, color: Colors.white),
-                      onPressed: () => Navigator.of(context).popUntil((route) => route.isFirst),
+                      onPressed: () => Navigator.of(context).pop(),
                     ),
                     IconButton(
                       icon: Icon(
@@ -609,33 +1931,6 @@ class _StoryCameraScreenState extends State<StoryCameraScreen> with WidgetsBindi
                   ],
                 ),
               ),
-            ),
-          ),
-          Positioned(
-            left: 20,
-            top: 120,
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                _buildToolButton(
-                  child: const Text(
-                    'Aa',
-                    style: TextStyle(
-                      color: Colors.white,
-                      fontSize: 20,
-                      fontWeight: FontWeight.bold,
-                    ),
-                  ),
-                ),
-                const SizedBox(height: 24),
-                _buildToolButton(icon: LucideIcons.infinity),
-                const SizedBox(height: 24),
-                _buildToolButton(icon: LucideIcons.grid3x3),
-                const SizedBox(height: 24),
-                _buildToolButton(icon: LucideIcons.smile),
-                const SizedBox(height: 24),
-                _buildToolButton(icon: LucideIcons.chevronDown),
-              ],
             ),
           ),
           Positioned(

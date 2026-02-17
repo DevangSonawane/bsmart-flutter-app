@@ -15,7 +15,6 @@ import 'screens/wallet_screen.dart';
 import 'screens/notifications_screen.dart';
 import 'screens/auth_callback_screen.dart';
 import 'screens/story_camera_screen.dart';
-import 'screens/story_editing_screen.dart';
 import 'screens/own_story_viewer_screen.dart';
 
 /// Centralized route definitions matching the React app structure.
@@ -43,10 +42,6 @@ final Map<String, WidgetBuilder> appRoutes = {
     return const EditProfileScreen(userId: '');
   },
   '/story-camera': (ctx) => const StoryCameraScreen(),
-  '/story-edit': (ctx) {
-    final media = (ModalRoute.of(ctx)?.settings.arguments as List<ImageProvider>?) ?? <ImageProvider>[];
-    return StoryEditingScreen(media: media);
-  },
   '/own-story-viewer': (ctx) {
     return OwnStoryViewerScreen(stories: const [], userName: 'You');
   },

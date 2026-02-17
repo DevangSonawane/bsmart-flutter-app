@@ -5,11 +5,13 @@ import '../models/story_model.dart';
 import 'package:image_picker/image_picker.dart';
 import '../api/api.dart';
 import '../api/api_exceptions.dart';
+import '../services/feed_service.dart';
 
 class OwnStoryViewerScreen extends StatefulWidget {
   final List<Story> stories;
   final String userName;
-  const OwnStoryViewerScreen({super.key, required this.stories, required this.userName});
+  final String? storyId;
+  const OwnStoryViewerScreen({super.key, required this.stories, required this.userName, this.storyId});
 
   @override
   State<OwnStoryViewerScreen> createState() => _OwnStoryViewerScreenState();
@@ -20,14 +22,64 @@ class _OwnStoryViewerScreenState extends State<OwnStoryViewerScreen> {
   int _index = 0;
   double _progress = 0.0;
   Timer? _timer;
-  final List<Map<String, dynamic>> _viewers = List.generate(24, (i) => {'name': 'Viewer $i', 'time': DateTime.now().subtract(Duration(minutes: i))});
+  List<Map<String, dynamic>> _viewers = const [];
+  int _viewsCount = 0;
+  int _uniqueViewersCount = 0;
   double _dragStartX = 0;
+  late List<Story> _stories;
+  final FeedService _feedService = FeedService();
 
   @override
   void initState() {
     super.initState();
     _controller = PageController();
+    _stories = List<Story>.from(widget.stories);
+     _viewsCount = widget.stories.isNotEmpty ? widget.stories.first.views : 0;
     _start();
+    _loadItemsIfNeeded();
+    _loadAnalyticsIfNeeded();
+  }
+
+  Future<void> _loadItemsIfNeeded() async {
+    final sid = widget.storyId;
+    if (sid == null || sid.isEmpty) return;
+    try {
+      final items = await _feedService.fetchStoryItems(
+        sid,
+        ownerUserName: widget.userName,
+        ownerAvatar: _stories.isNotEmpty ? _stories.first.userAvatar : null,
+      );
+      if (!mounted || items.isEmpty) return;
+      setState(() {
+        _stories = items;
+        _index = 0;
+        _progress = 0.0;
+      });
+      _start();
+    } catch (_) {
+      // ignore
+    }
+  }
+
+  Future<void> _loadAnalyticsIfNeeded() async {
+    final sid = widget.storyId;
+    if (sid == null || sid.isEmpty) return;
+    try {
+      final viewers = await StoriesApi().viewers(sid);
+      if (!mounted) return;
+      final uniqueUsers = viewers
+          .map((v) => (v['user_id'] ?? v['id'] ?? '').toString())
+          .where((id) => id.isNotEmpty)
+          .toSet()
+          .length;
+      setState(() {
+        _viewers = viewers;
+        _viewsCount = viewers.length;
+        _uniqueViewersCount = uniqueUsers;
+      });
+    } catch (_) {
+      // ignore analytics errors for UI
+    }
   }
 
   @override
@@ -50,7 +102,7 @@ class _OwnStoryViewerScreenState extends State<OwnStoryViewerScreen> {
   }
 
   void _next() {
-    if (_index < widget.stories.length - 1) {
+    if (_index < _stories.length - 1) {
       setState(() {
         _index++;
         _progress = 0.0;
@@ -76,25 +128,79 @@ class _OwnStoryViewerScreenState extends State<OwnStoryViewerScreen> {
   }
 
   void _openViewers() {
+    if (widget.storyId == null || widget.storyId!.isEmpty) {
+      return;
+    }
     showModalBottomSheet(
       context: context,
-      builder: (ctx) => SafeArea(
-        child: ListView.builder(
-          itemCount: _viewers.length,
-          itemBuilder: (_, i) {
-            final v = _viewers[i];
-            return ListTile(
-              leading: CircleAvatar(child: Text(v['name'][0])),
-              title: Text(v['name']),
-              subtitle: Text('${(v['time'] as DateTime).hour}:${(v['time'] as DateTime).minute.toString().padLeft(2, '0')}'),
+      builder: (ctx) => FutureBuilder<List<Map<String, dynamic>>>(
+        future: StoriesApi().viewers(widget.storyId!),
+        builder: (ctx, snapshot) {
+          if (snapshot.connectionState == ConnectionState.waiting) {
+            return const SafeArea(
+              child: Center(
+                child: Padding(
+                  padding: EdgeInsets.all(16),
+                  child: CircularProgressIndicator(),
+                ),
+              ),
             );
-          },
-        ),
+          }
+          if (snapshot.hasError) {
+            final msg = snapshot.error is ApiException ? (snapshot.error as ApiException).message : 'Failed to load viewers';
+            return SafeArea(
+              child: Center(
+                child: Padding(
+                  padding: const EdgeInsets.all(16),
+                  child: Text(msg),
+                ),
+              ),
+            );
+          }
+          final viewers = snapshot.data ?? const [];
+          _viewers = viewers;
+          if (viewers.isEmpty) {
+            return const SafeArea(
+              child: Center(
+                child: Padding(
+                  padding: EdgeInsets.all(16),
+                  child: Text('No viewers yet'),
+                ),
+              ),
+            );
+          }
+          return SafeArea(
+            child: ListView.builder(
+              itemCount: viewers.length,
+              itemBuilder: (_, i) {
+                final v = viewers[i];
+                final name = (v['username'] ?? v['full_name'] ?? 'Viewer').toString();
+                final avatar = v['avatar_url'] as String?;
+                final viewedAtRaw = v['viewedAt'] as String? ?? v['createdAt'] as String?;
+                DateTime? viewedAt;
+                if (viewedAtRaw != null && viewedAtRaw.isNotEmpty) {
+                  viewedAt = DateTime.tryParse(viewedAtRaw);
+                }
+                return ListTile(
+                  leading: CircleAvatar(
+                    backgroundImage: avatar != null && avatar.isNotEmpty ? NetworkImage(avatar) : null,
+                    child: (avatar == null || avatar.isEmpty) ? Text(name.isNotEmpty ? name[0].toUpperCase() : 'V') : null,
+                  ),
+                  title: Text(name),
+                  subtitle: viewedAt != null ? Text(viewedAt.toLocal().toString()) : null,
+                );
+              },
+            ),
+          );
+        },
       ),
     );
   }
 
   void _openInsights() {
+    if (widget.storyId == null || widget.storyId!.isEmpty) {
+      return;
+    }
     showModalBottomSheet(
       context: context,
       isScrollControlled: true,
@@ -102,28 +208,71 @@ class _OwnStoryViewerScreenState extends State<OwnStoryViewerScreen> {
         initialChildSize: 0.6,
         minChildSize: 0.4,
         maxChildSize: 0.95,
-        builder: (ctx, scroll) => Container(
-          padding: const EdgeInsets.all(16),
-          child: ListView(
-            controller: scroll,
-            children: [
-              const Text('Insights', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
-              const SizedBox(height: 12),
-              Text('Total views: ${_viewers.length}'),
-              const SizedBox(height: 12),
-              const Text('Navigation summary:'),
-              const Text('- Forwards: 12'),
-              const Text('- Backs: 4'),
-              const Text('- Exits: 2'),
-              const SizedBox(height: 12),
-              const Text('Viewers:'),
-              ..._viewers.map((v) => ListTile(
-                    leading: CircleAvatar(child: Text(v['name'][0])),
-                    title: Text(v['name']),
-                    subtitle: Text('Viewed at ${(v['time'] as DateTime).toLocal()}'),
-                  )),
-            ],
-          ),
+        builder: (ctx, scroll) => FutureBuilder<List<Map<String, dynamic>>>(
+          future: StoriesApi().viewers(widget.storyId!),
+          builder: (ctx, snapshot) {
+            if (snapshot.connectionState == ConnectionState.waiting) {
+              return const Center(
+                child: Padding(
+                  padding: EdgeInsets.all(16),
+                  child: CircularProgressIndicator(),
+                ),
+              );
+            }
+            if (snapshot.hasError) {
+              final msg = snapshot.error is ApiException ? (snapshot.error as ApiException).message : 'Failed to load insights';
+              return Center(
+                child: Padding(
+                  padding: const EdgeInsets.all(16),
+                  child: Text(msg),
+                ),
+              );
+            }
+            final viewers = snapshot.data ?? const [];
+            _viewers = viewers;
+            final totalViews = viewers.length;
+            final uniqueUsers = viewers
+                .map((v) => (v['user_id'] ?? v['id'] ?? '').toString())
+                .where((id) => id.isNotEmpty)
+                .toSet()
+                .length;
+            return Container(
+              padding: const EdgeInsets.all(16),
+              child: ListView(
+                controller: scroll,
+                children: [
+                  const Text('Insights', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+                  const SizedBox(height: 12),
+                  Text('Total views: $totalViews'),
+                  const SizedBox(height: 4),
+                  Text('Unique viewers: $uniqueUsers'),
+                  const SizedBox(height: 12),
+                  const Text('Recent viewers:'),
+                  const SizedBox(height: 8),
+                  if (viewers.isEmpty)
+                    const Text('No viewers yet')
+                  else
+                    ...viewers.take(20).map((v) {
+                      final name = (v['username'] ?? v['full_name'] ?? 'Viewer').toString();
+                      final avatar = v['avatar_url'] as String?;
+                      final viewedAtRaw = v['viewedAt'] as String? ?? v['createdAt'] as String?;
+                      DateTime? viewedAt;
+                      if (viewedAtRaw != null && viewedAtRaw.isNotEmpty) {
+                        viewedAt = DateTime.tryParse(viewedAtRaw);
+                      }
+                      return ListTile(
+                        leading: CircleAvatar(
+                          backgroundImage: avatar != null && avatar.isNotEmpty ? NetworkImage(avatar) : null,
+                          child: (avatar == null || avatar.isEmpty) ? Text(name.isNotEmpty ? name[0].toUpperCase() : 'V') : null,
+                        ),
+                        title: Text(name),
+                        subtitle: viewedAt != null ? Text(viewedAt.toLocal().toString()) : null,
+                      );
+                    }),
+                ],
+              ),
+            );
+          },
         ),
       ),
     );
@@ -182,9 +331,50 @@ class _OwnStoryViewerScreenState extends State<OwnStoryViewerScreen> {
     }
   }
 
+  Future<void> _deleteCurrentStory() async {
+    if (_stories.isEmpty) return;
+    _timer?.cancel();
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Delete story?'),
+        content: const Text('This will remove the story for everyone.'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(false),
+            child: const Text('Cancel'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(true),
+            child: const Text('Delete'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true) {
+      _start();
+      return;
+    }
+    try {
+      final sid = widget.storyId;
+      if (sid != null && sid.isNotEmpty) {
+        await StoriesApi().delete(sid);
+      } else {
+        final current = _stories[_index];
+        await StoriesApi().deleteItem(current.id);
+      }
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Story deleted')));
+      Navigator.pop(context);
+    } catch (e) {
+      final msg = e is ApiException ? e.message : 'Failed to delete story';
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg)));
+      _start();
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
-    final story = widget.stories[_index];
+    final story = _stories[_index];
     return Scaffold(
       backgroundColor: Colors.black,
       body: GestureDetector(
@@ -217,13 +407,12 @@ class _OwnStoryViewerScreenState extends State<OwnStoryViewerScreen> {
         child: Stack(
           children: [
             Positioned.fill(
-              child: Container(color: Colors.black),
-            ),
-            Center(
-              child: Text(
-                story.mediaType == StoryMediaType.image ? 'Image Story' : 'Video Story',
-                style: const TextStyle(color: Colors.white54, fontSize: 24),
-              ),
+              child: story.mediaUrl.isNotEmpty
+                  ? Image.network(
+                      story.mediaUrl,
+                      fit: BoxFit.cover,
+                    )
+                  : Container(color: Colors.black),
             ),
             Positioned(
               top: 40,
@@ -233,7 +422,7 @@ class _OwnStoryViewerScreenState extends State<OwnStoryViewerScreen> {
                 children: [
                   Row(
                     children: List.generate(
-                      widget.stories.length,
+                      _stories.length,
                       (i) => Expanded(
                         child: Container(
                           height: 2,
@@ -257,7 +446,7 @@ class _OwnStoryViewerScreenState extends State<OwnStoryViewerScreen> {
                     children: [
                       Text(widget.userName, style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
                       const Spacer(),
-                      IconButton(onPressed: () {}, icon: const Icon(Icons.more_horiz, color: Colors.white)),
+                      IconButton(onPressed: _deleteCurrentStory, icon: const Icon(Icons.more_horiz, color: Colors.white)),
                       IconButton(onPressed: () => Navigator.pop(context), icon: const Icon(LucideIcons.x, color: Colors.white)),
                     ],
                   ),
@@ -272,7 +461,7 @@ class _OwnStoryViewerScreenState extends State<OwnStoryViewerScreen> {
                 children: [
                   TextButton(
                     onPressed: _openViewers,
-                    child: Text('👁️ ${_viewers.length} viewers', style: const TextStyle(color: Colors.white)),
+                    child: Text('👁️ $_viewsCount views', style: const TextStyle(color: Colors.white)),
                   ),
                   const Spacer(),
                   ElevatedButton(

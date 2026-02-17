@@ -47,6 +47,7 @@ class _HomeDashboardState extends State<HomeDashboard> {
   List<Map<String, dynamic>> _storyUsers = [];
   List<StoryGroup> _storyGroups = [];
   List<Story> _myStories = [];
+  String? _myStoryId;
   bool _yourStoryHasActive = false;
   Map<String, Map<String, bool>> _storyStatuses = {};
   int _currentIndex = 0;
@@ -78,15 +79,18 @@ class _HomeDashboardState extends State<HomeDashboard> {
     // Stories feed from backend
     final groups = await _feedService.fetchStoriesFeed();
     final statuses = _computeStoryStatuses(groups);
-    final users = groups.map((g) {
+    final users = groups
+        .where((g) => currentUserId == null || g.userId != currentUserId)
+        .map((g) {
       return {
         'id': g.userId,
         'username': g.userName,
         'avatar_url': g.userAvatar,
       };
     }).toList();
+    final myGroups = currentUserId != null ? groups.where((g) => g.userId == currentUserId).toList() : <StoryGroup>[];
     final my = currentUserId != null
-        ? groups.where((g) => g.userId == currentUserId).expand((g) => g.stories).toList()
+        ? myGroups.expand((g) => g.stories).toList()
         : _buildMyStories(currentProfile);
     if (mounted) {
       store.dispatch(SetFeedPosts(fetched));
@@ -96,6 +100,7 @@ class _HomeDashboardState extends State<HomeDashboard> {
         _storyGroups = groups;
         _storyStatuses = statuses;
         _myStories = my;
+        _myStoryId = myGroups.isNotEmpty ? myGroups.first.storyId : null;
         _yourStoryHasActive = _myStories.isNotEmpty;
         _balance = bal;
       });
@@ -748,6 +753,7 @@ class _HomeDashboardState extends State<HomeDashboard> {
                                 MaterialPageRoute(
                                   builder: (_) => OwnStoryViewerScreen(
                                     stories: _myStories,
+                                    storyId: _myStoryId,
                                     userName: (_currentUserProfile?['username'] ?? _currentUserProfile?['full_name'] ?? 'You').toString(),
                                   ),
                                 ),
@@ -761,6 +767,7 @@ class _HomeDashboardState extends State<HomeDashboard> {
                           },
                           onUserStoryTap: _storyGroups.isEmpty ? null : _onStoryTap,
                           yourStoryHasActive: _yourStoryHasActive,
+                          showYourStory: true,
                           userStatuses: _storyStatuses,
                         ),
                         if (posts.isEmpty)

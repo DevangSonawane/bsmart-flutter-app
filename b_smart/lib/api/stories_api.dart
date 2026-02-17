@@ -1,43 +1,33 @@
 import 'api_client.dart';
 import '../config/api_config.dart';
 
-/// REST API wrapper for `/api/stories` endpoints.
-///
-/// Endpoints:
-///   POST   /api/stories                     – Create/append items to active story
-///   GET    /api/stories/feed                – Stories feed (preview + seen state)
-///   GET    /api/stories/{storyId}/items     – Items for a story
-///   POST   /api/stories/items/{itemId}/view – Mark item viewed
-///   GET    /api/stories/{storyId}/views     – Viewers list (owner-only)
-///   GET    /api/stories/archive             – Archived stories for requester
-///   DELETE /api/stories/{storyId}           – Delete story (owner-only)
 class StoriesApi {
-  static final StoriesApi _instance = StoriesApi._internal();
-  factory StoriesApi() => _instance;
-  StoriesApi._internal();
-
   final ApiClient _client = ApiClient();
 
-  String _path(String p) {
+  String get _basePath {
     final base = ApiConfig.baseUrl.toLowerCase().trim().replaceAll(RegExp(r'\/+$'), '');
-    final hasApi = base.endsWith('/api');
-    return hasApi ? p : '/api${p.startsWith('/') ? p : '/$p'}';
+    final endsWithApi = base.endsWith('/api');
+    return endsWithApi ? '' : '/api';
   }
 
-  Future<List<dynamic>> feed() async {
-    final res = await _client.get(_path('/stories/feed'));
-    return (res as List).cast<dynamic>();
-  }
+  String _path(String suffix) => '$_basePath$suffix';
 
-  Future<List<dynamic>> items(String storyId) async {
-    final res = await _client.get(_path('/stories/$storyId/items'));
-    return (res as List).cast<dynamic>();
+  Future<Map<String, dynamic>> upload(List<int> bytes) async {
+    final res = await _client.multipartPostBytes(
+      _path('/stories/upload'),
+      bytes: bytes,
+      filename: 'story_${DateTime.now().millisecondsSinceEpoch}.jpg',
+      fileField: 'file',
+    );
+    return (res as Map).cast<String, dynamic>();
   }
 
   Future<Map<String, dynamic>> create(List<Map<String, dynamic>> itemsPayload) async {
     final body = {'items': itemsPayload};
-    print('Creating story with body: $body');
-    final res = await _client.post(_path('/stories'), body: body);
+    final res = await _client.post(
+      _path('/stories'),
+      body: body,
+    );
     return (res as Map).cast<String, dynamic>();
   }
 
@@ -45,27 +35,43 @@ class StoriesApi {
     try {
       return await create(itemsPayload);
     } catch (e) {
+      // Keep errors visible in console for easier debugging
+      // while still surfacing the original exception to callers.
+      // ignore: avoid_print
+      print('Story creation failed: $e');
       rethrow;
     }
   }
 
-  Future<Map<String, dynamic>> viewItem(String itemId) async {
-    final res = await _client.post(_path('/stories/items/$itemId/view'));
-    return (res as Map).cast<String, dynamic>();
+  Future<List<Map<String, dynamic>>> feed() async {
+    final res = await _client.get(_path('/stories/feed'));
+    return List<Map<String, dynamic>>.from(res as List);
   }
 
-  Future<Map<String, dynamic>> views(String storyId) async {
+  Future<List<Map<String, dynamic>>> items(String storyId) async {
+    final res = await _client.get(_path('/stories/$storyId/items'));
+    return List<Map<String, dynamic>>.from(res as List);
+  }
+
+  Future<void> viewItem(String itemId) async {
+    await _client.post(_path('/stories/items/$itemId/view'));
+  }
+
+  Future<List<Map<String, dynamic>>> viewers(String storyId) async {
     final res = await _client.get(_path('/stories/$storyId/views'));
-    return (res as Map).cast<String, dynamic>();
+    return List<Map<String, dynamic>>.from(res as List);
   }
 
-  Future<Map<String, dynamic>> archive() async {
+  Future<List<Map<String, dynamic>>> archive() async {
     final res = await _client.get(_path('/stories/archive'));
-    return (res as Map).cast<String, dynamic>();
+    return List<Map<String, dynamic>>.from(res as List);
   }
 
-  Future<Map<String, dynamic>> delete(String storyId) async {
-    final res = await _client.delete(_path('/stories/$storyId'));
-    return (res as Map).cast<String, dynamic>();
+  Future<void> delete(String storyId) async {
+    await _client.delete(_path('/stories/$storyId'));
+  }
+
+  Future<void> deleteItem(String itemId) async {
+    await _client.delete(_path('/stories/items/$itemId'));
   }
 }

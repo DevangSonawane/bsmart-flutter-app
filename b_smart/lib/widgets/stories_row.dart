@@ -11,6 +11,7 @@ class StoriesRow extends StatelessWidget {
   final Map<String, Map<String, bool>>? userStatuses;
   final double? yourStoryUploadProgress;
   final VoidCallback? onYourStoryAddTap;
+  final bool showYourStory;
 
   const StoriesRow({
     Key? key,
@@ -21,6 +22,7 @@ class StoriesRow extends StatelessWidget {
     this.userStatuses,
     this.yourStoryUploadProgress,
     this.onYourStoryAddTap,
+    this.showYourStory = true,
   }) : super(key: key);
 
   @override
@@ -32,10 +34,11 @@ class StoriesRow extends StatelessWidget {
       child: ListView.separated(
         padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
         scrollDirection: Axis.horizontal,
-        itemCount: users.length + 1,
+        itemCount: users.length + (showYourStory ? 1 : 0),
         separatorBuilder: (_, __) => const SizedBox(width: 12),
         itemBuilder: (context, index) {
-          if (index == 0) {
+          final offset = showYourStory ? 1 : 0;
+          if (showYourStory && index == 0) {
             return _StoryItem(
               label: 'Your Story',
               avatarUrl: null,
@@ -56,7 +59,7 @@ class StoriesRow extends StatelessWidget {
               onAddTap: onYourStoryAddTap,
             );
           }
-          final user = users[index - 1];
+          final user = users[index - offset];
           final uid = (user['id'] ?? user['_id'] ?? '').toString();
           final status = userStatuses?[uid] ?? const {};
           final isCloseFriend = status['isCloseFriend'] == true;
@@ -88,7 +91,7 @@ class StoriesRow extends StatelessWidget {
             label: (user['username'] ?? user['full_name'] ?? '').toString(),
             avatarUrl: user['avatar_url'] as String?,
             ringGradient: ring,
-            onTap: onUserStoryTap != null ? () => onUserStoryTap!(index - 1) : null,
+            onTap: onUserStoryTap != null ? () => onUserStoryTap!(index - offset) : null,
             segmentsCount: segmentsCount,
           );
         },

@@ -18,6 +18,7 @@ import '../utils/current_user.dart';
 import '../services/user_account_service.dart';
 import '../services/wallet_service.dart';
 import '../api/auth_api.dart';
+import 'story_camera_screen.dart';
 
 /// Heroicons badge-check (same as React web app verified badge)
 const String _verifiedBadgeSvg = r'''
@@ -88,8 +89,6 @@ class _ProfileScreenState extends State<ProfileScreen> {
     final savedFuture = _svc.getUserSavedPosts(targetId, limit: _initialPostsLimit);
     final taggedFuture = _svc.getUserTaggedPosts(targetId, limit: _initialPostsLimit);
     final walletFuture = (widget.userId == null) ? WalletService().getCoinBalance() : Future.value(0);
-    
-    // Also fetch UserAccount info (e.g. followers, account type)
     final userAccount = UserAccountService().getAccount(targetId);
 
     final results = await Future.wait([
