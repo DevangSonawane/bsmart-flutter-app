@@ -494,7 +494,7 @@ class FeedService {
   /// Fetch stories feed from backend and map to [StoryGroup]s.
   Future<List<StoryGroup>> fetchStoriesFeed() async {
     final feed = await _storiesApi.feed();
-    return feed.map<StoryGroup>((item) {
+    final groups = feed.map<StoryGroup>((item) {
       final Map data = item as Map;
       final user = data['user'] as Map<String, dynamic>? ?? {};
       final preview = data['preview_item'] as Map<String, dynamic>? ?? {};
@@ -542,13 +542,43 @@ class FeedService {
               ],
       );
     }).toList();
+
+    // Sort so that:
+    // - Users with unseen stories come first
+    // - Within each group, preview uses latest story
+    groups.sort((a, b) {
+      final aStory = a.stories.isNotEmpty ? a.stories.first : null;
+      final bStory = b.stories.isNotEmpty ? b.stories.first : null;
+
+      final aSeen = aStory?.isViewed ?? false;
+      final bSeen = bStory?.isViewed ?? false;
+      if (aSeen != bSeen) {
+        return aSeen ? 1 : -1; // unseen first
+      }
+
+      final ad = aStory?.createdAt ?? DateTime.fromMillisecondsSinceEpoch(0);
+      final bd = bStory?.createdAt ?? DateTime.fromMillisecondsSinceEpoch(0);
+      return bd.compareTo(ad); // newest first
+    });
+
+    return groups;
   }
 
   /// Fetch all items for a specific story.
   Future<List<Story>> fetchStoryItems(String storyId, {String? ownerUserName, String? ownerAvatar}) async {
-    final items = await _storiesApi.items(storyId);
-    return items.map<Story>((it) {
-      final Map m = it as Map;
+    final rawItems = await _storiesApi.items(storyId);
+    final items = List<Map<String, dynamic>>.from(rawItems.map((e) => Map<String, dynamic>.from(e as Map)));
+
+    items.sort((a, b) {
+      final ad = DateTime.tryParse(a['createdAt'] as String? ?? a['created_at'] as String? ?? '') ??
+          DateTime.fromMillisecondsSinceEpoch(0);
+      final bd = DateTime.tryParse(b['createdAt'] as String? ?? b['created_at'] as String? ?? '') ??
+          DateTime.fromMillisecondsSinceEpoch(0);
+      // Oldest first so that the latest story is viewed last
+      return ad.compareTo(bd);
+    });
+
+    return items.map<Story>((m) {
       final rawMedia = m['media'];
       Map<String, dynamic>? media;
       if (rawMedia is List && rawMedia.isNotEmpty && rawMedia.first is Map) {

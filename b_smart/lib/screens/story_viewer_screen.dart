@@ -71,8 +71,8 @@ class _StoryViewerScreenState extends State<StoryViewerScreen> {
     _paused = false;
     
     final currentGroup = widget.storyGroups[_currentGroupIndex];
-    // Lazy-load items for current group if missing
-    if (currentGroup.stories.isEmpty && (currentGroup.storyId ?? '').isNotEmpty) {
+    // Lazy-load all items for current group when only a preview story is present
+    if (currentGroup.stories.length <= 1 && (currentGroup.storyId ?? '').isNotEmpty) {
       _fetchGroupItems(_currentGroupIndex);
       return;
     }
@@ -82,16 +82,10 @@ class _StoryViewerScreenState extends State<StoryViewerScreen> {
     }
 
     final currentStory = currentGroup.stories[_currentStoryIndex];
-    if (!_viewedItemIds.contains(currentStory.id)) {
-      _viewedItemIds.add(currentStory.id);
-      _feedService.markItemViewed(currentStory.id).catchError((_) {});
-    }
     _setupCurrentStoryMedia(currentStory);
 
     final isImage = currentStory.mediaType == StoryMediaType.image;
-    final durationMs = isImage
-        ? 5000
-        : ((currentStory.durationSec ?? 5) * 1000);
+    final durationMs = isImage ? 5000 : ((currentStory.durationSec ?? 5) * 1000);
     final tickMs = 50;
     final ticks = (durationMs / tickMs).clamp(1, 100000).toInt();
     _autoPlayTimer = Timer.periodic(Duration(milliseconds: tickMs), (timer) {
@@ -101,6 +95,11 @@ class _StoryViewerScreenState extends State<StoryViewerScreen> {
 
       if (_progress >= 1.0) {
         timer.cancel();
+        final id = currentStory.id;
+        if (!_viewedItemIds.contains(id)) {
+          _viewedItemIds.add(id);
+          _feedService.markItemViewed(id).catchError((_) {});
+        }
         _nextStory();
       }
     });
@@ -113,10 +112,14 @@ class _StoryViewerScreenState extends State<StoryViewerScreen> {
         _currentStoryIndex++;
         _progress = 0.0;
       });
-      _storyController.nextPage(
-        duration: const Duration(milliseconds: 300),
-        curve: Curves.easeInOut,
-      );
+      if (_storyController.hasClients) {
+        _storyController.nextPage(
+          duration: const Duration(milliseconds: 300),
+          curve: Curves.easeInOut,
+        );
+      } else {
+        _storyController.jumpToPage(_currentStoryIndex);
+      }
       _setupCurrentStoryMedia(widget.storyGroups[_currentGroupIndex].stories[_currentStoryIndex]);
       _startAutoPlay();
     } else {
@@ -130,10 +133,14 @@ class _StoryViewerScreenState extends State<StoryViewerScreen> {
         _currentStoryIndex--;
         _progress = 0.0;
       });
-      _storyController.previousPage(
-        duration: const Duration(milliseconds: 300),
-        curve: Curves.easeInOut,
-      );
+      if (_storyController.hasClients) {
+        _storyController.previousPage(
+          duration: const Duration(milliseconds: 300),
+          curve: Curves.easeInOut,
+        );
+      } else {
+        _storyController.jumpToPage(_currentStoryIndex);
+      }
       _setupCurrentStoryMedia(widget.storyGroups[_currentGroupIndex].stories[_currentStoryIndex]);
       _startAutoPlay();
     } else {
@@ -148,15 +155,21 @@ class _StoryViewerScreenState extends State<StoryViewerScreen> {
         _currentStoryIndex = 0;
         _progress = 0.0;
       });
-      _pageController.nextPage(
-        duration: const Duration(milliseconds: 300),
-        curve: Curves.easeInOut,
-      );
-      _storyController.jumpToPage(0);
+      if (_pageController.hasClients) {
+        _pageController.nextPage(
+          duration: const Duration(milliseconds: 300),
+          curve: Curves.easeInOut,
+        );
+      } else {
+        _pageController.jumpToPage(_currentGroupIndex);
+      }
+      if (_storyController.hasClients) {
+        _storyController.jumpToPage(0);
+      }
       _fetchGroupItems(_currentGroupIndex);
       _startAutoPlay();
     } else {
-      Navigator.of(context).pop();
+      Navigator.of(context).pushNamedAndRemoveUntil('/home', (route) => false);
     }
   }
 
@@ -168,11 +181,17 @@ class _StoryViewerScreenState extends State<StoryViewerScreen> {
         _currentStoryIndex = previousGroup.stories.length - 1;
         _progress = 0.0;
       });
-      _pageController.previousPage(
-        duration: const Duration(milliseconds: 300),
-        curve: Curves.easeInOut,
-      );
-      _storyController.jumpToPage(_currentStoryIndex);
+      if (_pageController.hasClients) {
+        _pageController.previousPage(
+          duration: const Duration(milliseconds: 300),
+          curve: Curves.easeInOut,
+        );
+      } else {
+        _pageController.jumpToPage(_currentGroupIndex);
+      }
+      if (_storyController.hasClients) {
+        _storyController.jumpToPage(_currentStoryIndex);
+      }
       _startAutoPlay();
     } else {
       Navigator.of(context).pop();
@@ -197,13 +216,19 @@ class _StoryViewerScreenState extends State<StoryViewerScreen> {
       body: GestureDetector(
         onLongPressStart: (_) {
           _autoPlayTimer?.cancel();
+          if (_videoCtl != null && _videoCtl!.value.isInitialized) {
+            _videoCtl!.pause();
+          }
           setState(() => _paused = true);
         },
         onLongPressEnd: (_) {
+          if (_videoCtl != null && _videoCtl!.value.isInitialized && !_videoCtl!.value.isPlaying) {
+            _videoCtl!.play();
+          }
           setState(() => _paused = false);
           _startAutoPlay();
         },
-        onTapDown: (details) {
+        onTapUp: (details) {
           final screenWidth = MediaQuery.of(context).size.width;
           if (details.globalPosition.dx < screenWidth / 2) {
             _previousStory();
@@ -308,21 +333,24 @@ class _StoryViewerScreenState extends State<StoryViewerScreen> {
                   // User Info
                   Row(
                     children: [
-                      CircleAvatar(
-                        radius: 18,
-                        backgroundColor: Colors.blue,
-                        child: Text(
-                          currentGroup.userName[0].toUpperCase(),
-                          style: const TextStyle(color: Colors.white),
-                        ),
-                      ),
-                      const SizedBox(width: 8),
-                      Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
+                      InkWell(
+                        onTap: currentGroup.userId.isNotEmpty
+                            ? () => Navigator.of(context).pushNamed('/profile/${currentGroup.userId}')
+                            : null,
+                        borderRadius: BorderRadius.circular(24),
+                        child: Row(
                           children: [
-                            Row(
-                              mainAxisSize: MainAxisSize.min,
+                            CircleAvatar(
+                              radius: 18,
+                              backgroundColor: Colors.blue,
+                              child: Text(
+                                currentGroup.userName[0].toUpperCase(),
+                                style: const TextStyle(color: Colors.white),
+                              ),
+                            ),
+                            const SizedBox(width: 8),
+                            Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
                               children: [
                                 Text(
                                   currentGroup.userName,
@@ -331,7 +359,7 @@ class _StoryViewerScreenState extends State<StoryViewerScreen> {
                                     fontWeight: FontWeight.bold,
                                   ),
                                 ),
-                                const SizedBox(width: 6),
+                                const SizedBox(height: 2),
                                 Text(
                                   _formatTimestamp(currentStory.createdAt),
                                   style: TextStyle(
@@ -344,6 +372,7 @@ class _StoryViewerScreenState extends State<StoryViewerScreen> {
                           ],
                         ),
                       ),
+                      const Spacer(),
                       PopupMenuButton<String>(
                         icon: const Icon(Icons.more_horiz, color: Colors.white),
                         itemBuilder: (_) => [
@@ -382,8 +411,6 @@ class _StoryViewerScreenState extends State<StoryViewerScreen> {
                   ),
                 ),
               ),
-            if (_paused)
-              const Center(child: Icon(Icons.pause_circle, size: 72, color: Colors.white54)),
             // Bottom message bar
             Positioned(
               bottom: 24,
@@ -507,6 +534,7 @@ class _StoryViewerScreenState extends State<StoryViewerScreen> {
         _currentStoryIndex = 0;
         _progress = 0.0;
       });
+      _startAutoPlay();
     } catch (_) {
       // ignore
     }
@@ -548,46 +576,6 @@ class _StoryViewerScreenState extends State<StoryViewerScreen> {
                           ),
               ),
             ),
-            ...((story.texts ?? []).asMap().entries.map((e) {
-              final t = e.value;
-              final left = ((t['x'] as num?) ?? 0) * cw;
-              final top = ((t['y'] as num?) ?? 0) * ch;
-              final rotation = (t['rotation'] as num?) ?? 0;
-              final fontSize = (t['fontSize'] as num?) ?? 14;
-              final colorStr = (t['color'] as String?) ?? '#ffffff';
-              Color color = Colors.white;
-              if (colorStr.startsWith('#') && (colorStr.length == 7 || colorStr.length == 9)) {
-                final hex = colorStr.substring(1);
-                final val = int.tryParse(hex, radix: 16);
-                if (val != null) {
-                  color = Color(colorStr.length == 9 ? val : (0xFF000000 | val));
-                }
-              }
-              final hasBg = (t['background'] as bool?) ?? false;
-              return Positioned(
-                left: left.clamp(0, cw - 8),
-                top: top.clamp(0, ch - 8),
-                child: Transform.rotate(
-                  angle: rotation.toDouble() * 3.1415926535 / 180.0,
-                  child: Container(
-                    padding: EdgeInsets.symmetric(horizontal: hasBg ? 6 : 0, vertical: hasBg ? 4 : 0),
-                    decoration: BoxDecoration(
-                      color: hasBg ? Colors.black.withValues(alpha: 0.4) : Colors.transparent,
-                      borderRadius: hasBg ? BorderRadius.circular(8) : null,
-                    ),
-                    child: Text(
-                      (t['content'] as String?) ?? '',
-                      style: TextStyle(
-                        color: color,
-                        fontSize: fontSize.toDouble(),
-                        fontFamily: (t['fontFamily'] as String?) ?? null,
-                      ),
-                      textAlign: _toAlign((t['align'] as String?) ?? 'left'),
-                    ),
-                  ),
-                ),
-              );
-            }).toList()),
             ...((story.mentions ?? []).asMap().entries.map((e) {
               final m = e.value;
               final left = ((m['x'] as num?) ?? 0) * cw;

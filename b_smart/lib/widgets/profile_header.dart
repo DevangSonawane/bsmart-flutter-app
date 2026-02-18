@@ -14,6 +14,7 @@ class ProfileHeader extends StatelessWidget {
   final bool isFollowing;
   final VoidCallback? onEdit;
   final VoidCallback? onFollow;
+  final VoidCallback? onAvatarTap;
 
   const ProfileHeader({
     Key? key,
@@ -28,6 +29,7 @@ class ProfileHeader extends StatelessWidget {
     this.isFollowing = false,
     this.onEdit,
     this.onFollow,
+    this.onAvatarTap,
   }) : super(key: key);
 
   @override
@@ -42,18 +44,30 @@ class ProfileHeader extends StatelessWidget {
           Row(
             crossAxisAlignment: CrossAxisAlignment.center,
             children: [
-              // Avatar with gradient ring
-              Container(
-                padding: const EdgeInsets.all(3),
-                decoration: BoxDecoration(
-                  shape: BoxShape.circle,
-                  gradient: DesignTokens.instaGradient,
-                ),
-                child: CircleAvatar(
-                  radius: 40,
-                  backgroundImage: avatarUrl != null ? CachedNetworkImageProvider(avatarUrl!) : null,
-                  backgroundColor: theme.cardColor,
-                  child: avatarUrl == null ? Text(username.isNotEmpty ? username[0].toUpperCase() : '', style: TextStyle(fontSize: 24, color: fgColor)) : null,
+              GestureDetector(
+                onTap: onAvatarTap,
+                child: Container(
+                  padding: const EdgeInsets.all(3),
+                  decoration: BoxDecoration(
+                    shape: BoxShape.circle,
+                    gradient: DesignTokens.instaGradient,
+                  ),
+                  child: Builder(
+                    builder: (context) {
+                      final hasAvatar = avatarUrl != null && avatarUrl!.trim().isNotEmpty;
+                      return CircleAvatar(
+                        radius: 40,
+                        backgroundImage: hasAvatar ? CachedNetworkImageProvider(avatarUrl!) : null,
+                        backgroundColor: theme.cardColor,
+                        child: !hasAvatar
+                            ? Text(
+                                username.isNotEmpty ? username[0].toUpperCase() : '',
+                                style: TextStyle(fontSize: 24, color: fgColor),
+                              )
+                            : null,
+                      );
+                    },
+                  ),
                 ),
               ),
               const SizedBox(width: 24),

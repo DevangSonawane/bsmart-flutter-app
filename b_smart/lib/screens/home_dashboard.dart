@@ -81,17 +81,52 @@ class _HomeDashboardState extends State<HomeDashboard> {
     final bal = await _walletService.getCoinBalance();
     // Stories feed from backend
     final groups = await _feedService.fetchStoriesFeed();
-    final statuses = _computeStoryStatuses(groups);
-    final users = groups
-        .where((g) => currentUserId == null || g.userId != currentUserId)
-        .map((g) {
+    final allGroups = List<StoryGroup>.from(groups);
+    final myGroups = currentUserId != null
+        ? allGroups.where((g) => g.userId == currentUserId).toList()
+        : <StoryGroup>[];
+    final otherGroups = currentUserId != null
+        ? allGroups.where((g) => g.userId != currentUserId).toList()
+        : allGroups;
+
+    final baseStatuses = _computeStoryStatuses(otherGroups);
+    final previousStatuses = Map<String, Map<String, bool>>.from(_storyStatuses);
+    final mergedStatuses = <String, Map<String, bool>>{};
+    for (final g in otherGroups) {
+      final uid = g.userId;
+      final current = baseStatuses[uid] ?? {};
+      final prev = previousStatuses[uid];
+      if (prev != null && prev['allViewed'] == true) {
+        mergedStatuses[uid] = {
+          ...current,
+          'hasUnseen': false,
+          'allViewed': true,
+        };
+      } else {
+        mergedStatuses[uid] = current;
+      }
+    }
+
+    otherGroups.sort((a, b) {
+      final sa = mergedStatuses[a.userId] ?? const {};
+      final sb = mergedStatuses[b.userId] ?? const {};
+      final aHasUnseen = sa['hasUnseen'] == true;
+      final bHasUnseen = sb['hasUnseen'] == true;
+      if (aHasUnseen != bHasUnseen) {
+        return aHasUnseen ? -1 : 1;
+      }
+      final ad = a.stories.isNotEmpty ? a.stories.first.createdAt : DateTime.fromMillisecondsSinceEpoch(0);
+      final bd = b.stories.isNotEmpty ? b.stories.first.createdAt : DateTime.fromMillisecondsSinceEpoch(0);
+      return bd.compareTo(ad);
+    });
+
+    final users = otherGroups.map((g) {
       return {
         'id': g.userId,
         'username': g.userName,
         'avatar_url': g.userAvatar,
       };
     }).toList();
-    final myGroups = currentUserId != null ? groups.where((g) => g.userId == currentUserId).toList() : <StoryGroup>[];
     final my = currentUserId != null
         ? myGroups.expand((g) => g.stories).toList()
         : _buildMyStories(currentProfile);
@@ -101,8 +136,8 @@ class _HomeDashboardState extends State<HomeDashboard> {
         _currentUserProfile = currentProfile;
         _currentUserId = currentUserId;
         _storyUsers = users;
-        _storyGroups = groups;
-        _storyStatuses = statuses;
+        _storyGroups = otherGroups;
+        _storyStatuses = mergedStatuses;
         _myStories = my;
         _myStoryId = myGroups.isNotEmpty ? myGroups.first.storyId : null;
         _yourStoryHasActive = _myStories.isNotEmpty;
@@ -577,9 +612,10 @@ class _HomeDashboardState extends State<HomeDashboard> {
     ];
   }
 
-  void _onStoryTap(int userIndex) {
+  void _onStoryTap(int userIndex) async {
     if (userIndex < 0 || userIndex >= _storyGroups.length) return;
-    Navigator.of(context).push(
+    final group = _storyGroups[userIndex];
+    await Navigator.of(context).push(
       MaterialPageRoute(
         builder: (context) => StoryViewerScreen(
           storyGroups: _storyGroups,
@@ -587,6 +623,16 @@ class _HomeDashboardState extends State<HomeDashboard> {
         ),
       ),
     );
+    if (!mounted) return;
+    setState(() {
+      final existing = _storyStatuses[group.userId] ?? {};
+      _storyStatuses[group.userId] = {
+        ...existing,
+        'hasUnseen': false,
+        'allViewed': true,
+      };
+    });
+    await _onRefresh();
   }
 
   Future<void> _onRefresh() async {

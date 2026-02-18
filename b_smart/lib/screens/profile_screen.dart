@@ -20,6 +20,9 @@ import '../services/user_account_service.dart';
 import '../services/wallet_service.dart';
 import '../api/auth_api.dart';
 import 'story_camera_screen.dart';
+import '../services/feed_service.dart';
+import '../models/story_model.dart';
+import 'story_viewer_screen.dart';
 
 /// Heroicons badge-check (same as React web app verified badge)
 const String _verifiedBadgeSvg = r'''
@@ -48,6 +51,8 @@ class _ProfileScreenState extends State<ProfileScreen> {
   final ReelsService _reelsService = ReelsService();
   List<Reel> _userReels = [];
   static const int _initialPostsLimit = 20;
+  final FeedService _feedService = FeedService();
+  List<StoryGroup> _storyGroups = const [];
 
   @override
   void initState() {
@@ -215,6 +220,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
         _tagged = tagged;
         _userReels =
             _reelsService.getReels().where((r) => r.userId == targetId).toList();
+        _storyGroups = const [];
         _loading = false;
       });
       // Cache own profile in Redux for instant load next time
@@ -222,6 +228,25 @@ class _ProfileScreenState extends State<ProfileScreen> {
         StoreProvider.of<AppState>(context).dispatch(SetProfile(merged));
       }
     }
+  }
+
+  Future<void> _openStoriesFromProfile() async {
+    final profile = _profile;
+    if (profile == null) return;
+    final targetId = (profile['id'] as String?) ?? (profile['_id'] as String?) ?? '';
+    if (targetId.isEmpty) return;
+    final groups = await _feedService.fetchStoriesFeed();
+    final userGroups = groups.where((g) => g.userId == targetId).toList();
+    if (userGroups.isEmpty) return;
+    if (!mounted) return;
+    await Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (context) => StoryViewerScreen(
+          storyGroups: userGroups,
+          initialIndex: 0,
+        ),
+      ),
+    );
   }
 
   void _onEdit() async {
@@ -608,6 +633,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                   isFollowing: (_profile?['is_followed_by_me'] as bool?) ?? false,
                   onEdit: isMe ? _onEdit : null,
                   onFollow: isMe ? null : _onFollow,
+                  onAvatarTap: _openStoriesFromProfile,
                 ),
               ),
               SliverToBoxAdapter(

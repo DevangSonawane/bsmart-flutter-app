@@ -107,7 +107,11 @@ class _OwnStoryViewerScreenState extends State<OwnStoryViewerScreen> {
         _index++;
         _progress = 0.0;
       });
-      _controller.nextPage(duration: const Duration(milliseconds: 300), curve: Curves.easeInOut);
+      if (_controller.hasClients) {
+        _controller.nextPage(duration: const Duration(milliseconds: 300), curve: Curves.easeInOut);
+      } else {
+        _controller.jumpToPage(_index);
+      }
       _start();
     } else {
       Navigator.pop(context);
@@ -120,7 +124,11 @@ class _OwnStoryViewerScreenState extends State<OwnStoryViewerScreen> {
         _index--;
         _progress = 0.0;
       });
-      _controller.previousPage(duration: const Duration(milliseconds: 300), curve: Curves.easeInOut);
+      if (_controller.hasClients) {
+        _controller.previousPage(duration: const Duration(milliseconds: 300), curve: Curves.easeInOut);
+      } else {
+        _controller.jumpToPage(_index);
+      }
       _start();
     } else {
       Navigator.pop(context);
@@ -133,42 +141,9 @@ class _OwnStoryViewerScreenState extends State<OwnStoryViewerScreen> {
     }
     showModalBottomSheet(
       context: context,
-      builder: (ctx) => FutureBuilder<List<Map<String, dynamic>>>(
-        future: StoriesApi().viewers(widget.storyId!),
-        builder: (ctx, snapshot) {
-          if (snapshot.connectionState == ConnectionState.waiting) {
-            return const SafeArea(
-              child: Center(
-                child: Padding(
-                  padding: EdgeInsets.all(16),
-                  child: CircularProgressIndicator(),
-                ),
-              ),
-            );
-          }
-          if (snapshot.hasError) {
-            final msg = snapshot.error is ApiException ? (snapshot.error as ApiException).message : 'Failed to load viewers';
-            return SafeArea(
-              child: Center(
-                child: Padding(
-                  padding: const EdgeInsets.all(16),
-                  child: Text(msg),
-                ),
-              ),
-            );
-          }
-          final viewers = snapshot.data ?? const [];
-          _viewers = viewers;
-          if (viewers.isEmpty) {
-            return const SafeArea(
-              child: Center(
-                child: Padding(
-                  padding: EdgeInsets.all(16),
-                  child: Text('No viewers yet'),
-                ),
-              ),
-            );
-          }
+      builder: (ctx) {
+        if (_viewers.isNotEmpty) {
+          final viewers = _viewers;
           return SafeArea(
             child: ListView.builder(
               itemCount: viewers.length,
@@ -192,8 +167,67 @@ class _OwnStoryViewerScreenState extends State<OwnStoryViewerScreen> {
               },
             ),
           );
-        },
-      ),
+        }
+        return FutureBuilder<List<Map<String, dynamic>>>(
+          future: StoriesApi().viewers(widget.storyId!),
+          builder: (ctx, snapshot) {
+            if (snapshot.connectionState == ConnectionState.waiting) {
+              return const SafeArea(
+                child: Center(
+                  child: Padding(
+                    padding: EdgeInsets.all(16),
+                    child: CircularProgressIndicator(),
+                  ),
+                ),
+              );
+            }
+            if (snapshot.hasError) {
+              return const SafeArea(
+                child: Center(
+                  child: Padding(
+                    padding: EdgeInsets.all(16),
+                    child: Text('No viewers yet'),
+                  ),
+                ),
+              );
+            }
+            final viewers = snapshot.data ?? const [];
+            if (viewers.isEmpty) {
+              return const SafeArea(
+                child: Center(
+                  child: Padding(
+                    padding: EdgeInsets.all(16),
+                    child: Text('No viewers yet'),
+                  ),
+                ),
+              );
+            }
+            return SafeArea(
+              child: ListView.builder(
+                itemCount: viewers.length,
+                itemBuilder: (_, i) {
+                  final v = viewers[i];
+                  final name = (v['username'] ?? v['full_name'] ?? 'Viewer').toString();
+                  final avatar = v['avatar_url'] as String?;
+                  final viewedAtRaw = v['viewedAt'] as String? ?? v['createdAt'] as String?;
+                  DateTime? viewedAt;
+                  if (viewedAtRaw != null && viewedAtRaw.isNotEmpty) {
+                    viewedAt = DateTime.tryParse(viewedAtRaw);
+                  }
+                  return ListTile(
+                    leading: CircleAvatar(
+                      backgroundImage: avatar != null && avatar.isNotEmpty ? NetworkImage(avatar) : null,
+                      child: (avatar == null || avatar.isEmpty) ? Text(name.isNotEmpty ? name[0].toUpperCase() : 'V') : null,
+                    ),
+                    title: Text(name),
+                    subtitle: viewedAt != null ? Text(viewedAt.toLocal().toString()) : null,
+                  );
+                },
+              ),
+            );
+          },
+        );
+      },
     );
   }
 
@@ -220,11 +254,10 @@ class _OwnStoryViewerScreenState extends State<OwnStoryViewerScreen> {
               );
             }
             if (snapshot.hasError) {
-              final msg = snapshot.error is ApiException ? (snapshot.error as ApiException).message : 'Failed to load insights';
-              return Center(
+              return const Center(
                 child: Padding(
-                  padding: const EdgeInsets.all(16),
-                  child: Text(msg),
+                  padding: EdgeInsets.all(16),
+                  child: Text('No viewers yet'),
                 ),
               );
             }
@@ -387,7 +420,7 @@ class _OwnStoryViewerScreenState extends State<OwnStoryViewerScreen> {
             return;
           }
         },
-        onTapDown: (d) {
+        onTapUp: (d) {
           final w = MediaQuery.of(context).size.width;
           if (d.globalPosition.dx < w / 2) {
             _prev();
