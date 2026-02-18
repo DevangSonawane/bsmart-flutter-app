@@ -14,6 +14,7 @@ import '../models/feed_post_model.dart';
 import '../theme/design_tokens.dart';
 import '../state/app_state.dart';
 import '../state/profile_actions.dart';
+import '../state/feed_actions.dart';
 import '../utils/current_user.dart';
 import '../services/user_account_service.dart';
 import '../services/wallet_service.dart';
@@ -43,6 +44,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
   List<FeedPost> _tagged = [];
   bool _loading = true;
   bool _usedCache = false;
+  bool _followLoading = false;
   final ReelsService _reelsService = ReelsService();
   List<Reel> _userReels = [];
   static const int _initialPostsLimit = 20;
@@ -70,9 +72,8 @@ class _ProfileScreenState extends State<ProfileScreen> {
   }
 
   Future<void> _load() async {
-    // Use REST API-backed CurrentUser helper for the authenticated user ID,
-    // falling back to Supabase only internally within ApiClient.
-    final targetId = widget.userId ?? await CurrentUser.id;
+    final meId = await CurrentUser.id;
+    final targetId = widget.userId ?? meId;
     if (targetId == null) {
       if (mounted) {
         setState(() {
@@ -82,11 +83,12 @@ class _ProfileScreenState extends State<ProfileScreen> {
       return;
     }
 
-    // Load profile and posts in parallel from the REST API.
     final bool isMe = widget.userId == null;
     final profileFuture = isMe ? AuthApi().me() : _svc.getUserById(targetId);
     final postsFuture = _svc.getUserPosts(targetId, limit: _initialPostsLimit);
-    final savedFuture = _svc.getUserSavedPosts(targetId, limit: _initialPostsLimit);
+    final savedFuture = isMe
+        ? _svc.getUserSavedPosts(targetId, limit: _initialPostsLimit)
+        : Future.value(<Map<String, dynamic>>[]);
     final taggedFuture = _svc.getUserTaggedPosts(targetId, limit: _initialPostsLimit);
     final walletFuture = (widget.userId == null) ? WalletService().getCoinBalance() : Future.value(0);
     final userAccount = UserAccountService().getAccount(targetId);
@@ -169,14 +171,39 @@ class _ProfileScreenState extends State<ProfileScreen> {
     final saved = _map(rawSaved);
     final tagged = _map(rawTagged);
 
+    int followersCount = 0;
+    int followingCount = 0;
+    bool isFollowedByMe = false;
+
+    try {
+      followersCount = await _svc.getFollowersCount(targetId);
+    } catch (_) {}
+    try {
+      followingCount = await _svc.getFollowingCount(targetId);
+    } catch (_) {}
+    if (meId != null && meId.isNotEmpty) {
+      try {
+        isFollowedByMe = await _svc.isFollowing(meId, targetId);
+      } catch (_) {}
+    }
+
     if (mounted) {
+      final derivedFromPosts = posts.isNotEmpty
+          ? {
+              'id': targetId,
+              'username': posts.first.userName,
+              'full_name': posts.first.fullName,
+              'avatar_url': posts.first.userAvatar,
+            }
+          : <String, dynamic>{};
+
       final merged = {
+        ...derivedFromPosts,
         ...?profile,
+        'is_followed_by_me': isFollowedByMe,
         'posts_count': (profile?['posts_count'] as int?) ?? posts.length,
-        // Followers / following / wallet fields are expected from the REST API
-        // payload; fall back to UserAccountService or 0 if not provided.
-        'followers_count': (profile?['followers_count'] as int?) ?? userAccount?.followers ?? 0,
-        'following_count': (profile?['following_count'] as int?) ?? 0,
+        'followers_count': followersCount,
+        'following_count': followingCount,
         'wallet_balance': (profile?['wallet_balance'] as int?) ?? walletBalance,
         'account_type': userAccount?.accountType.toString().split('.').last,
         'engagement_score': userAccount?.engagementScore,
@@ -206,11 +233,76 @@ class _ProfileScreenState extends State<ProfileScreen> {
   }
 
   void _onFollow() async {
+    if (_followLoading) return;
     final meId = await CurrentUser.id;
     final targetId = widget.userId;
     if (meId == null || targetId == null) return;
-    await _svc.toggleFollow(meId, targetId);
-    _load();
+    _followLoading = true;
+    final current = (_profile?['is_followed_by_me'] as bool?) ?? false;
+    final next = !current;
+    final username = (_profile?['username'] as String?) ?? 'user';
+    int followersCount = (_profile?['followers_count'] as int?) ?? 0;
+    final delta = next ? 1 : -1;
+    final nextFollowers = ((followersCount + delta).toDouble().clamp(0, double.maxFinite)).toInt();
+
+    if (mounted) {
+      setState(() {
+        _profile = {
+          ...?_profile,
+          'is_followed_by_me': next,
+          'followers_count': nextFollowers,
+        };
+      });
+    }
+
+    final messenger = ScaffoldMessenger.of(context);
+    final success = next
+        ? await _svc.followUser(targetId)
+        : await _svc.unfollowUser(targetId);
+
+    if (!success && mounted) {
+      setState(() {
+        _profile = {
+          ...?_profile,
+          'is_followed_by_me': current,
+          'followers_count': followersCount,
+        };
+      });
+    } else if (mounted) {
+      final store = StoreProvider.of<AppState>(context);
+      final feedPosts = store.state.feedState.posts;
+      for (final p in feedPosts) {
+        if (p.userId == targetId) {
+          store.dispatch(UpdatePostFollowed(p.id, next));
+        }
+      }
+      try {
+        final serverFollowers = await _svc.getFollowersCount(targetId);
+        if (mounted) {
+          setState(() {
+            _profile = {
+              ...?_profile,
+              'followers_count': serverFollowers,
+            };
+          });
+        }
+      } catch (_) {}
+      messenger.showSnackBar(
+        SnackBar(
+          content: Text(next ? 'Following $username' : 'Unfollowed $username'),
+          behavior: SnackBarBehavior.floating,
+          duration: const Duration(seconds: 1),
+        ),
+      );
+    }
+
+    if (mounted) {
+      setState(() {
+        _followLoading = false;
+      });
+    } else {
+      _followLoading = false;
+    }
   }
 
   void _onPostTap(FeedPost p) {
@@ -376,8 +468,102 @@ class _ProfileScreenState extends State<ProfileScreen> {
 
     final theme = Theme.of(context);
     final fgColor = theme.colorScheme.onSurface;
+
+    final tabs = <Tab>[
+      Tab(icon: Icon(LucideIcons.layoutGrid)),
+      Tab(icon: Icon(LucideIcons.video)),
+      if (isMe) Tab(icon: Icon(LucideIcons.bookmark)),
+      Tab(icon: Icon(LucideIcons.tag)),
+    ];
+
+    final tabViews = <Widget>[
+      _posts.isEmpty
+          ? SingleChildScrollView(
+              physics: const AlwaysScrollableScrollPhysics(),
+              child: Padding(
+                padding: const EdgeInsets.symmetric(vertical: 48),
+                child: Column(
+                  children: [
+                    Container(
+                      width: 64,
+                      height: 64,
+                      decoration: BoxDecoration(shape: BoxShape.circle, border: Border.all(color: theme.dividerColor, width: 2)),
+                      child: Icon(LucideIcons.layoutGrid, size: 32, color: theme.colorScheme.onSurface.withValues(alpha: 0.5)),
+                    ),
+                    const SizedBox(height: 16),
+                    Text('No Posts Yet', style: theme.textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w600, color: fgColor)),
+                    const SizedBox(height: 8),
+                    Text('When you share photos, they will appear on your profile.', style: TextStyle(color: theme.textTheme.bodyMedium?.color ?? Colors.grey.shade600, fontSize: 14), textAlign: TextAlign.center),
+                    if (isMe) ...[
+                      const SizedBox(height: 16),
+                      TextButton(
+                        onPressed: () => Navigator.of(context).pushNamed('/create'),
+                        child: Text('Share your first photo', style: TextStyle(color: DesignTokens.instaPink)),
+                      ),
+                    ],
+                  ],
+                ),
+              ),
+            )
+          : Padding(
+              padding: const EdgeInsets.all(8.0),
+              child: PostsGrid(posts: _posts, onTap: (p) => _onPostTap(p)),
+            ),
+      _userReels.isEmpty
+          ? ListView(
+              physics: const AlwaysScrollableScrollPhysics(),
+              children: [
+                Padding(
+                  padding: const EdgeInsets.all(24.0),
+                  child: Center(child: Text('No reels yet', style: TextStyle(color: fgColor))),
+                ),
+              ],
+            )
+          : ListView.builder(
+              itemCount: _userReels.length,
+              itemBuilder: (ctx, i) {
+                final r = _userReels[i];
+                return ListTile(
+                  leading: r.thumbnailUrl != null ? Image.network(r.thumbnailUrl!) : Icon(LucideIcons.video, color: fgColor),
+                  title: Text(r.caption ?? '', style: TextStyle(color: fgColor)),
+                  subtitle: Text('${r.views} views', style: TextStyle(color: theme.textTheme.bodyMedium?.color)),
+                  onTap: () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => ReelsScreen())),
+                );
+              },
+            ),
+      if (isMe)
+        (_saved.isEmpty
+            ? ListView(
+                physics: const AlwaysScrollableScrollPhysics(),
+                children: [
+                  Padding(
+                    padding: const EdgeInsets.all(24.0),
+                    child: Center(child: Text('No saved posts', style: TextStyle(color: fgColor))),
+                  ),
+                ],
+              )
+            : Padding(
+                padding: const EdgeInsets.all(8.0),
+                child: PostsGrid(posts: _saved, onTap: (p) => _onPostTap(p)),
+              )),
+      _tagged.isEmpty
+          ? ListView(
+              physics: const AlwaysScrollableScrollPhysics(),
+              children: [
+                Padding(
+                  padding: const EdgeInsets.all(24.0),
+                  child: Center(child: Text('No tagged posts', style: TextStyle(color: fgColor))),
+                ),
+              ],
+            )
+          : Padding(
+              padding: const EdgeInsets.all(8.0),
+              child: PostsGrid(posts: _tagged, onTap: (p) => _onPostTap(p)),
+            ),
+    ];
+
     return DefaultTabController(
-      length: 4,
+      length: tabViews.length,
       child: Scaffold(
         backgroundColor: theme.scaffoldBackgroundColor,
         appBar: AppBar(
@@ -404,105 +590,47 @@ class _ProfileScreenState extends State<ProfileScreen> {
             ],
           ],
         ),
-        body: NestedScrollView(
-          headerSliverBuilder: (context, innerBoxIsScrolled) => [
-            SliverToBoxAdapter(
-              child: ProfileHeader(
-                username: username,
-                fullName: fullName,
-                bio: bio,
-                avatarUrl: avatar,
-                posts: postsCount,
-                followers: followers,
-                following: following,
-                isMe: isMe,
-                onEdit: isMe ? _onEdit : null,
-                onFollow: isMe ? null : _onFollow,
-              ),
-            ),
-            SliverToBoxAdapter(
-              child: Padding(
-                padding: const EdgeInsets.only(bottom: 8),
-                child: _buildHighlights(),
-              ),
-            ),
-            SliverPersistentHeader(
-              pinned: true,
-              delegate: _SliverTabBarDelegate(
-                TabBar(
-                  tabs: [
-                    Tab(icon: Icon(LucideIcons.layoutGrid)),
-                    Tab(icon: Icon(LucideIcons.video)),
-                    Tab(icon: Icon(LucideIcons.bookmark)),
-                    Tab(icon: Icon(LucideIcons.tag)),
-                  ],
-                  indicator: UnderlineTabIndicator(borderSide: BorderSide(width: 1.5, color: DesignTokens.instaPink)),
-                  labelColor: DesignTokens.instaPink,
-                  unselectedLabelColor: theme.colorScheme.onSurface.withValues(alpha: 0.6),
+        body: RefreshIndicator(
+          onRefresh: _load,
+          notificationPredicate: (notification) => true,
+          child: NestedScrollView(
+            headerSliverBuilder: (context, innerBoxIsScrolled) => [
+              SliverToBoxAdapter(
+                child: ProfileHeader(
+                  username: username,
+                  fullName: fullName,
+                  bio: bio,
+                  avatarUrl: avatar,
+                  posts: postsCount,
+                  followers: followers,
+                  following: following,
+                  isMe: isMe,
+                  isFollowing: (_profile?['is_followed_by_me'] as bool?) ?? false,
+                  onEdit: isMe ? _onEdit : null,
+                  onFollow: isMe ? null : _onFollow,
                 ),
               ),
-            ),
-          ],
-          body: TabBarView(
-            children: [
-              _posts.isEmpty
-                  ? SingleChildScrollView(
-                      child: Padding(
-                        padding: const EdgeInsets.symmetric(vertical: 48),
-                        child: Column(
-                          children: [
-                            Container(
-                              width: 64,
-                              height: 64,
-                              decoration: BoxDecoration(shape: BoxShape.circle, border: Border.all(color: theme.dividerColor, width: 2)),
-                              child: Icon(LucideIcons.layoutGrid, size: 32, color: theme.colorScheme.onSurface.withValues(alpha: 0.5)),
-                            ),
-                            const SizedBox(height: 16),
-                            Text('No Posts Yet', style: theme.textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w600, color: fgColor)),
-                            const SizedBox(height: 8),
-                            Text('When you share photos, they will appear on your profile.', style: TextStyle(color: theme.textTheme.bodyMedium?.color ?? Colors.grey.shade600, fontSize: 14), textAlign: TextAlign.center),
-                            if (isMe) ...[
-                              const SizedBox(height: 16),
-                              TextButton(
-                                onPressed: () => Navigator.of(context).pushNamed('/create'),
-                                child: Text('Share your first photo', style: TextStyle(color: DesignTokens.instaPink)),
-                              ),
-                            ],
-                          ],
-                        ),
-                      ),
-                    )
-                  : Padding(
-                      padding: const EdgeInsets.all(8.0),
-                      child: PostsGrid(posts: _posts, onTap: (p) => _onPostTap(p)),
-                    ),
-              _userReels.isEmpty
-                  ? Center(child: Padding(padding: const EdgeInsets.all(24.0), child: Text('No reels yet', style: TextStyle(color: fgColor))))
-                  : ListView.builder(
-                      itemCount: _userReels.length,
-                      itemBuilder: (ctx, i) {
-                        final r = _userReels[i];
-                        return ListTile(
-                          leading: r.thumbnailUrl != null ? Image.network(r.thumbnailUrl!) : Icon(LucideIcons.video, color: fgColor),
-                          title: Text(r.caption ?? '', style: TextStyle(color: fgColor)),
-                          subtitle: Text('${r.views} views', style: TextStyle(color: theme.textTheme.bodyMedium?.color)),
-                          onTap: () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => ReelsScreen())),
-                        );
-                      },
-                    ),
-              _saved.isEmpty
-                  ? Center(child: Padding(padding: const EdgeInsets.all(24.0), child: Text('No saved posts', style: TextStyle(color: fgColor))))
-                  : Padding(
-                      padding: const EdgeInsets.all(8.0),
-                      child: PostsGrid(posts: _saved, onTap: (p) => _onPostTap(p)),
-                    ),
-              _tagged.isEmpty
-                  ? Center(child: Padding(padding: const EdgeInsets.all(24.0), child: Text('No tagged posts', style: TextStyle(color: fgColor))))
-                  : Padding(
-                      padding: const EdgeInsets.all(8.0),
-                      child: PostsGrid(posts: _tagged, onTap: (p) => _onPostTap(p)),
-                    ),
+              SliverToBoxAdapter(
+                child: Padding(
+                  padding: const EdgeInsets.only(bottom: 8),
+                  child: _buildHighlights(),
+                ),
+              ),
+              SliverPersistentHeader(
+                pinned: true,
+                delegate: _SliverTabBarDelegate(
+                  TabBar(
+                    tabs: tabs,
+                    indicator: UnderlineTabIndicator(borderSide: BorderSide(width: 1.5, color: DesignTokens.instaPink)),
+                    labelColor: DesignTokens.instaPink,
+                    unselectedLabelColor: theme.colorScheme.onSurface.withValues(alpha: 0.6),
+                  ),
+                ),
+              ),
             ],
+            body: TabBarView(
+              children: tabViews,
+            ),
           ),
         ),
       ),

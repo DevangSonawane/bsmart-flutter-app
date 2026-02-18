@@ -461,6 +461,7 @@ class _CommentsSheetState extends State<CommentsSheet> {
                             final created = c['created_at'] as String? ?? c['createdAt'] as String? ?? '';
                             final cid = (c['_id'] as String?) ?? (c['id'] as String?) ?? '';
                             final isVerified = (u['is_verified'] as bool?) ?? false;
+                            final userIdValue = (u['id'] ?? u['_id'] ?? u['user_id'])?.toString();
                             return Padding(
                               padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
                               child: FutureBuilder<String?>(
@@ -479,27 +480,37 @@ class _CommentsSheetState extends State<CommentsSheet> {
                                     child: Column(
                                     crossAxisAlignment: CrossAxisAlignment.start,
                                     children: [
-                                      Row(
-                                        crossAxisAlignment: CrossAxisAlignment.start,
-                                        children: [
-                                          _avatar(av, un.isNotEmpty ? un[0].toUpperCase() : 'U', size: 16, ring: av != null && av.isNotEmpty),
-                                          const SizedBox(width: 10),
-                                          Expanded(
-                                            child: Column(
-                                              crossAxisAlignment: CrossAxisAlignment.start,
-                                              children: [
-                                                Row(
+                                          Row(
+                                            crossAxisAlignment: CrossAxisAlignment.start,
+                                            children: [
+                                              GestureDetector(
+                                                onTap: userIdValue != null && userIdValue.isNotEmpty
+                                                    ? () => Navigator.of(context).pushNamed('/profile/$userIdValue')
+                                                    : null,
+                                                child: _avatar(av, un.isNotEmpty ? un[0].toUpperCase() : 'U', size: 16, ring: av != null && av.isNotEmpty),
+                                              ),
+                                              const SizedBox(width: 10),
+                                              Expanded(
+                                                child: Column(
+                                                  crossAxisAlignment: CrossAxisAlignment.start,
                                                   children: [
-                                                    Text(un, style: const TextStyle(fontWeight: FontWeight.w600)),
-                                                    if (isVerified)
-                                                      Padding(
-                                                        padding: const EdgeInsets.only(left: 4),
-                                                        child: Icon(Icons.check_circle, size: 14, color: Colors.blueAccent),
-                                                      ),
-                                                    const SizedBox(width: 8),
-                                                    Text(_relative(created), style: theme.textTheme.bodySmall),
-                                                  ],
-                                                ),
+                                                    Row(
+                                                      children: [
+                                                        GestureDetector(
+                                                          onTap: userIdValue != null && userIdValue.isNotEmpty
+                                                              ? () => Navigator.of(context).pushNamed('/profile/$userIdValue')
+                                                              : null,
+                                                          child: Text(un, style: const TextStyle(fontWeight: FontWeight.w600)),
+                                                        ),
+                                                        if (isVerified)
+                                                          Padding(
+                                                            padding: const EdgeInsets.only(left: 4),
+                                                            child: Icon(Icons.check_circle, size: 14, color: Colors.blueAccent),
+                                                          ),
+                                                        const SizedBox(width: 8),
+                                                        Text(_relative(created), style: theme.textTheme.bodySmall),
+                                                      ],
+                                                    ),
                                                 const SizedBox(height: 2),
                                                 Text(
                                                   content,
@@ -582,24 +593,37 @@ class _CommentsSheetState extends State<CommentsSheet> {
                                                   final rav = ru?['avatar_url'] as String?;
                                                   final rcontent = r['content'] as String? ?? r['text'] as String? ?? '';
                                                   final rcreated = r['created_at'] as String? ?? r['createdAt'] as String? ?? '';
+                                                  final rUserIdValue =
+                                                      (ru?['id'] ?? ru?['_id'] ?? ru?['user_id'])?.toString();
                                                   return Padding(
                                                     padding: const EdgeInsets.symmetric(vertical: 6),
                                                     child: Row(
                                                       crossAxisAlignment: CrossAxisAlignment.start,
                                                       children: [
-                                                        _avatar(rav, rn.isNotEmpty ? rn[0].toUpperCase() : 'U', size: 14, ring: rav != null && rav.isNotEmpty),
+                                                        GestureDetector(
+                                                          onTap: rUserIdValue != null && rUserIdValue.isNotEmpty
+                                                              ? () => Navigator.of(context).pushNamed('/profile/$rUserIdValue')
+                                                              : null,
+                                                          child: _avatar(
+                                                              rav, rn.isNotEmpty ? rn[0].toUpperCase() : 'U', size: 14, ring: rav != null && rav.isNotEmpty),
+                                                        ),
                                                         const SizedBox(width: 8),
                                                         Expanded(
                                                           child: Column(
                                                             crossAxisAlignment: CrossAxisAlignment.start,
                                                             children: [
-                                                              RichText(
-                                                                text: TextSpan(
-                                                                  style: theme.textTheme.bodyMedium,
-                                                                  children: [
-                                                                    TextSpan(text: '$rn ', style: const TextStyle(fontWeight: FontWeight.w600)),
-                                                                    TextSpan(text: rcontent),
-                                                                  ],
+                                                              GestureDetector(
+                                                                onTap: rUserIdValue != null && rUserIdValue.isNotEmpty
+                                                                    ? () => Navigator.of(context).pushNamed('/profile/$rUserIdValue')
+                                                                    : null,
+                                                                child: RichText(
+                                                                  text: TextSpan(
+                                                                    style: theme.textTheme.bodyMedium,
+                                                                    children: [
+                                                                      TextSpan(text: '$rn ', style: const TextStyle(fontWeight: FontWeight.w600)),
+                                                                      TextSpan(text: rcontent),
+                                                                    ],
+                                                                  ),
                                                                 ),
                                                               ),
                                                               const SizedBox(height: 2),

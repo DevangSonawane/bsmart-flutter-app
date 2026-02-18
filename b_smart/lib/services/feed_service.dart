@@ -3,6 +3,7 @@ import '../config/api_config.dart';
 import '../models/feed_post_model.dart';
 import '../models/story_model.dart';
 import '../models/user_model.dart';
+import 'supabase_service.dart';
 
 class FeedService {
   static final FeedService _instance = FeedService._internal();
@@ -258,6 +259,13 @@ class FeedService {
     int offset = 0,
     String? currentUserId,
   }) async {
+    Set<String> locallySaved = <String>{};
+    Set<String> followedUsers = <String>{};
+    if (currentUserId != null && currentUserId.isNotEmpty) {
+      final svc = SupabaseService();
+      locallySaved = await svc.getSavedPostIds(currentUserId);
+      followedUsers = await svc.getFollowedUserIds(currentUserId);
+    }
     try {
       final page = (offset ~/ limit) + 1;
       final data = await _postsApi.getFeed(page: page, limit: limit);
@@ -276,6 +284,7 @@ class FeedService {
       }
 
       final mapped = items.map((item) {
+        final postId = item['_id'] as String? ?? item['id'] as String? ?? '';
         // The API nests the author info inside `user_id` as a populated object.
         Map<String, dynamic> user = {};
         if (item['user_id'] is Map) {
@@ -313,6 +322,44 @@ class FeedService {
         final isLikedByMe = hasLikesArray
             ? computedLiked
             : ((item['is_liked_by_me'] as bool?) ?? false);
+
+        bool isSavedByMe = (item['is_saved_by_me'] as bool?) ?? false;
+        if (!isSavedByMe && currentUserId != null) {
+          final savedBy = (item['saved_by'] as List<dynamic>?) ??
+              (item['bookmarks'] as List<dynamic>?) ??
+              const [];
+          for (final entry in savedBy) {
+            if (entry is String && entry == currentUserId) {
+              isSavedByMe = true;
+              break;
+            }
+            if (entry is Map) {
+              final id = (entry['id'] as String?) ??
+                  (entry['_id'] as String?) ??
+                  (entry['user_id'] as String?);
+              if (id != null && id == currentUserId) {
+                isSavedByMe = true;
+                break;
+              }
+            }
+          }
+        }
+        if (!isSavedByMe && locallySaved.isNotEmpty) {
+          if (locallySaved.contains(postId)) {
+            isSavedByMe = true;
+          }
+        }
+
+        final authorId = user['_id'] as String? ??
+            user['id'] as String? ??
+            (item['user_id'] is String ? item['user_id'] as String : '');
+
+        bool isFollowedByMe = (item['is_followed_by_me'] as bool?) ?? false;
+        if (!isFollowedByMe && followedUsers.isNotEmpty && authorId.isNotEmpty) {
+          if (followedUsers.contains(authorId)) {
+            isFollowedByMe = true;
+          }
+        }
 
         final media = item['media'] as List<dynamic>? ?? (item['images'] as List<dynamic>? ?? (item['attachments'] as List<dynamic>? ?? []));
         List<String> mediaUrls = media.map((m) {
@@ -400,10 +447,8 @@ class FeedService {
         }
 
         final post = FeedPost(
-          id: item['_id'] as String? ?? item['id'] as String? ?? '',
-          userId: user['_id'] as String? ??
-              user['id'] as String? ??
-              (item['user_id'] is String ? item['user_id'] as String : ''),
+          id: postId,
+          userId: authorId,
           userName: user['username'] as String? ?? (item['username'] as String?) ?? 'user',
           fullName: user['full_name'] as String? ?? (item['full_name'] as String?),
           userAvatar: user['avatar_url'] as String? ?? (item['userAvatar'] as String?),
@@ -425,8 +470,8 @@ class FeedService {
               : (item['comments_count'] as int? ?? (item['commentCount'] as int? ?? 0)),
           views: 0,
           isLiked: isLikedByMe,
-          isSaved: false,
-          isFollowed: false,
+          isSaved: isSavedByMe,
+          isFollowed: isFollowedByMe,
           isTagged: false,
           isShared: false,
           isAd: false,
@@ -456,26 +501,36 @@ class FeedService {
       final itemsCount = (data['items_count'] as int?) ?? 0;
       final seen = (data['seen'] as bool?) ?? false;
       final storyId = (data['_id'] as String?) ?? (data['id'] as String?);
+      final previewUserId = (preview['user_id'] as String?) ?? '';
+      final rawMedia = preview['media'];
+      Map<String, dynamic>? media;
+      if (rawMedia is List && rawMedia.isNotEmpty && rawMedia.first is Map) {
+        media = Map<String, dynamic>.from(rawMedia.first as Map);
+      } else if (rawMedia is Map) {
+        media = Map<String, dynamic>.from(rawMedia);
+      }
       return StoryGroup(
-        userId: (user['_id'] as String?) ?? (user['id'] as String?) ?? 'unknown',
+        userId: previewUserId.isNotEmpty
+            ? previewUserId
+            : (user['_id'] as String?) ?? (user['id'] as String?) ?? 'unknown',
         userName: (user['username'] as String?) ?? 'User',
         userAvatar: user['avatar_url'] as String?,
         isOnline: true,
         isCloseFriend: false,
         isSubscribedCreator: false,
         storyId: storyId,
-        stories: preview.isEmpty
+        stories: preview.isEmpty || media == null
             ? <Story>[]
             : <Story>[
                 Story(
                   id: (preview['_id'] as String?) ?? 'item',
-                  userId: (user['_id'] as String?) ?? 'unknown',
+                  userId: previewUserId.isNotEmpty
+                      ? previewUserId
+                      : (user['_id'] as String?) ?? (user['id'] as String?) ?? '',
                   userName: (user['username'] as String?) ?? 'User',
                   userAvatar: user['avatar_url'] as String?,
-                  mediaUrl: (preview['media'] is Map && (preview['media'] as Map)['url'] is String)
-                      ? _normalizeUrl(((preview['media'] as Map)['url'] as String))
-                      : '',
-                  mediaType: (preview['media'] is Map && (preview['media'] as Map)['type'] == 'image')
+                  mediaUrl: _normalizeUrl((media['url'] as String?) ?? ''),
+                  mediaType: (media['type'] as String?) == 'image'
                       ? StoryMediaType.image
                       : StoryMediaType.video,
                   createdAt: DateTime.tryParse(preview['createdAt'] as String? ?? '') ?? DateTime.now(),
@@ -494,7 +549,13 @@ class FeedService {
     final items = await _storiesApi.items(storyId);
     return items.map<Story>((it) {
       final Map m = it as Map;
-      final media = m['media'] as Map?;
+      final rawMedia = m['media'];
+      Map<String, dynamic>? media;
+      if (rawMedia is List && rawMedia.isNotEmpty && rawMedia.first is Map) {
+        media = Map<String, dynamic>.from(rawMedia.first as Map);
+      } else if (rawMedia is Map) {
+        media = Map<String, dynamic>.from(rawMedia);
+      }
       final mediaUrl = _normalizeUrl(media?['url'] as String? ?? '');
       final mediaType = (media?['type'] == 'image') ? StoryMediaType.image : StoryMediaType.video;
       final texts = (m['texts'] is List) ? (m['texts'] as List).whereType<Map>().map((e) => Map<String, dynamic>.from(e)).toList() : null;

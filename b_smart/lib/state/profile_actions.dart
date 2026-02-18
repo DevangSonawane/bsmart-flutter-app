@@ -5,3 +5,7 @@ class SetProfile {
 
 class ClearProfile {}
 
+class AdjustFollowingCount {
+  final int delta;
+  AdjustFollowingCount(this.delta);
+}

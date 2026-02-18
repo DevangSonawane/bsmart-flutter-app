@@ -8,6 +8,7 @@ import '../services/wallet_service.dart';
 import '../services/supabase_service.dart';
 import '../services/user_account_service.dart';
 import '../models/user_account_model.dart';
+import '../utils/current_user.dart';
 import '../theme/instagram_theme.dart';
 import '../widgets/clay_container.dart';
 import 'profile_screen.dart';
@@ -66,12 +67,13 @@ class _InstagramFeedScreenState extends State<InstagramFeedScreen> {
 
   Future<void> _loadFeed() async {
     setState(() => _isLoading = true);
-    await Future.delayed(const Duration(milliseconds: 500));
-    final posts = _feedService.getPersonalizedFeed(
-      followedUserIds: ['user-2', 'user-3', 'user-4', 'user-5'],
-      userInterests: ['technology', 'photography', 'art'],
+    final uid = await CurrentUser.id;
+    final posts = await _feedService.fetchFeedFromBackend(
+      limit: 20,
+      offset: 0,
+      currentUserId: uid,
     );
-    final stories = _feedService.getStories();
+    final stories = await _feedService.fetchStoriesFeed();
     setState(() {
       _feedPosts = posts;
       _stories = stories;
@@ -82,8 +84,12 @@ class _InstagramFeedScreenState extends State<InstagramFeedScreen> {
   Future<void> _loadMorePosts() async {
     if (_isLoadingMore) return;
     setState(() => _isLoadingMore = true);
-    await Future.delayed(const Duration(milliseconds: 800));
-    final morePosts = _feedService.getPersonalizedFeed();
+    final uid = await CurrentUser.id;
+    final morePosts = await _feedService.fetchFeedFromBackend(
+      limit: 20,
+      offset: _feedPosts.length,
+      currentUserId: uid,
+    );
     setState(() {
       _feedPosts.addAll(morePosts);
       _isLoadingMore = false;
@@ -116,13 +122,36 @@ class _InstagramFeedScreenState extends State<InstagramFeedScreen> {
     });
   }
 
-  void _handleSave(FeedPost post) {
+  Future<void> _handleSave(FeedPost post) async {
+    final desired = !post.isSaved;
     setState(() {
       final index = _feedPosts.indexWhere((p) => p.id == post.id);
       if (index != -1) {
-        _feedPosts[index] = _feedService.toggleSave(post);
+        final prev = _feedPosts[index];
+        _feedPosts[index] = prev.copyWith(isSaved: desired);
       }
     });
+    final saved = await _supabase.setPostSaved(post.id, save: desired);
+    if (!mounted) return;
+    try {
+      final data = await _supabase.getPostById(post.id);
+      final serverSaved = (data?['is_saved_by_me'] as bool?) ?? saved;
+      setState(() {
+        final index = _feedPosts.indexWhere((p) => p.id == post.id);
+        if (index != -1) {
+          final prev = _feedPosts[index];
+          _feedPosts[index] = prev.copyWith(isSaved: serverSaved);
+        }
+      });
+    } catch (_) {
+      setState(() {
+        final index = _feedPosts.indexWhere((p) => p.id == post.id);
+        if (index != -1) {
+          final prev = _feedPosts[index];
+          _feedPosts[index] = prev.copyWith(isSaved: saved);
+        }
+      });
+    }
   }
 
   void _handleFollow(FeedPost post) {

@@ -7,6 +7,7 @@ import '../services/supabase_service.dart';
 import '../services/wallet_service.dart';
 import '../state/app_state.dart';
 import '../state/profile_actions.dart';
+import '../state/profile_actions.dart';
 import '../state/feed_actions.dart';
 import '../widgets/post_card.dart';
 import '../widgets/stories_row.dart';
@@ -54,6 +55,7 @@ class _HomeDashboardState extends State<HomeDashboard> {
   int _balance = 0;
   /// Current user profile from `users` table (same source as React web app) for header avatar.
   Map<String, dynamic>? _currentUserProfile;
+  String? _currentUserId;
 
   @override
   void initState() {
@@ -72,7 +74,8 @@ class _HomeDashboardState extends State<HomeDashboard> {
     store.dispatch(SetFeedLoading(true));
     // Use REST API-backed CurrentUser helper for the authenticated user ID.
     final currentUserId = await CurrentUser.id;
-    final currentProfile = currentUserId != null ? await _supabase.getUserById(currentUserId) : null;
+    final currentProfile =
+        currentUserId != null ? await _supabase.getUserById(currentUserId) : null;
     // Same as React Home.jsx: fetch all posts, order by created_at desc
     final fetched = await _feedService.fetchFeedFromBackend(currentUserId: currentUserId);
     final bal = await _walletService.getCoinBalance();
@@ -96,6 +99,7 @@ class _HomeDashboardState extends State<HomeDashboard> {
       store.dispatch(SetFeedPosts(fetched));
       setState(() {
         _currentUserProfile = currentProfile;
+        _currentUserId = currentUserId;
         _storyUsers = users;
         _storyGroups = groups;
         _storyStatuses = statuses;
@@ -207,20 +211,62 @@ class _HomeDashboardState extends State<HomeDashboard> {
     );
   }
 
-  void _onSavePost(FeedPost post) {
-    final saved = !post.isSaved;
-    StoreProvider.of<AppState>(context).dispatch(UpdatePostSaved(post.id, saved));
+  void _onSavePost(FeedPost post) async {
+    final hasToken = await ApiClient().hasToken;
+    if (!hasToken) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Please log in to save posts')),
+        );
+      }
+      return;
+    }
+    final desired = !post.isSaved;
+    final store = StoreProvider.of<AppState>(context);
+    store.dispatch(UpdatePostSaved(post.id, desired));
+    if (mounted) setState(() {});
+    final saved = await _supabase.setPostSaved(post.id, save: desired);
+    if (!mounted) return;
+    try {
+      final p = await SupabaseService().getPostById(post.id);
+      final serverSaved = (p?['is_saved_by_me'] as bool?) ?? saved;
+      store.dispatch(UpdatePostSaved(post.id, serverSaved));
+      if (mounted) setState(() {});
+    } catch (_) {
+      store.dispatch(UpdatePostSaved(post.id, saved));
+      if (mounted) setState(() {});
+    }
   }
 
   void _onFollowPost(FeedPost post) {
     final followed = !post.isFollowed;
     StoreProvider.of<AppState>(context).dispatch(UpdatePostFollowed(post.id, followed));
+    if (mounted) setState(() {});
     final messenger = ScaffoldMessenger.of(context);
     messenger.showSnackBar(SnackBar(
       content: Text(followed ? 'Following ${post.userName}' : 'Unfollowed ${post.userName}'),
       behavior: SnackBarBehavior.floating,
       duration: const Duration(seconds: 1),
     ));
+    () async {
+      final success = followed
+          ? await _supabase.followUser(post.userId)
+          : await _supabase.unfollowUser(post.userId);
+      if (!success && mounted) {
+        StoreProvider.of<AppState>(context).dispatch(UpdatePostFollowed(post.id, !followed));
+        setState(() {});
+      } else {
+        final meId = await CurrentUser.id;
+        if (!mounted || meId == null || meId.isEmpty) return;
+        final store = StoreProvider.of<AppState>(context);
+        final cachedProfile = store.state.profileState.profile;
+        final cachedId = cachedProfile?['id']?.toString();
+        if (cachedId != null && cachedId == meId) {
+          final delta = followed ? 1 : -1;
+          store.dispatch(AdjustFollowingCount(delta));
+        }
+      }
+    }();
   }
   void _onMorePost(BuildContext context, FeedPost post) {
     final messenger = ScaffoldMessenger.of(context);
@@ -548,9 +594,15 @@ class _HomeDashboardState extends State<HomeDashboard> {
     await _loadData(store);
   }
 
+  Future<void> _openStoryCamera() async {
+    await Navigator.of(context).pushNamed('/story-camera');
+    if (!mounted) return;
+    await _onRefresh();
+  }
+
   void _onNavTap(int idx) {
     if (idx == 2) {
-      Navigator.of(context).pushNamed('/story-camera');
+      _openStoryCamera();
       return;
     }
     // Profile from sidebar (desktop)
@@ -759,12 +811,10 @@ class _HomeDashboardState extends State<HomeDashboard> {
                                 ),
                               );
                             } else {
-                              Navigator.of(context).pushNamed('/story-camera');
+                              _openStoryCamera();
                             }
                           },
-                          onYourStoryAddTap: () {
-                            Navigator.of(context).pushNamed('/story-camera');
-                          },
+                          onYourStoryAddTap: _openStoryCamera,
                           onUserStoryTap: _storyGroups.isEmpty ? null : _onStoryTap,
                           yourStoryHasActive: _yourStoryHasActive,
                           showYourStory: true,
@@ -805,13 +855,15 @@ class _HomeDashboardState extends State<HomeDashboard> {
                             itemCount: posts.length,
                             itemBuilder: (context, index) {
                               final p = posts[index];
+                              final isOwnPost =
+                                  _currentUserId != null && p.userId == _currentUserId;
                               return PostCard(
                                 post: p,
                                 onLike: () => _onLikePost(p),
                                 onComment: () => _onCommentPost(p),
                                 onShare: () => _onSharePost(p),
                                 onSave: () => _onSavePost(p),
-                                onFollow: () => _onFollowPost(p),
+                                onFollow: isOwnPost ? null : () => _onFollowPost(p),
                                 onMore: () => _onMorePost(context, p),
                               );
                             },

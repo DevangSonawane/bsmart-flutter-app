@@ -14,6 +14,7 @@ import '../models/media_model.dart';
 import 'create_post_screen.dart';
 import 'create_upload_screen.dart';
 import '../api/api.dart';
+import '../services/supabase_service.dart';
 import '../config/api_config.dart';
 
 class StoryCameraScreen extends StatefulWidget {
@@ -25,6 +26,16 @@ class StoryCameraScreen extends StatefulWidget {
 
 enum _StoryElementType { text, sticker }
 
+class _StoryMention {
+  final String userId;
+  final String username;
+
+  const _StoryMention({
+    required this.userId,
+    required this.username,
+  });
+}
+
 class _StoryOverlayElement {
   final _StoryElementType type;
   final String? text;
@@ -34,6 +45,7 @@ class _StoryOverlayElement {
   final Offset position;
   final double scale;
   final double rotation;
+  final List<_StoryMention> mentions;
 
   _StoryOverlayElement._({
     required this.type,
@@ -44,9 +56,15 @@ class _StoryOverlayElement {
     required this.position,
     required this.scale,
     required this.rotation,
+    this.mentions = const [],
   });
 
-  factory _StoryOverlayElement.text(String text, {String style = 'Classic', Color color = Colors.white}) {
+  factory _StoryOverlayElement.text(
+    String text, {
+    String style = 'Classic',
+    Color color = Colors.white,
+    List<_StoryMention> mentions = const [],
+  }) {
     return _StoryOverlayElement._(
       type: _StoryElementType.text,
       text: text,
@@ -55,6 +73,7 @@ class _StoryOverlayElement {
       position: const Offset(100, 100),
       scale: 1.0,
       rotation: 0.0,
+      mentions: mentions,
     );
   }
 
@@ -75,6 +94,7 @@ class _StoryOverlayElement {
     Offset? position,
     double? scale,
     double? rotation,
+    List<_StoryMention>? mentions,
   }) {
     return _StoryOverlayElement._(
       type: type,
@@ -85,6 +105,7 @@ class _StoryOverlayElement {
       position: position ?? this.position,
       scale: scale ?? this.scale,
       rotation: rotation ?? this.rotation,
+      mentions: mentions ?? this.mentions,
     );
   }
 }
@@ -110,9 +131,9 @@ class _StoryElementWidget extends StatefulWidget {
 }
 
 class _StoryElementWidgetState extends State<_StoryElementWidget> {
-  Offset _initialFocal = Offset.zero;
-  double _initialScale = 1.0;
-  double _initialRotation = 0.0;
+  Offset _lastFocal = Offset.zero;
+  double _baseScale = 1.0;
+  double _baseRotation = 0.0;
   Offset _lastGlobalPos = Offset.zero;
 
   @override
@@ -125,26 +146,22 @@ class _StoryElementWidgetState extends State<_StoryElementWidget> {
         onTap: widget.onTap,
         onScaleStart: (d) {
           widget.onStartDrag();
-          _initialFocal = d.focalPoint;
-          _initialScale = e.scale;
-          _initialRotation = e.rotation;
+          _baseScale = e.scale;
+          _baseRotation = e.rotation;
+          _lastFocal = d.focalPoint;
           _lastGlobalPos = d.focalPoint;
         },
         onScaleUpdate: (d) {
           _lastGlobalPos = d.focalPoint;
-          final isSingleFinger = d.pointerCount == 1;
-          if (isSingleFinger) {
-            final delta = d.focalPoint - _initialFocal;
-            final updated = e.copyWith(position: e.position + delta);
-            widget.onChanged(updated);
-            _initialFocal = d.focalPoint;
-          } else {
-            final updated = e.copyWith(
-              scale: _initialScale * d.scale,
-              rotation: _initialRotation + d.rotation,
-            );
-            widget.onChanged(updated);
-          }
+          final delta = d.focalPoint - _lastFocal;
+          _lastFocal = d.focalPoint;
+
+          final updated = e.copyWith(
+            position: e.position + delta,
+            scale: (_baseScale * d.scale).clamp(0.5, 3.0),
+            rotation: _baseRotation + d.rotation,
+          );
+          widget.onChanged(updated);
         },
         onScaleEnd: (d) => widget.onEndDrag(_lastGlobalPos),
         child: Transform.rotate(
@@ -160,11 +177,54 @@ class _StoryElementWidgetState extends State<_StoryElementWidget> {
               child: e.type == _StoryElementType.text
                   ? Text(
                       e.text ?? '',
-                      style: TextStyle(
-                        color: e.color ?? Colors.white,
-                        fontSize: 24,
-                        fontWeight: FontWeight.w600,
-                      ),
+                      style: () {
+                        final color = e.color ?? Colors.white;
+                        final styleName = e.style ?? 'Classic';
+                        switch (styleName) {
+                          case 'Modern':
+                            return TextStyle(
+                              color: color,
+                              fontSize: 24,
+                              fontWeight: FontWeight.w400,
+                              letterSpacing: 0.0,
+                            );
+                          case 'Neon':
+                            return TextStyle(
+                              color: color,
+                              fontSize: 24,
+                              fontWeight: FontWeight.w700,
+                              letterSpacing: 1.2,
+                              shadows: [
+                                Shadow(
+                                  color: color.withAlpha(160),
+                                  blurRadius: 12,
+                                ),
+                              ],
+                            );
+                          case 'Typewriter':
+                            return TextStyle(
+                              color: color,
+                              fontSize: 22,
+                              fontWeight: FontWeight.w500,
+                              letterSpacing: 2.0,
+                            );
+                          case 'Strong':
+                            return TextStyle(
+                              color: color,
+                              fontSize: 26,
+                              fontWeight: FontWeight.w800,
+                              letterSpacing: 0.8,
+                            );
+                          case 'Classic':
+                          default:
+                            return TextStyle(
+                              color: color,
+                              fontSize: 24,
+                              fontWeight: FontWeight.w600,
+                              letterSpacing: 0.5,
+                            );
+                        }
+                      }(),
                     )
                   : Text(
                       e.sticker ?? '',
@@ -958,10 +1018,10 @@ class _StoryCameraScreenState extends State<StoryCameraScreen> with WidgetsBindi
 
                   return Stack(
                     children: [
-                      GestureDetector(
-                        onPanStart: (d) => _startStoryStroke(d.localPosition),
-                        onPanUpdate: (d) => _appendStoryStroke(d.localPosition),
-                        child: RepaintBoundary(
+                    GestureDetector(
+                      onPanStart: _storyDrawingMode ? (d) => _startStoryStroke(d.localPosition) : null,
+                      onPanUpdate: _storyDrawingMode ? (d) => _appendStoryStroke(d.localPosition) : null,
+                      child: RepaintBoundary(
                           key: _storyRepaintKey,
                           child: SizedBox(
                             width: constraints.maxWidth,
@@ -1356,108 +1416,360 @@ class _StoryCameraScreenState extends State<StoryCameraScreen> with WidgetsBindi
     });
   }
 
-  void _storyAddText() {
-    final controller = TextEditingController();
-    String style = 'Classic';
-    Color color = _storyCurrentColor;
-    showModalBottomSheet<_StoryOverlayElement>(
+  Future<_StoryOverlayElement?> _showStoryTextEditor({
+    String initialText = '',
+    String initialStyle = 'Classic',
+    Color? initialColor,
+    List<_StoryMention> initialMentions = const [],
+  }) {
+    final controller = TextEditingController(text: initialText);
+    String style = initialStyle;
+    Color color = initialColor ?? _storyCurrentColor;
+    List<_StoryMention> selectedMentions = List.of(initialMentions);
+    List<Map<String, dynamic>> mentionResults = [];
+    bool showMentionList = false;
+    bool mentionLoading = false;
+    String currentMentionQuery = '';
+    return showModalBottomSheet<_StoryOverlayElement>(
       context: context,
       isScrollControlled: true,
-      backgroundColor: Colors.grey[900],
-      builder: (ctx) => Padding(
-        padding: EdgeInsets.only(bottom: MediaQuery.of(ctx).viewInsets.bottom),
-        child: Container(
-          padding: const EdgeInsets.all(16),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              TextField(
-                controller: controller,
-                autofocus: true,
-                style: const TextStyle(color: Colors.white),
-                decoration: const InputDecoration(
-                  hintText: 'Enter text',
-                  hintStyle: TextStyle(color: Colors.white54),
-                  enabledBorder: UnderlineInputBorder(
-                    borderSide: BorderSide(color: Colors.white54),
-                  ),
-                  focusedBorder: UnderlineInputBorder(
-                    borderSide: BorderSide(color: Colors.white),
-                  ),
-                ),
-              ),
-              const SizedBox(height: 12),
-              SizedBox(
-                height: 32,
-                child: ListView(
-                  scrollDirection: Axis.horizontal,
+      backgroundColor: Colors.transparent,
+      builder: (ctx) {
+        final media = MediaQuery.of(ctx);
+        return StatefulBuilder(
+          builder: (ctx, setModalState) {
+            TextStyle textStyleFor(String name, Color c) {
+              switch (name) {
+                case 'Modern':
+                  return TextStyle(
+                    color: c,
+                    fontSize: 28,
+                    fontWeight: FontWeight.w400,
+                    letterSpacing: 0.0,
+                  );
+                case 'Neon':
+                  return TextStyle(
+                    color: c,
+                    fontSize: 28,
+                    fontWeight: FontWeight.w700,
+                    letterSpacing: 1.2,
+                    shadows: [
+                      Shadow(
+                        color: c.withAlpha(160),
+                        blurRadius: 14,
+                      ),
+                    ],
+                  );
+                case 'Typewriter':
+                  return TextStyle(
+                    color: c,
+                    fontSize: 24,
+                    fontWeight: FontWeight.w500,
+                    letterSpacing: 2.0,
+                  );
+                case 'Strong':
+                  return TextStyle(
+                    color: c,
+                    fontSize: 30,
+                    fontWeight: FontWeight.w800,
+                    letterSpacing: 0.8,
+                  );
+                case 'Classic':
+                default:
+                  return TextStyle(
+                    color: c,
+                    fontSize: 28,
+                    fontWeight: FontWeight.w600,
+                    letterSpacing: 0.5,
+                  );
+              }
+            }
+
+            return Container(
+              color: Colors.black.withAlpha(230),
+              padding: EdgeInsets.only(bottom: media.viewInsets.bottom),
+              child: SafeArea(
+                child: Column(
                   children: [
-                    for (final s in ['Classic', 'Modern', 'Neon', 'Typewriter', 'Strong'])
-                      GestureDetector(
-                        onTap: () => style = s,
-                        child: Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-                          margin: const EdgeInsets.only(right: 8),
-                          decoration: BoxDecoration(color: Colors.grey.shade700, borderRadius: BorderRadius.circular(16)),
-                          child: Text(s, style: const TextStyle(color: Colors.white)),
+                    Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                      child: Row(
+                        children: [
+                          IconButton(
+                            onPressed: () => Navigator.pop(ctx),
+                            icon: const Icon(Icons.close, color: Colors.white),
+                          ),
+                          const Spacer(),
+                          TextButton(
+                            onPressed: () {
+                              final text = controller.text.trim().isEmpty ? 'Tap to edit' : controller.text.trim();
+                              Navigator.pop(
+                                ctx,
+                                _StoryOverlayElement.text(
+                                  text,
+                                  style: style,
+                                  color: color,
+                                  mentions: selectedMentions,
+                                ),
+                              );
+                            },
+                            child: const Text(
+                              'Done',
+                              style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    Expanded(
+                      child: Center(
+                        child: Padding(
+                          padding: const EdgeInsets.symmetric(horizontal: 24),
+                          child: TextField(
+                            controller: controller,
+                            autofocus: true,
+                            textAlign: TextAlign.center,
+                            maxLines: null,
+                            style: textStyleFor(style, color),
+                            decoration: const InputDecoration(
+                              border: InputBorder.none,
+                              hintText: 'Type something...',
+                              hintStyle: TextStyle(color: Colors.white54),
+                            ),
+                            onChanged: (value) async {
+                              final selection = controller.selection;
+                              int cursor = selection.baseOffset;
+                              if (cursor < 0 || cursor > value.length) {
+                                cursor = value.length;
+                              }
+                              final prefix = value.substring(0, cursor);
+                              final atIndex = prefix.lastIndexOf('@');
+                              if (atIndex == -1) {
+                                setModalState(() {
+                                  showMentionList = false;
+                                  mentionResults = [];
+                                  currentMentionQuery = '';
+                                });
+                                return;
+                              }
+                              // Allow @ mentions anywhere in the text; we only
+                              // restrict by the characters that follow it.
+                              final afterAt = prefix.substring(atIndex + 1);
+                              if (afterAt.contains(' ')) {
+                                setModalState(() {
+                                  showMentionList = false;
+                                  mentionResults = [];
+                                  currentMentionQuery = '';
+                                });
+                                return;
+                              }
+
+                              currentMentionQuery = afterAt;
+
+                              setModalState(() {
+                                mentionLoading = true;
+                                showMentionList = true;
+                              });
+
+                              try {
+                                List<Map<String, dynamic>> results;
+                                if (currentMentionQuery.isEmpty) {
+                                  // No query yet – show a default list of users.
+                                  results = await SupabaseService().fetchUsers(limit: 20);
+                                } else {
+                                  results = await UsersApi().search(currentMentionQuery);
+                                  if (results.isEmpty) {
+                                    // Fallback to local samples so UI still shows something.
+                                    results = await SupabaseService().fetchUsers(limit: 20);
+                                  }
+                                }
+                                setModalState(() {
+                                  mentionLoading = false;
+                                  mentionResults = results;
+                                  showMentionList = results.isNotEmpty;
+                                });
+                              } catch (_) {
+                                try {
+                                  final fallback = await SupabaseService().fetchUsers(limit: 20);
+                                  setModalState(() {
+                                    mentionLoading = false;
+                                    mentionResults = fallback;
+                                    showMentionList = fallback.isNotEmpty;
+                                  });
+                                } catch (_) {
+                                  setModalState(() {
+                                    mentionLoading = false;
+                                    mentionResults = [];
+                                    showMentionList = false;
+                                  });
+                                }
+                              }
+                            },
+                          ),
                         ),
                       ),
+                    ),
+                    if (showMentionList)
+                      SizedBox(
+                        height: 160,
+                        child: Container(
+                          color: Colors.black.withAlpha(230),
+                          child: mentionLoading
+                              ? const Center(
+                                  child: SizedBox(
+                                    width: 20,
+                                    height: 20,
+                                    child: CircularProgressIndicator(
+                                      strokeWidth: 2,
+                                      valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
+                                    ),
+                                  ),
+                                )
+                              : ListView.builder(
+                                  itemCount: mentionResults.length,
+                                  itemBuilder: (context, index) {
+                                    final user = mentionResults[index];
+                                    final username = (user['username'] as String?) ?? '';
+                                    final fullName = user['full_name'] as String?;
+                                    final avatarUrl = user['avatar_url'] as String?;
+                                    return ListTile(
+                                      leading: CircleAvatar(
+                                        backgroundColor: Colors.white24,
+                                        backgroundImage: avatarUrl != null && avatarUrl.isNotEmpty
+                                            ? NetworkImage(avatarUrl)
+                                            : null,
+                                        child: avatarUrl == null || avatarUrl.isEmpty
+                                            ? Text(
+                                                username.isNotEmpty ? username[0].toUpperCase() : '?',
+                                                style: const TextStyle(color: Colors.white),
+                                              )
+                                            : null,
+                                      ),
+                                      title: Text(
+                                        username,
+                                        style: const TextStyle(color: Colors.white),
+                                      ),
+                                      subtitle: fullName != null
+                                          ? Text(
+                                              fullName,
+                                              style: const TextStyle(color: Colors.white70, fontSize: 12),
+                                            )
+                                          : null,
+                                      onTap: () {
+                                        final value = controller.text;
+                                        final selection = controller.selection;
+                                        int cursor = selection.baseOffset;
+                                        if (cursor < 0 || cursor > value.length) {
+                                          cursor = value.length;
+                                        }
+                                        final prefix = value.substring(0, cursor);
+                                        final suffix = value.substring(cursor);
+                                        final atIndex = prefix.lastIndexOf('@');
+                                        if (atIndex == -1) {
+                                          return;
+                                        }
+                                        final before = value.substring(0, atIndex);
+                                        final mentionText = '@$username ';
+                                        final newText = before + mentionText + suffix;
+                                        controller.value = controller.value.copyWith(
+                                          text: newText,
+                                          selection: TextSelection.collapsed(
+                                            offset: (before + mentionText).length,
+                                          ),
+                                        );
+                                        final userId = (user['id'] as String?) ?? (user['_id'] as String?) ?? '';
+                                        if (userId.isNotEmpty &&
+                                            !selectedMentions.any((m) => m.userId == userId)) {
+                                          selectedMentions.add(
+                                            _StoryMention(userId: userId, username: username),
+                                          );
+                                        }
+                                        setModalState(() {
+                                          showMentionList = false;
+                                          mentionResults = [];
+                                        });
+                                      },
+                                    );
+                                  },
+                                ),
+                        ),
+                      ),
+                    SizedBox(
+                      height: 40,
+                      child: ListView(
+                        scrollDirection: Axis.horizontal,
+                        padding: const EdgeInsets.symmetric(horizontal: 16),
+                        children: [
+                          for (final s in ['Classic', 'Modern', 'Neon', 'Typewriter', 'Strong'])
+                            GestureDetector(
+                              onTap: () {
+                                setModalState(() {
+                                  style = s;
+                                });
+                              },
+                              child: Container(
+                                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                                margin: const EdgeInsets.only(right: 8),
+                                decoration: BoxDecoration(
+                                  color: s == style ? Colors.white.withAlpha(80) : Colors.white.withAlpha(30),
+                                  borderRadius: BorderRadius.circular(16),
+                                ),
+                                child: Text(
+                                  s,
+                                  style: TextStyle(
+                                    color: Colors.white,
+                                    fontWeight: s == style ? FontWeight.bold : FontWeight.normal,
+                                  ),
+                                ),
+                              ),
+                            ),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+                    SizedBox(
+                      height: 32,
+                      child: ListView(
+                        scrollDirection: Axis.horizontal,
+                        padding: const EdgeInsets.symmetric(horizontal: 16),
+                        children: [
+                          for (final c in [Colors.white, Colors.black, Colors.red, Colors.yellow, Colors.green, Colors.blue, Colors.purple])
+                            GestureDetector(
+                              onTap: () {
+                                setModalState(() {
+                                  color = c;
+                                });
+                              },
+                              child: Container(
+                                width: 26,
+                                height: 26,
+                                margin: const EdgeInsets.only(right: 8),
+                                decoration: BoxDecoration(
+                                  color: c,
+                                  shape: BoxShape.circle,
+                                  border: Border.all(
+                                    color: c == color ? Colors.white : Colors.white54,
+                                    width: c == color ? 2 : 1,
+                                  ),
+                                ),
+                              ),
+                            ),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(height: 20),
                   ],
                 ),
               ),
-              const SizedBox(height: 12),
-              SizedBox(
-                height: 24,
-                child: ListView(
-                  scrollDirection: Axis.horizontal,
-                  children: [
-                    for (final c in [Colors.white, Colors.black, Colors.red, Colors.yellow, Colors.green, Colors.blue, Colors.purple])
-                      GestureDetector(
-                        onTap: () => color = c,
-                        child: Container(
-                          width: 24,
-                          height: 24,
-                          margin: const EdgeInsets.symmetric(horizontal: 4),
-                          decoration: BoxDecoration(color: c, shape: BoxShape.circle, border: Border.all(color: Colors.white)),
-                        ),
-                      ),
-                  ],
-                ),
-              ),
-              const SizedBox(height: 12),
-              Row(
-                children: [
-                  Expanded(
-                    child: OutlinedButton(
-                      onPressed: () => Navigator.pop(ctx),
-                      style: OutlinedButton.styleFrom(
-                        foregroundColor: Colors.white,
-                        side: const BorderSide(color: Colors.white),
-                      ),
-                      child: const Text('Cancel'),
-                    ),
-                  ),
-                  const SizedBox(width: 8),
-                  Expanded(
-                    child: ElevatedButton(
-                      onPressed: () {
-                        final text = controller.text.trim().isEmpty ? 'Tap to edit' : controller.text.trim();
-                        Navigator.pop(ctx, _StoryOverlayElement.text(text, style: style, color: color));
-                      },
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: Colors.blue,
-                        foregroundColor: Colors.white,
-                      ),
-                      child: const Text('Add'),
-                    ),
-                  ),
-                ],
-              ),
-            ],
-          ),
-        ),
-      ),
-    ).then((value) {
+            );
+          },
+        );
+      },
+    );
+  }
+
+  void _storyAddText() {
+    _showStoryTextEditor().then((value) {
       if (value != null && mounted) {
         setState(() {
           _storyCurrentColor = value.color ?? _storyCurrentColor;
@@ -1468,109 +1780,23 @@ class _StoryCameraScreenState extends State<StoryCameraScreen> with WidgetsBindi
   }
 
   Future<void> _storyEditText(_StoryOverlayElement e) async {
-    final controller = TextEditingController(text: e.text);
-    String style = e.style ?? 'Classic';
-    Color color = e.color ?? Colors.white;
-    final updated = await showModalBottomSheet<_StoryOverlayElement>(
-      context: context,
-      isScrollControlled: true,
-      backgroundColor: Colors.grey[900],
-      builder: (ctx) => Padding(
-        padding: EdgeInsets.only(bottom: MediaQuery.of(ctx).viewInsets.bottom),
-        child: Container(
-          padding: const EdgeInsets.all(16),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              TextField(
-                controller: controller,
-                autofocus: true,
-                style: const TextStyle(color: Colors.white),
-                decoration: const InputDecoration(
-                  hintText: 'Enter text',
-                  hintStyle: TextStyle(color: Colors.white54),
-                  enabledBorder: UnderlineInputBorder(
-                    borderSide: BorderSide(color: Colors.white54),
-                  ),
-                  focusedBorder: UnderlineInputBorder(
-                    borderSide: BorderSide(color: Colors.white),
-                  ),
-                ),
-              ),
-              const SizedBox(height: 12),
-              SizedBox(
-                height: 32,
-                child: ListView(
-                  scrollDirection: Axis.horizontal,
-                  children: [
-                    for (final s in ['Classic', 'Modern', 'Neon', 'Typewriter', 'Strong'])
-                      GestureDetector(
-                        onTap: () => style = s,
-                        child: Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-                          margin: const EdgeInsets.only(right: 8),
-                          decoration: BoxDecoration(color: Colors.grey.shade700, borderRadius: BorderRadius.circular(16)),
-                          child: Text(s, style: const TextStyle(color: Colors.white)),
-                        ),
-                      ),
-                  ],
-                ),
-              ),
-              const SizedBox(height: 12),
-              SizedBox(
-                height: 24,
-                child: ListView(
-                  scrollDirection: Axis.horizontal,
-                  children: [
-                    for (final c in [Colors.white, Colors.black, Colors.red, Colors.yellow, Colors.green, Colors.blue, Colors.purple])
-                      GestureDetector(
-                        onTap: () => color = c,
-                        child: Container(
-                          width: 24,
-                          height: 24,
-                          margin: const EdgeInsets.symmetric(horizontal: 4),
-                          decoration: BoxDecoration(color: c, shape: BoxShape.circle, border: Border.all(color: Colors.white)),
-                        ),
-                      ),
-                  ],
-                ),
-              ),
-              const SizedBox(height: 12),
-              Row(
-                children: [
-                  Expanded(
-                    child: OutlinedButton(
-                      onPressed: () => Navigator.pop(ctx),
-                      style: OutlinedButton.styleFrom(
-                        foregroundColor: Colors.white,
-                        side: const BorderSide(color: Colors.white),
-                      ),
-                      child: const Text('Cancel'),
-                    ),
-                  ),
-                  const SizedBox(width: 8),
-                  Expanded(
-                    child: ElevatedButton(
-                      onPressed: () => Navigator.pop(ctx, e.copyWith(text: controller.text, style: style, color: color)),
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: Colors.blue,
-                        foregroundColor: Colors.white,
-                      ),
-                      child: const Text('Apply'),
-                    ),
-                  ),
-                ],
-              ),
-            ],
-          ),
-        ),
-      ),
+    final updated = await _showStoryTextEditor(
+      initialText: e.text ?? '',
+      initialStyle: e.style ?? 'Classic',
+      initialColor: e.color ?? Colors.white,
+      initialMentions: e.mentions,
     );
-    if (updated != null) {
+    if (updated != null && mounted) {
       setState(() {
         final idx = _storyElements.indexOf(e);
         if (idx != -1) {
-          _storyElements[idx] = updated;
+          _storyElements[idx] = e.copyWith(
+            text: updated.text,
+            style: updated.style,
+            color: updated.color,
+            mentions: updated.mentions,
+          );
+          _storyCurrentColor = updated.color ?? _storyCurrentColor;
         }
       });
     }
@@ -1700,6 +1926,20 @@ class _StoryCameraScreenState extends State<StoryCameraScreen> with WidgetsBindi
 
       final screenSize = MediaQuery.of(context).size;
 
+      final mentionsPayload = <Map<String, dynamic>>[];
+      for (final e in _storyElements.where((e) => e.type == _StoryElementType.text)) {
+        for (final m in e.mentions) {
+          if ((e.text ?? '').contains('@${m.username}')) {
+            mentionsPayload.add({
+              'user_id': m.userId,
+              'username': m.username,
+              'x': e.position.dx / screenSize.width,
+              'y': e.position.dy / screenSize.height,
+            });
+          }
+        }
+      }
+
       final storyItem = <String, dynamic>{
         'media': mediaPayload,
         'filter': {
@@ -1718,7 +1958,7 @@ class _StoryCameraScreenState extends State<StoryCameraScreen> with WidgetsBindi
                   'y': e.position.dy / screenSize.height,
                 })
             .toList(),
-        'mentions': [],
+        'mentions': mentionsPayload,
       };
 
       if (isCloseFriends) {

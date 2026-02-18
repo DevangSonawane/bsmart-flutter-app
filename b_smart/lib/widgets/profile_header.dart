@@ -11,6 +11,7 @@ class ProfileHeader extends StatelessWidget {
   final int followers;
   final int following;
   final bool isMe;
+  final bool isFollowing;
   final VoidCallback? onEdit;
   final VoidCallback? onFollow;
 
@@ -24,6 +25,7 @@ class ProfileHeader extends StatelessWidget {
     this.followers = 0,
     this.following = 0,
     this.isMe = false,
+    this.isFollowing = false,
     this.onEdit,
     this.onFollow,
   }) : super(key: key);
@@ -113,7 +115,10 @@ class ProfileHeader extends StatelessWidget {
                           borderRadius: BorderRadius.all(Radius.circular(10)),
                         ),
                         alignment: Alignment.center,
-                        child: const Text('Follow', style: TextStyle(color: Colors.white, fontWeight: FontWeight.w600, fontSize: 13)),
+                        child: Text(
+                          isFollowing ? 'Following' : 'Follow',
+                          style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w600, fontSize: 13),
+                        ),
                       ),
                     ),
                   ),

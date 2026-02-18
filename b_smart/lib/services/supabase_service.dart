@@ -2,6 +2,7 @@ import 'dart:typed_data';
 import '../api/api.dart';
 import 'dart:convert';
 import 'package:shared_preferences/shared_preferences.dart';
+import '../utils/current_user.dart';
 
 /// Service layer that was previously calling Supabase directly.
 ///
@@ -16,6 +17,7 @@ class SupabaseService {
   final PostsApi _postsApi = PostsApi();
   final CommentsApi _commentsApi = CommentsApi();
   final UploadApi _uploadApi = UploadApi();
+  final FollowsApi _followsApi = FollowsApi();
   final Map<String, bool> _commentLikeOverrides = {};
   void setCommentLikeOverride(String commentId, bool liked) {
     _commentLikeOverrides[commentId] = liked;
@@ -53,6 +55,87 @@ class SupabaseService {
       }
     } catch (_) {}
     return result;
+  }
+
+  static const String _savedPostsKeyPrefix = 'saved_posts_';
+  static const String _followedUsersKeyPrefix = 'followed_users_';
+
+  Future<Set<String>> getSavedPostIds(String userId) async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final raw = prefs.getString('$_savedPostsKeyPrefix$userId');
+      if (raw == null || raw.isEmpty) return <String>{};
+      final decoded = jsonDecode(raw);
+      if (decoded is List) {
+        return decoded.map((e) => e.toString()).toSet();
+      }
+      return <String>{};
+    } catch (_) {
+      return <String>{};
+    }
+  }
+
+  Future<void> _setSavedPostIds(String userId, Set<String> ids) async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setString(
+        '$_savedPostsKeyPrefix$userId',
+        jsonEncode(ids.toList()),
+      );
+    } catch (_) {}
+  }
+
+  Future<void> _updateLocalSaved(String postId, bool saved) async {
+    try {
+      final uid = await CurrentUser.id;
+      if (uid == null || uid.isEmpty) return;
+      final current = await getSavedPostIds(uid);
+      if (saved) {
+        current.add(postId);
+      } else {
+        current.remove(postId);
+      }
+      await _setSavedPostIds(uid, current);
+    } catch (_) {}
+  }
+
+  Future<Set<String>> getFollowedUserIds(String userId) async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final raw = prefs.getString('$_followedUsersKeyPrefix$userId');
+      if (raw == null || raw.isEmpty) return <String>{};
+      final decoded = jsonDecode(raw);
+      if (decoded is List) {
+        return decoded.map((e) => e.toString()).toSet();
+      }
+      return <String>{};
+    } catch (_) {
+      return <String>{};
+    }
+  }
+
+  Future<void> _setFollowedUserIds(String userId, Set<String> ids) async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setString(
+        '$_followedUsersKeyPrefix$userId',
+        jsonEncode(ids.toList()),
+      );
+    } catch (_) {}
+  }
+
+  Future<void> _updateLocalFollow(String targetUserId, bool followed) async {
+    try {
+      final uid = await CurrentUser.id;
+      if (uid == null || uid.isEmpty) return;
+      final current = await getFollowedUserIds(uid);
+      if (followed) {
+        current.add(targetUserId);
+      } else {
+        current.remove(targetUserId);
+      }
+      await _setFollowedUserIds(uid, current);
+    } catch (_) {}
   }
 
   // ── Users ──────────────────────────────────────────────────────────────────
@@ -137,6 +220,35 @@ class SupabaseService {
       } else if (data['data'] is Map && (data['data'] as Map)['posts'] is List) {
         posts = ((data['data'] as Map)['posts'] as List<dynamic>);
       }
+      if (posts.isNotEmpty) {
+        return posts.cast<Map<String, dynamic>>();
+      }
+    } catch (_) {}
+    try {
+      final page = (offset ~/ limit) + 1;
+      final data = await _postsApi.getFeed(page: page, limit: limit * 3);
+      List<dynamic> raw = [];
+      if (data is List) {
+        raw = data;
+      } else if (data is Map) {
+        raw = data['posts'] as List<dynamic>? ?? [];
+      }
+      final posts = raw.where((p) {
+        final m = (p as Map).cast<String, dynamic>();
+        final uid = m['user_id'];
+        if (uid is String) {
+          if (uid == userId) return true;
+        } else if (uid is Map) {
+          final id = uid['_id'] as String? ?? uid['id'] as String?;
+          if (id == userId) return true;
+        }
+        final joinedUser = m['users'];
+        if (joinedUser is Map) {
+          final id = joinedUser['id'] as String? ?? joinedUser['_id'] as String?;
+          if (id == userId) return true;
+        }
+        return false;
+      }).toList();
       return posts.cast<Map<String, dynamic>>();
     } catch (_) {
       return [];
@@ -274,8 +386,97 @@ class SupabaseService {
   // ── Follows ────────────────────────────────────────────────────────────────
 
   Future<bool> toggleFollow(String userId, String targetUserId) async {
-    // The new API docs don't include a follow endpoint yet.
-    // Return false (no-op) until the endpoint is available.
+    try {
+      if (userId == targetUserId) {
+        return true;
+      }
+      final res = await _followsApi.follow(targetUserId);
+      final followed = res['followed'] as bool? ?? true;
+      return followed;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  Future<bool> followUser(String targetUserId) async {
+    bool result = true;
+    try {
+      final res = await _followsApi.follow(targetUserId);
+      final followed = res['followed'] as bool?;
+      if (followed != null) {
+        result = followed;
+      }
+    } catch (_) {
+      try {
+        final res = await _followsApi.followById(targetUserId);
+        final followed = res['followed'] as bool?;
+        if (followed != null) {
+          result = followed;
+        }
+      } catch (_) {
+        result = true;
+      }
+    }
+    await _updateLocalFollow(targetUserId, result);
+    return result;
+  }
+
+  Future<bool> unfollowUser(String targetUserId) async {
+    bool result = false;
+    try {
+      final res = await _followsApi.unfollow(targetUserId);
+      final followed = res['followed'] as bool?;
+      if (followed != null) {
+        result = !followed;
+      }
+    } catch (_) {
+      result = false;
+    }
+    await _updateLocalFollow(targetUserId, result);
+    return result;
+  }
+
+  Future<List<Map<String, dynamic>>> getFollowers(String userId) {
+    return _followsApi.getFollowers(userId);
+  }
+
+  Future<List<Map<String, dynamic>>> getFollowing(String userId) {
+    return _followsApi.getFollowing(userId);
+  }
+
+  Future<List<Map<String, dynamic>>> getAllFollowers() {
+    return _followsApi.getAllFollowers();
+  }
+
+  Future<List<Map<String, dynamic>>> getAllFollowing() {
+    return _followsApi.getAllFollowing();
+  }
+
+  Future<int> getFollowersCount(String userId) async {
+    try {
+      final list = await _followsApi.getFollowers(userId);
+      return list.length;
+    } catch (_) {
+      return 0;
+    }
+  }
+
+  Future<int> getFollowingCount(String userId) async {
+    try {
+      final list = await _followsApi.getFollowing(userId);
+      return list.length;
+    } catch (_) {
+      return 0;
+    }
+  }
+
+  Future<bool> isFollowing(String meId, String targetUserId) async {
+    try {
+      final ids = await getFollowedUserIds(meId);
+      if (ids.contains(targetUserId)) {
+        return true;
+      }
+    } catch (_) {}
     return false;
   }
 
@@ -449,6 +650,40 @@ class SupabaseService {
       // Network or other error – avoid flipping; best-effort read of server state failed.
       return like;
     }
+  }
+
+  Future<bool> setPostSaved(String postId, {required bool save}) async {
+    bool result = save;
+    try {
+      final res = save ? await _postsApi.savePost(postId) : await _postsApi.unsavePost(postId);
+      final saved = res['saved'] as bool?;
+      if (saved != null) result = saved;
+      final isSavedByMe = res['is_saved_by_me'] as bool?;
+      if (isSavedByMe != null) result = isSavedByMe;
+      if (saved == null && isSavedByMe == null) {
+        try {
+          final post = await _postsApi.getPost(postId);
+          final postSaved = post['is_saved_by_me'] as bool?;
+          if (postSaved != null) result = postSaved;
+        } catch (_) {}
+      }
+    } on BadRequestException {
+      try {
+        final post = await _postsApi.getPost(postId);
+        final postSaved = post['is_saved_by_me'] as bool?;
+        if (postSaved != null) result = postSaved;
+      } catch (_) {}
+    } on UnauthorizedException {
+      try {
+        final post = await _postsApi.getPost(postId);
+        final postSaved = post['is_saved_by_me'] as bool?;
+        if (postSaved != null) result = postSaved;
+      } catch (_) {}
+    } catch (_) {
+      result = save;
+    }
+    await _updateLocalSaved(postId, result);
+    return result;
   }
 
   /// Get users who liked a post.

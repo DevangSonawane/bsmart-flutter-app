@@ -509,16 +509,17 @@ class _PostCardState extends State<PostCard> with SingleTickerProviderStateMixin
                   constraints: const BoxConstraints(minWidth: 44, minHeight: 44),
                 ),
                 const Spacer(),
-                IconButton(
-                  onPressed: widget.onFollow ?? () {},
-                  icon: Icon(
-                    post.isFollowed ? LucideIcons.userCheck : LucideIcons.userPlus,
-                    size: 26,
-                    color: textColor,
+                if (widget.onFollow != null)
+                  IconButton(
+                    onPressed: widget.onFollow,
+                    icon: Icon(
+                      post.isFollowed ? LucideIcons.userCheck : LucideIcons.userPlus,
+                      size: 26,
+                      color: textColor,
+                    ),
+                    padding: EdgeInsets.zero,
+                    constraints: const BoxConstraints(minWidth: 44, minHeight: 44),
                   ),
-                  padding: EdgeInsets.zero,
-                  constraints: const BoxConstraints(minWidth: 44, minHeight: 44),
-                ),
                 IconButton(
                   onPressed: widget.onSave ?? () {},
                   icon: Icon(

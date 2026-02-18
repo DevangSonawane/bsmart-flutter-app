@@ -89,6 +89,16 @@ class PostsApi {
     return res as Map<String, dynamic>;
   }
 
+  Future<Map<String, dynamic>> savePost(String postId) async {
+    final res = await _client.post('$_basePath/posts/$postId/save');
+    return res as Map<String, dynamic>;
+  }
+
+  Future<Map<String, dynamic>> unsavePost(String postId) async {
+    final res = await _client.post('$_basePath/posts/$postId/unsave');
+    return res as Map<String, dynamic>;
+  }
+
   /// Get users who liked a post.
   ///
   /// Returns `{ total, users: [...] }`.
