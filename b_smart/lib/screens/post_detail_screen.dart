@@ -10,13 +10,13 @@ import '../api/api_client.dart';
 import 'package:flutter_redux/flutter_redux.dart';
 import '../state/app_state.dart';
 import '../state/feed_actions.dart';
+import '../models/feed_post_model.dart';
 
-/// Full-screen post detail page for mobile / deep link (/post/:postId).
-/// Reuses same data and UI as PostDetailModal but as a routed screen with AppBar.
 class PostDetailScreen extends StatefulWidget {
   final String postId;
+  final FeedPost? initialPost;
 
-  const PostDetailScreen({Key? key, required this.postId}) : super(key: key);
+  const PostDetailScreen({Key? key, required this.postId, this.initialPost}) : super(key: key);
 
   @override
   State<PostDetailScreen> createState() => _PostDetailScreenState();
@@ -32,6 +32,9 @@ class _PostDetailScreenState extends State<PostDetailScreen> {
   final _commentController = TextEditingController();
   bool _isLiked = false;
   bool _postingComment = false;
+  String? _currentUserId;
+  bool _isAuthorFollowed = false;
+  bool _followLoading = false;
 
   @override
   void initState() {
@@ -46,13 +49,58 @@ class _PostDetailScreenState extends State<PostDetailScreen> {
   }
 
   Future<void> _load() async {
-    setState(() {
-      _loadingPost = true;
-      _loadingComments = true;
-    });
+    final initial = widget.initialPost;
+    Map<String, dynamic>? eagerPost = _post;
+    Map<String, dynamic>? eagerUser = _postUser;
+    bool eagerLiked = _isLiked;
+    bool eagerFollowed = _isAuthorFollowed;
+    String? meId = _currentUserId;
+
+    if (eagerPost == null && initial != null) {
+      eagerPost = {
+        'id': initial.id,
+        'user_id': initial.userId,
+        'caption': initial.caption,
+        'created_at': initial.createdAt.toIso8601String(),
+        'media': initial.mediaUrls.map((u) => {'url': u}).toList(),
+        'likes_count': initial.likes,
+        'is_liked_by_me': initial.isLiked,
+        'is_saved_by_me': initial.isSaved,
+        'is_followed_by_me': initial.isFollowed,
+      };
+      eagerUser = {
+        'id': initial.userId,
+        'username': initial.userName,
+        'full_name': initial.fullName,
+        'avatar_url': initial.userAvatar,
+      };
+      eagerLiked = initial.isLiked;
+      eagerFollowed = initial.isFollowed;
+    }
+
+    meId ??= (await CurrentUser.id)?.toString();
+
+    if (mounted) {
+      setState(() {
+        if (eagerPost != null) {
+          _post = eagerPost;
+          _postUser = eagerUser;
+          _isLiked = eagerLiked;
+          _isAuthorFollowed = eagerFollowed;
+          _currentUserId = meId;
+          _loadingPost = false;
+        } else {
+          _loadingPost = true;
+        }
+        _loadingComments = true;
+      });
+    }
+
     final post = await _svc.getPostById(widget.postId);
     if (post == null || !mounted) {
-      if (mounted) setState(() => _loadingPost = false);
+      if (mounted && _post == null) {
+        setState(() => _loadingPost = false);
+      }
       return;
     }
     final userId = post['user_id'] as String?;
@@ -80,6 +128,8 @@ class _PostDetailScreenState extends State<PostDetailScreen> {
         break;
       }
     }
+    final meId2 = currentUserId?.toString();
+    bool isFollowed = (post['is_followed_by_me'] as bool?) ?? (user?['is_followed_by_me'] as bool?) ?? false;
     if (mounted) {
       setState(() {
         _post = post;
@@ -88,6 +138,8 @@ class _PostDetailScreenState extends State<PostDetailScreen> {
         _isLiked = isLiked;
         _loadingPost = false;
         _loadingComments = false;
+        _currentUserId = meId2;
+        _isAuthorFollowed = isFollowed;
       });
     }
   }
@@ -110,6 +162,28 @@ class _PostDetailScreenState extends State<PostDetailScreen> {
     final userId = _postUser?['id'] as String?;
     if (userId == null) return;
     Navigator.of(context).pushNamed('/profile/$userId');
+  }
+
+  Future<void> _toggleFollowAuthor() async {
+    if (_followLoading) return;
+    final targetId = (_postUser?['id'] as String?) ?? (_post?['user_id'] as String?);
+    final meId = _currentUserId;
+    if (targetId == null || targetId.isEmpty || meId == null || meId.isEmpty || targetId == meId) return;
+    setState(() => _followLoading = true);
+    final desired = !_isAuthorFollowed;
+    bool ok;
+    if (desired) {
+      ok = await _svc.followUser(targetId);
+    } else {
+      ok = await _svc.unfollowUser(targetId);
+    }
+    if (!mounted) return;
+    setState(() {
+      if (ok) {
+        _isAuthorFollowed = desired;
+      }
+      _followLoading = false;
+    });
   }
 
   static String _formatRelativeTime(String dateString) {
@@ -193,6 +267,8 @@ class _PostDetailScreenState extends State<PostDetailScreen> {
     final caption = _post?['caption'] as String? ?? '';
     final location = _post?['location'] as String?;
     final createdAt = _post?['created_at'] as String? ?? '';
+    final ownerId = (_postUser?['id'] as String?) ?? (_post?['user_id'] as String?);
+    final isOwner = ownerId != null && _currentUserId != null && ownerId.toString() == _currentUserId.toString();
 
     return Scaffold(
       backgroundColor: theme.scaffoldBackgroundColor,
@@ -203,8 +279,29 @@ class _PostDetailScreenState extends State<PostDetailScreen> {
         ),
         backgroundColor: theme.appBarTheme.backgroundColor,
         elevation: 0,
-        title: Text('Post', style: TextStyle(fontSize: 18, fontWeight: FontWeight.w600, color: theme.appBarTheme.foregroundColor)),
+        title: Text('Posts', style: TextStyle(fontSize: 18, fontWeight: FontWeight.w600, color: theme.appBarTheme.foregroundColor)),
         centerTitle: true,
+        actions: [
+          if (!isOwner)
+            Padding(
+              padding: const EdgeInsets.only(right: 12),
+              child: TextButton(
+                onPressed: _followLoading ? null : _toggleFollowAuthor,
+                style: TextButton.styleFrom(
+                  padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
+                  backgroundColor: _isAuthorFollowed ? Colors.transparent : DesignTokens.instaPink,
+                  foregroundColor: _isAuthorFollowed ? theme.colorScheme.onSurface : Colors.white,
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(8),
+                    side: _isAuthorFollowed
+                        ? BorderSide(color: theme.colorScheme.outline)
+                        : BorderSide.none,
+                  ),
+                ),
+                child: Text(_isAuthorFollowed ? 'Following' : 'Follow'),
+              ),
+            ),
+        ],
       ),
       body: Column(
         children: [
@@ -213,20 +310,6 @@ class _PostDetailScreenState extends State<PostDetailScreen> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
-                  SizedBox(
-                    height: MediaQuery.sizeOf(context).width,
-                    child: Container(
-                      color: theme.brightness == Brightness.dark ? Colors.black : Colors.grey.shade200,
-                      child: Center(
-                        child: CachedNetworkImage(
-                          imageUrl: _displayImageUrl(),
-                          fit: BoxFit.contain,
-                          placeholder: (_, __) => const Center(child: CircularProgressIndicator(color: DesignTokens.instaPink)),
-                          errorWidget: (_, __, ___) => Icon(LucideIcons.imageOff, size: 64, color: theme.colorScheme.onSurface.withValues(alpha: 0.5)),
-                        ),
-                      ),
-                    ),
-                  ),
                   Padding(
                     padding: const EdgeInsets.all(12),
                     child: Row(
@@ -464,6 +547,20 @@ class _PostDetailScreenState extends State<PostDetailScreen> {
                           ),
                         ),
                       ],
+                    ),
+                  ),
+                  SizedBox(
+                    height: MediaQuery.sizeOf(context).width,
+                    child: Container(
+                      color: theme.brightness == Brightness.dark ? Colors.black : Colors.grey.shade200,
+                      child: Center(
+                        child: CachedNetworkImage(
+                          imageUrl: _displayImageUrl(),
+                          fit: BoxFit.contain,
+                          placeholder: (_, __) => const Center(child: CircularProgressIndicator(color: DesignTokens.instaPink)),
+                          errorWidget: (_, __, ___) => Icon(LucideIcons.imageOff, size: 64, color: theme.colorScheme.onSurface.withValues(alpha: 0.5)),
+                        ),
+                      ),
                     ),
                   ),
                   const SizedBox(height: 16),

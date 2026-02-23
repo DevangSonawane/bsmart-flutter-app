@@ -64,21 +64,21 @@ const authSlice = createSlice({
       .addCase(login.fulfilled, (state, action) => {
         state.loading = false;
         state.isAuthenticated = true;
-        state.userObject = action.payload.user;
+        state.userObject = action.payload?.user || action.payload;
       })
       .addCase(login.rejected, (state, action) => {
         state.loading = false;
         state.error = action.payload;
         state.isAuthenticated = false;
         state.userObject = null;
-      })
+      })  
       .addCase(fetchMe.pending, (state) => {
         state.loading = true;
       })
       .addCase(fetchMe.fulfilled, (state, action) => {
         state.loading = false;
         state.isAuthenticated = true;
-        state.userObject = action.payload;
+        state.userObject = action.payload?.user || action.payload;
       })
       .addCase(fetchMe.rejected, (state) => {
         state.loading = false;

@@ -123,12 +123,16 @@ class _PostCardState extends State<PostCard> with SingleTickerProviderStateMixin
   }
 
   void _setupMedia() {
-    if (widget.post.mediaType.name == 'video' || widget.post.mediaType.name == 'reel') {
-      final url = widget.post.mediaUrls.isNotEmpty ? widget.post.mediaUrls.first : '';
-      if (url.isNotEmpty) _initVideoFromCandidates(_candidateUrls(url));
+    final url = widget.post.mediaUrls.isNotEmpty ? widget.post.mediaUrls.first : '';
+    if (url.isEmpty) return;
+
+    if (widget.post.mediaType == PostMediaType.video ||
+        widget.post.mediaType == PostMediaType.reel) {
+      setState(() {
+        _initVideo = _initVideoFromCandidates(_candidateUrls(url));
+      });
     } else {
-      final url = widget.post.mediaUrls.isNotEmpty ? widget.post.mediaUrls.first : '';
-      if (url.isNotEmpty) _resolveImageUrl(url);
+      _resolveImageUrl(url);
     }
   }
 
@@ -238,13 +242,16 @@ class _PostCardState extends State<PostCard> with SingleTickerProviderStateMixin
   }
 
   Future<void> _initVideoFromCandidates(List<String> candidates) async {
-    // Ensure headers are ready; if not, fetch token quickly
     if (_imageHeaders == null) {
       final token = await ApiClient().getToken();
       if (token != null && token.isNotEmpty) {
-        if (mounted) setState(() {
+        if (mounted) {
+          setState(() {
+            _imageHeaders = {'Authorization': 'Bearer $token'};
+          });
+        } else {
           _imageHeaders = {'Authorization': 'Bearer $token'};
-        });
+        }
       }
     }
     final headers = _imageHeaders ?? {};
@@ -262,11 +269,8 @@ class _PostCardState extends State<PostCard> with SingleTickerProviderStateMixin
           });
         }
         return;
-      } catch (_) {
-        // Try next candidate
-      }
+      } catch (_) {}
     }
-    // If all candidates fail, show placeholder by leaving controller null
     if (mounted) setState(() {});
   }
 
@@ -356,6 +360,24 @@ class _PostCardState extends State<PostCard> with SingleTickerProviderStateMixin
                                     const SizedBox(width: 4),
                                     Icon(LucideIcons.badgeCheck, size: 14, color: Colors.blue.shade400),
                                   ],
+                                  if (post.mediaType == PostMediaType.reel) ...[
+                                    const SizedBox(width: 6),
+                                    Container(
+                                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                                      decoration: BoxDecoration(
+                                        color: (isDark ? Colors.white : Colors.black).withOpacity(0.05),
+                                        borderRadius: BorderRadius.circular(999),
+                                      ),
+                                      child: Text(
+                                        'REEL',
+                                        style: TextStyle(
+                                          fontSize: 11,
+                                          fontWeight: FontWeight.w600,
+                                          color: mutedColor,
+                                        ),
+                                      ),
+                                    ),
+                                  ],
                                 ],
                               ),
                             ],
@@ -404,7 +426,8 @@ class _PostCardState extends State<PostCard> with SingleTickerProviderStateMixin
                                 child: Icon(LucideIcons.imageOff, size: 48, color: mutedColor),
                               ),
                             )
-                          : (post.mediaType.name == 'video' || post.mediaType.name == 'reel')
+                          : (post.mediaType == PostMediaType.video ||
+                                  post.mediaType == PostMediaType.reel)
                               ? (_videoCtl != null
                                   ? FutureBuilder(
                                       future: _initVideo,

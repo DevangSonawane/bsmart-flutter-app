@@ -18,12 +18,15 @@ const TopBar = () => {
 
       <div className="flex gap-4 items-center">
         {/* Wallet Display for Mobile */}
-        <div className="flex items-center gap-1 bg-gray-50 dark:bg-gray-900 px-2 py-1 rounded-full border border-gray-100 dark:border-gray-800">
-          <div className="w-5 h-5 rounded-full bg-gradient-to-tr from-insta-yellow via-insta-orange to-insta-pink flex items-center justify-center text-white">
-            <Wallet size={12} />
+        <Link to="/wallet" className="flex items-center gap-2 bg-white dark:bg-gray-900 px-3 py-1.5 rounded-full border border-gray-100 dark:border-gray-800 shadow-sm hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors mr-1">
+          <div className="w-8 h-8 rounded-full bg-gradient-to-tr from-insta-yellow via-insta-orange to-insta-pink flex items-center justify-center text-white shrink-0">
+            <Wallet size={16} />
           </div>
-          <span className="text-xs font-bold text-gray-900 dark:text-white">1,250</span>
-        </div>
+          <div className="flex flex-col items-start justify-center h-full">
+            <span className="text-[10px] text-gray-500 dark:text-gray-400 font-medium leading-none mb-0.5">Balance</span>
+            <span className="text-xs font-bold text-gray-900 dark:text-white leading-none">Coins {userObject?.wallet?.balance ? Math.floor(Number(userObject.wallet.balance)) : 0}</span>
+          </div>
+        </Link>
 
         {/* Notifications with Dropdown */}
         <div className="relative">

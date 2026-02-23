@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Link, useLocation } from 'react-router-dom';
+import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { useDispatch, useSelector } from 'react-redux';
 import { Home, PlusSquare, Clapperboard, ShoppingBag, User, Menu, Image, Video, Target, Megaphone, Moon, Sun, Search } from 'lucide-react';
 import { toggleTheme } from '../store/themeSlice';
@@ -7,11 +7,14 @@ import CreatePostModal from './CreatePostModal';
 
 const Sidebar = ({ onOpenCreateModal }) => {
   const location = useLocation();
+  const navigate = useNavigate();
   const dispatch = useDispatch();
   const { mode } = useSelector((state) => state.theme);
+  const { userObject } = useSelector((state) => state.auth);
   const [isHovered, setIsHovered] = useState(false);
   const [isCreateDropdownOpen, setIsCreateDropdownOpen] = useState(false);
   const [isMoreDropdownOpen, setIsMoreDropdownOpen] = useState(false);
+  const [showVendorNotValidated, setShowVendorNotValidated] = useState(false);
   const dropdownRef = useRef(null);
   const moreDropdownRef = useRef(null);
 
@@ -114,6 +117,22 @@ const Sidebar = ({ onOpenCreateModal }) => {
                         <Video size={18} />
                         Upload Reel
                       </button>
+                      {userObject?.role === 'vendor' && (
+                        <button
+                          onClick={() => {
+                            if (!userObject.vendor_validated) {
+                              setShowVendorNotValidated(true);
+                            } else {
+                              navigate('/ads');
+                            }
+                            setIsCreateDropdownOpen(false);
+                          }}
+                          className="w-full text-left px-4 py-3 hover:bg-gray-50 dark:hover:bg-gray-800 flex items-center gap-3 text-sm font-medium text-gray-700 dark:text-gray-200"
+                        >
+                          <Megaphone size={18} />
+                          Upload Ad
+                        </button>
+                      )}
                     </div>
                   )}
                 </div>
@@ -182,6 +201,26 @@ const Sidebar = ({ onOpenCreateModal }) => {
           </div>
         </div>
       </div>
+      {showVendorNotValidated && (
+        <div className="fixed inset-0 z-[70] flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
+          <div className="bg-white dark:bg-gray-900 rounded-xl p-6 w-full max-w-sm shadow-2xl border border-gray-100 dark:border-gray-800">
+            <h3 className="text-lg font-bold text-gray-900 dark:text-white mb-2 text-center">
+              Vendor verification pending
+            </h3>
+            <p className="text-gray-500 dark:text-gray-400 text-sm mb-6 text-center">
+              Your vendor account is not yet validated. Please refresh this page or wait 2–3 working days for verification before uploading ads.
+            </p>
+            <div className="flex justify-center">
+              <button
+                onClick={() => setShowVendorNotValidated(false)}
+                className="px-4 py-2.5 rounded-lg bg-insta-pink text-white font-medium hover:bg-insta-purple transition-colors"
+              >
+                OK
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </>
   );
 };

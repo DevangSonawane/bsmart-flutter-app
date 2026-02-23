@@ -16,6 +16,7 @@ import '../widgets/sidebar.dart';
 import '../theme/design_tokens.dart';
 import '../models/story_model.dart';
 import '../models/feed_post_model.dart';
+import '../models/media_model.dart';
 import '../widgets/post_detail_modal.dart';
 import '../widgets/comments_sheet.dart';
 import 'ads_screen.dart';
@@ -23,6 +24,7 @@ import 'promote_screen.dart';
 import 'reels_screen.dart';
 import 'story_viewer_screen.dart';
 import 'own_story_viewer_screen.dart';
+import 'create_upload_screen.dart';
 import '../utils/current_user.dart';
 import '../api/api_exceptions.dart';
 import '../api/api_client.dart';
@@ -648,7 +650,13 @@ class _HomeDashboardState extends State<HomeDashboard> {
 
   void _onNavTap(int idx) {
     if (idx == 2) {
-      _openStoryCamera();
+      Navigator.of(context).push(
+        MaterialPageRoute(
+          builder: (context) => const CreateUploadScreen(
+            initialMode: UploadMode.post,
+          ),
+        ),
+      );
       return;
     }
     // Profile from sidebar (desktop)
@@ -692,7 +700,14 @@ class _HomeDashboardState extends State<HomeDashboard> {
                 onTap: () {
                   Navigator.of(ctx).pop();
                   WidgetsBinding.instance.addPostFrameCallback((_) {
-                    if (mounted) Navigator.of(context).pushNamed('/create_post');
+                    if (!mounted) return;
+                    Navigator.of(context).push(
+                      MaterialPageRoute(
+                        builder: (context) => const CreateUploadScreen(
+                          initialMode: UploadMode.post,
+                        ),
+                      ),
+                    );
                   });
                 },
               ),
@@ -708,7 +723,15 @@ class _HomeDashboardState extends State<HomeDashboard> {
                 onTap: () {
                   Navigator.of(ctx).pop();
                   WidgetsBinding.instance.addPostFrameCallback((_) {
-                    if (mounted) Navigator.of(context).pushNamed('/create');
+                    if (mounted) {
+                      Navigator.of(context).push(
+                        MaterialPageRoute(
+                          builder: (context) => const CreateUploadScreen(
+                            initialMode: UploadMode.reel,
+                          ),
+                        ),
+                      );
+                    }
                   });
                 },
               ),
@@ -938,8 +961,24 @@ class _HomeDashboardState extends State<HomeDashboard> {
           Sidebar(
             currentIndex: _currentIndex,
             onNavTap: _onNavTap,
-            onCreatePost: () => Navigator.of(context).pushNamed('/create'),
-            onUploadReel: () => Navigator.of(context).pushNamed('/create'),
+            onCreatePost: () {
+              Navigator.of(context).push(
+                MaterialPageRoute(
+                  builder: (context) => const CreateUploadScreen(
+                    initialMode: UploadMode.post,
+                  ),
+                ),
+              );
+            },
+            onUploadReel: () {
+              Navigator.of(context).push(
+                MaterialPageRoute(
+                  builder: (context) => const CreateUploadScreen(
+                    initialMode: UploadMode.reel,
+                  ),
+                ),
+              );
+            },
           ),
           Expanded(
             child: Stack(

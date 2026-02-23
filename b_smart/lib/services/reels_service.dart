@@ -148,14 +148,30 @@ class ReelsService {
       final list = items.map((item) {
         final user = item['users'] as Map<String, dynamic>? ?? item['user'] as Map<String, dynamic>?;
         final media = item['media'] as List<dynamic>? ?? [];
-        final videoUrl = media.isNotEmpty ? (media.first is String ? media.first : (media.first['url'] ?? '')) : '';
+        String videoUrl = '';
+        String? thumbnailUrl;
+        if (media.isNotEmpty) {
+          final first = media.first;
+          if (first is String) {
+            videoUrl = first;
+          } else if (first is Map) {
+            final m = Map<String, dynamic>.from(first as Map);
+            videoUrl = (m['url'] ?? m['fileUrl'] ?? m['videoUrl'] ?? '').toString();
+            final thumbField = m['thumbnail'] ?? m['thumbnailUrl'] ?? m['thumb'];
+            if (thumbField is List && thumbField.isNotEmpty) {
+              thumbnailUrl = thumbField.first.toString();
+            } else if (thumbField is String) {
+              thumbnailUrl = thumbField;
+            }
+          }
+        }
         return Reel(
           id: item['id'] as String,
           userId: item['user_id'] as String? ?? user?['id'] as String? ?? '',
           userName: user?['username'] as String? ?? 'user',
           userAvatarUrl: user?['avatar_url'] as String?,
           videoUrl: videoUrl,
-          thumbnailUrl: null,
+          thumbnailUrl: thumbnailUrl,
           caption: item['caption'] as String?,
           hashtags: ((item['hashtags'] as List<dynamic>?) ?? []).map((e) => e.toString()).toList(),
           audioTitle: null,

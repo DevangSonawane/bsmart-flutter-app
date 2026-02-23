@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { useSelector } from 'react-redux';
 import { ChevronDown, MapPin } from 'lucide-react';
 import StoryRail from '../components/StoryRail';
 import PostCard from '../components/PostCard';
@@ -36,6 +37,7 @@ const LocationBar = () => (
 
 const Home = () => {
   const navigate = useNavigate();
+  const { userObject } = useSelector((state) => state.auth);
   const [posts, setPosts] = useState([]);
   const [loading, setLoading] = useState(true);
   const [selectedPost, setSelectedPost] = useState(null);
@@ -55,6 +57,10 @@ const Home = () => {
     fetchPosts();
   }, []);
 
+  useEffect(() => {
+    console.log('Logged in user:', userObject);
+  }, [userObject]);
+
   const handlePostDeleted = (postId) => {
     setPosts(prevPosts => prevPosts.filter(p => (p._id || p.id) !== postId));
   };
@@ -67,6 +73,8 @@ const Home = () => {
       setSelectedPost(post);
     }
   };
+
+
 
   return (
     <div>

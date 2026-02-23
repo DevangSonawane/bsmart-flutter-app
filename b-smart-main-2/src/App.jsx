@@ -13,9 +13,11 @@ import Profile from './pages/Profile';
 import Settings from './pages/Settings';
 import Login from './pages/Login';
 import Signup from './pages/Signup';
+import VendorSignup from './pages/VendorSignup';
 import ForgotPassword from './pages/ForgotPassword';
 import VerifyOtp from './pages/VerifyOtp';
 import EditProfile from './pages/EditProfile';
+import WalletDetails from './pages/WalletDetails';
 import MobilePostDetail from './pages/MobilePostDetail';
 import AuthCallback from './pages/AuthCallback';
 import ProtectedRoute from './components/ProtectedRoute';
@@ -46,6 +48,7 @@ function App() {
       <Routes>
         <Route path="/login" element={<Login />} />
         <Route path="/signup" element={<Signup />} />
+        <Route path="/vendor-signup" element={<VendorSignup />} />
         <Route path="/auth/google/success" element={<AuthCallback />} />
         <Route path="/forgot-password" element={<ForgotPassword />} />
         <Route path="/verify-otp" element={<VerifyOtp />} />
@@ -63,6 +66,7 @@ function App() {
           <Route path="/profile" element={<Profile />} />
           <Route path="/profile/:userId" element={<Profile />} />
           <Route path="/edit-profile" element={<EditProfile />} />
+          <Route path="/wallet" element={<WalletDetails />} />
           <Route path="/settings" element={<Settings />} />
         </Route>
 

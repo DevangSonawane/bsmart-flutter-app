@@ -4,6 +4,7 @@ import 'package:photo_manager/photo_manager.dart';
 import '../models/media_model.dart';
 import '../services/create_service.dart';
 import 'create_post_screen.dart';
+import 'create_edit_preview_screen.dart';
 import 'story_camera_screen.dart';
 
 enum _GallerySource {
@@ -14,7 +15,9 @@ enum _GallerySource {
 }
 
 class CreateUploadScreen extends StatefulWidget {
-  const CreateUploadScreen({super.key});
+  final UploadMode initialMode;
+
+  const CreateUploadScreen({super.key, this.initialMode = UploadMode.post});
 
   @override
   State<CreateUploadScreen> createState() => _CreateUploadScreenState();
@@ -29,7 +32,7 @@ class _CreateUploadScreenState extends State<CreateUploadScreen> {
   AssetEntity? _currentAsset;
   bool _multiSelect = false;
   bool _galleryPermissionDenied = false;
-  UploadMode _mode = UploadMode.post;
+  late UploadMode _mode;
   _GallerySource _source = _GallerySource.recents;
   bool _showSourceMenu = false;
 
@@ -51,9 +54,10 @@ class _CreateUploadScreenState extends State<CreateUploadScreen> {
   @override
   void initState() {
     super.initState();
+    _mode = widget.initialMode;
     _loadGalleryMedia();
   }
- 
+
   Future<void> _loadGalleryMedia() async {
     // Let photo_manager handle permission requests on both iOS and Android
     final PermissionState ps = await PhotoManager.requestPermissionExtend();
@@ -134,6 +138,9 @@ class _CreateUploadScreenState extends State<CreateUploadScreen> {
         visible = baseAll;
         break;
     }
+    if (_mode == UploadMode.reel) {
+      visible = visible.where((a) => a.type == AssetType.video).toList();
+    }
     AssetEntity? newCurrent;
     if (visible.isNotEmpty) {
       final currentId = _currentAsset?.id;
@@ -148,10 +155,15 @@ class _CreateUploadScreenState extends State<CreateUploadScreen> {
       _assets
         ..clear()
         ..addAll(visible);
-      _currentAsset = newCurrent;
-      _selectedIds.clear();
-      if (_currentAsset != null) {
-        _selectedIds.add(_currentAsset!.id);
+      if (_mode == UploadMode.reel) {
+        _currentAsset = null;
+        _selectedIds.clear();
+      } else {
+        _currentAsset = newCurrent;
+        _selectedIds.clear();
+        if (_currentAsset != null) {
+          _selectedIds.add(_currentAsset!.id);
+        }
       }
     });
   }
@@ -181,6 +193,28 @@ class _CreateUploadScreenState extends State<CreateUploadScreen> {
   }
 
   void _onAssetTap(AssetEntity asset) {
+    if (_mode == UploadMode.reel) {
+      setState(() {
+        if (_selectedIds.contains(asset.id)) {
+          _selectedIds.remove(asset.id);
+          if (_selectedIds.isEmpty) {
+            _currentAsset = null;
+          } else if (_currentAsset?.id == asset.id) {
+            final firstId = _selectedIds.first;
+            try {
+              _currentAsset = _assets.firstWhere((a) => a.id == firstId);
+            } catch (_) {
+              _currentAsset = null;
+            }
+          }
+        } else {
+          _selectedIds.add(asset.id);
+          _currentAsset ??= asset;
+        }
+      });
+      return;
+    }
+
     setState(() {
       _currentAsset = asset;
       if (_multiSelect) {
@@ -226,17 +260,56 @@ class _CreateUploadScreenState extends State<CreateUploadScreen> {
       return;
     }
     if (!mounted) return;
-    Navigator.of(context).push(
-      MaterialPageRoute(
-        builder: (context) => CreatePostScreen(
-          initialMedia: media,
+    if (_mode == UploadMode.reel) {
+      Navigator.of(context).push(
+        MaterialPageRoute(
+          builder: (context) => CreateEditPreviewScreen(
+            media: media,
+          ),
         ),
-      ),
-    );
+      );
+    } else {
+      Navigator.of(context).push(
+        MaterialPageRoute(
+          builder: (context) => CreatePostScreen(
+            initialMedia: media,
+          ),
+        ),
+      );
+    }
+  }
+
+  bool get _hasSelection =>
+      _mode == UploadMode.reel ? _selectedIds.isNotEmpty : (_currentAsset != null || _selectedIds.isNotEmpty);
+
+  AssetEntity? _firstSelectedAsset() {
+    if (_assets.isEmpty && _currentAsset == null) return null;
+    if (_selectedIds.isNotEmpty) {
+      try {
+        return _assets.firstWhere((a) => _selectedIds.contains(a.id));
+      } catch (_) {
+        return _currentAsset ?? (_assets.isNotEmpty ? _assets.first : null);
+      }
+    }
+    return _currentAsset ?? (_assets.isNotEmpty ? _assets.first : null);
+  }
+
+  String _titleForMode() {
+    switch (_mode) {
+      case UploadMode.post:
+        return 'New post';
+      case UploadMode.story:
+        return 'New story';
+      case UploadMode.reel:
+        return 'New reel';
+      case UploadMode.live:
+        return 'New live';
+    }
   }
 
   @override
   Widget build(BuildContext context) {
+    final isReelMode = _mode == UploadMode.reel;
     return Scaffold(
       backgroundColor: Colors.black,
       appBar: AppBar(
@@ -247,17 +320,17 @@ class _CreateUploadScreenState extends State<CreateUploadScreen> {
           onPressed: () => Navigator.of(context).popUntil((route) => route.isFirst),
         ),
         centerTitle: true,
-        title: const Text(
-          'New post',
-          style: TextStyle(color: Colors.white, fontWeight: FontWeight.w600),
+        title: Text(
+          _titleForMode(),
+          style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w600),
         ),
         actions: [
           TextButton(
-            onPressed: (_currentAsset == null && _selectedIds.isEmpty) ? null : _handleNext,
+            onPressed: _hasSelection ? _handleNext : null,
             child: Text(
               'Next',
               style: TextStyle(
-                color: (_currentAsset == null && _selectedIds.isEmpty) ? Colors.grey : const Color(0xFF0095F6),
+                color: _hasSelection ? const Color(0xFF0095F6) : Colors.white30,
                 fontWeight: FontWeight.w600,
               ),
             ),
@@ -268,47 +341,48 @@ class _CreateUploadScreenState extends State<CreateUploadScreen> {
         children: [
           Column(
             children: [
-              AspectRatio(
-                aspectRatio: 1.0,
-                child: Container(
-                  width: double.infinity,
-                  color: Colors.black,
-                  child: _currentAsset == null
-                      ? Center(
-                          child: Icon(Icons.image, size: 64, color: Colors.grey[700]),
-                        )
-                      : FutureBuilder<Uint8List?>(
-                          future: () {
-                            final asset = _currentAsset!;
-                            final w = asset.width;
-                            final h = asset.height;
-                            const maxSide = 1000;
-                            int thumbW;
-                            int thumbH;
-                            if (w >= h && w > 0 && h > 0) {
-                              thumbW = maxSide;
-                              thumbH = (maxSide * h / w).round();
-                            } else if (h > 0 && w > 0) {
-                              thumbH = maxSide;
-                              thumbW = (maxSide * w / h).round();
-                            } else {
-                              thumbW = maxSide;
-                              thumbH = maxSide;
-                            }
-                            return asset.thumbnailDataWithSize(ThumbnailSize(thumbW, thumbH));
-                          }(),
-                          builder: (context, snap) {
-                            if (snap.connectionState != ConnectionState.done || snap.data == null) {
-                              return const Center(child: CircularProgressIndicator(color: Colors.white));
-                            }
-                            return Image.memory(
-                              snap.data!,
-                              fit: BoxFit.contain,
-                            );
-                          },
-                        ),
+              if (!isReelMode)
+                AspectRatio(
+                  aspectRatio: 1.0,
+                  child: Container(
+                    width: double.infinity,
+                    color: Colors.black,
+                    child: _currentAsset == null
+                        ? Center(
+                            child: Icon(Icons.image, size: 64, color: Colors.grey[700]),
+                          )
+                        : FutureBuilder<Uint8List?>(
+                            future: () {
+                              final asset = _currentAsset!;
+                              final w = asset.width;
+                              final h = asset.height;
+                              const maxSide = 1000;
+                              int thumbW;
+                              int thumbH;
+                              if (w >= h && w > 0 && h > 0) {
+                                thumbW = maxSide;
+                                thumbH = (maxSide * h / w).round();
+                              } else if (h > 0 && w > 0) {
+                                thumbH = maxSide;
+                                thumbW = (maxSide * w / h).round();
+                              } else {
+                                thumbW = maxSide;
+                                thumbH = maxSide;
+                              }
+                              return asset.thumbnailDataWithSize(ThumbnailSize(thumbW, thumbH));
+                            }(),
+                            builder: (context, snap) {
+                              if (snap.connectionState != ConnectionState.done || snap.data == null) {
+                                return const Center(child: CircularProgressIndicator(color: Colors.white));
+                              }
+                              return Image.memory(
+                                snap.data!,
+                                fit: BoxFit.contain,
+                              );
+                            },
+                          ),
+                  ),
                 ),
-              ),
               Container(
                 padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
                 child: Row(
@@ -331,33 +405,24 @@ class _CreateUploadScreenState extends State<CreateUploadScreen> {
                         ],
                       ),
                     ),
-                    const SizedBox(width: 16),
-                    Text(
-                      'Drafts',
-                      style: TextStyle(color: Colors.grey[500], fontWeight: FontWeight.w500),
-                    ),
                     const Spacer(),
-                    TextButton.icon(
+                    TextButton(
                       onPressed: () {
                         setState(() {
                           _multiSelect = !_multiSelect;
                         });
                       },
-                      icon: Icon(
-                        _multiSelect ? Icons.check_circle : Icons.check_circle_outline,
-                        color: Colors.white,
-                        size: 18,
-                      ),
-                      label: const Text(
-                        'Select',
-                        style: TextStyle(color: Colors.white),
+                      child: Text(
+                        _multiSelect ? 'Deselect' : 'Select',
+                        style: TextStyle(
+                          color: _multiSelect ? Colors.black : Colors.white,
+                          fontWeight: FontWeight.w600,
+                        ),
                       ),
                       style: TextButton.styleFrom(
-                        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(12),
-                          side: const BorderSide(color: Colors.white24),
-                        ),
+                        backgroundColor: _multiSelect ? Colors.white : Colors.white10,
+                        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
                       ),
                     ),
                   ],
@@ -510,103 +575,171 @@ class _CreateUploadScreenState extends State<CreateUploadScreen> {
                             },
                           ),
               ),
-              Padding(
-                padding: const EdgeInsets.only(bottom: 16, top: 8),
-                child: Center(
-                  child: Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
-                    decoration: BoxDecoration(
-                      color: Colors.white10,
-                      borderRadius: BorderRadius.circular(20),
-                    ),
-                    child: Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        GestureDetector(
-                          onTap: () => _onModeTap(UploadMode.post),
-                          child: AnimatedDefaultTextStyle(
-                            duration: _modeAnimDuration,
-                            style: TextStyle(
-                              color: _mode == UploadMode.post ? Colors.white : Colors.white54,
-                              fontWeight: _mode == UploadMode.post ? FontWeight.bold : FontWeight.w500,
-                              letterSpacing: 1.2,
+              if (!isReelMode || !_hasSelection)
+                Padding(
+                  padding: const EdgeInsets.only(bottom: 16, top: 8),
+                  child: Center(
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
+                      decoration: BoxDecoration(
+                        color: Colors.white10,
+                        borderRadius: BorderRadius.circular(20),
+                      ),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          GestureDetector(
+                            onTap: () => _onModeTap(UploadMode.post),
+                            child: AnimatedDefaultTextStyle(
+                              duration: _modeAnimDuration,
+                              style: TextStyle(
+                                color: _mode == UploadMode.post ? Colors.white : Colors.white54,
+                                fontWeight: _mode == UploadMode.post ? FontWeight.bold : FontWeight.w500,
+                                letterSpacing: 1.2,
+                              ),
+                              child: const Text('POST'),
                             ),
-                            child: const Text('POST'),
                           ),
-                        ),
-                        const SizedBox(width: 16),
-                        GestureDetector(
-                          onTap: () => _onModeTap(UploadMode.story),
-                          child: AnimatedDefaultTextStyle(
-                            duration: _modeAnimDuration,
-                            style: TextStyle(
-                              color: _mode == UploadMode.story ? Colors.white : Colors.white54,
-                              fontWeight: _mode == UploadMode.story ? FontWeight.bold : FontWeight.w500,
-                              letterSpacing: 1.2,
+                          const SizedBox(width: 16),
+                          GestureDetector(
+                            onTap: () => _onModeTap(UploadMode.story),
+                            child: AnimatedDefaultTextStyle(
+                              duration: _modeAnimDuration,
+                              style: TextStyle(
+                                color: _mode == UploadMode.story ? Colors.white : Colors.white54,
+                                fontWeight: _mode == UploadMode.story ? FontWeight.bold : FontWeight.w500,
+                                letterSpacing: 1.2,
+                              ),
+                              child: const Text('STORY'),
                             ),
-                            child: const Text('STORY'),
                           ),
-                        ),
-                        const SizedBox(width: 16),
-                        GestureDetector(
-                          onTap: () => _onModeTap(UploadMode.reel),
-                          child: AnimatedDefaultTextStyle(
-                            duration: _modeAnimDuration,
-                            style: TextStyle(
-                              color: _mode == UploadMode.reel ? Colors.white : Colors.white54,
-                              fontWeight: _mode == UploadMode.reel ? FontWeight.bold : FontWeight.w500,
-                              letterSpacing: 1.2,
+                          const SizedBox(width: 16),
+                          GestureDetector(
+                            onTap: () => _onModeTap(UploadMode.reel),
+                            child: AnimatedDefaultTextStyle(
+                              duration: _modeAnimDuration,
+                              style: TextStyle(
+                                color: _mode == UploadMode.reel ? Colors.white : Colors.white54,
+                                fontWeight: _mode == UploadMode.reel ? FontWeight.bold : FontWeight.w500,
+                                letterSpacing: 1.2,
+                              ),
+                              child: const Text('REEL'),
                             ),
-                            child: const Text('REEL'),
                           ),
-                        ),
-                        const SizedBox(width: 16),
-                        GestureDetector(
-                          onTap: () => _onModeTap(UploadMode.live),
-                          child: AnimatedDefaultTextStyle(
-                            duration: _modeAnimDuration,
-                            style: TextStyle(
-                              color: _mode == UploadMode.live ? Colors.white : Colors.white54,
-                              fontWeight: _mode == UploadMode.live ? FontWeight.bold : FontWeight.w500,
-                              letterSpacing: 1.2,
+                          const SizedBox(width: 16),
+                          GestureDetector(
+                            onTap: () => _onModeTap(UploadMode.live),
+                            child: AnimatedDefaultTextStyle(
+                              duration: _modeAnimDuration,
+                              style: TextStyle(
+                                color: _mode == UploadMode.live ? Colors.white : Colors.white54,
+                                fontWeight: _mode == UploadMode.live ? FontWeight.bold : FontWeight.w500,
+                                letterSpacing: 1.2,
+                              ),
+                              child: const Text('LIVE'),
                             ),
-                            child: const Text('LIVE'),
                           ),
-                        ),
-                      ],
+                        ],
+                      ),
                     ),
                   ),
                 ),
-              ),
             ],
           ),
-          Positioned(
-            left: 16,
-            bottom: 96,
-            child: GestureDetector(
-              onTap: () {
-                Navigator.push(
-                  context,
-                  MaterialPageRoute(
-                    builder: (context) => const StoryCameraScreen(),
+          if (!isReelMode)
+            Positioned(
+              left: 16,
+              bottom: 96,
+              child: GestureDetector(
+                onTap: () {
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (context) => const StoryCameraScreen(),
+                    ),
+                  );
+                },
+                child: Container(
+                  width: 48,
+                  height: 48,
+                  decoration: BoxDecoration(
+                    color: const Color(0xFF262626),
+                    borderRadius: BorderRadius.circular(8),
                   ),
-                );
-              },
-              child: Container(
-                width: 48,
-                height: 48,
-                decoration: BoxDecoration(
-                  color: const Color(0xFF262626),
-                  borderRadius: BorderRadius.circular(8),
-                ),
-                child: const Icon(
-                  Icons.camera_alt,
-                  color: Colors.white,
-                  size: 24,
+                  child: const Icon(
+                    Icons.camera_alt,
+                    color: Colors.white,
+                    size: 24,
+                  ),
                 ),
               ),
             ),
-          ),
+          if (isReelMode && _hasSelection)
+            Positioned(
+              left: 0,
+              right: 0,
+              bottom: 0,
+              child: Container(
+                padding: const EdgeInsets.fromLTRB(12, 8, 16, 16),
+                decoration: BoxDecoration(
+                  gradient: LinearGradient(
+                    begin: Alignment.topCenter,
+                    end: Alignment.bottomCenter,
+                    colors: [
+                      Colors.black.withOpacity(0),
+                      Colors.black.withOpacity(0.8),
+                    ],
+                  ),
+                ),
+                child: Row(
+                  children: [
+                    SizedBox(
+                      width: 72,
+                      height: 72,
+                      child: ClipRRect(
+                        borderRadius: BorderRadius.circular(8),
+                        child: Builder(
+                          builder: (context) {
+                            final asset = _firstSelectedAsset();
+                            if (asset == null) {
+                              return Container(color: Colors.black);
+                            }
+                            return FutureBuilder<Uint8List?>(
+                              future: asset.thumbnailDataWithSize(const ThumbnailSize(300, 300)),
+                              builder: (context, snap) {
+                                if (snap.connectionState != ConnectionState.done || snap.data == null) {
+                                  return Container(
+                                    color: Colors.grey[850],
+                                    child: const Center(
+                                      child: Icon(Icons.image, color: Colors.white38),
+                                    ),
+                                  );
+                                }
+                                return Image.memory(
+                                  snap.data!,
+                                  fit: BoxFit.cover,
+                                );
+                              },
+                            );
+                          },
+                        ),
+                      ),
+                    ),
+                    const Spacer(),
+                    ElevatedButton(
+                      onPressed: _handleNext,
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: const Color(0xFF0095F6),
+                        foregroundColor: Colors.white,
+                        padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
+                      ),
+                      child: const Text('Next →'),
+                    ),
+                  ],
+                ),
+              ),
+            ),
           if (_showSourceMenu)
             Positioned.fill(
               child: GestureDetector(

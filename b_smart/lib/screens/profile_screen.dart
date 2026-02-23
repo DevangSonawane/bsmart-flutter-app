@@ -3,6 +3,7 @@ import 'package:flutter_svg/flutter_svg.dart';
 import 'package:flutter_redux/flutter_redux.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 import 'package:image_picker/image_picker.dart';
+import 'package:cached_network_image/cached_network_image.dart';
 import 'reels_screen.dart';
 import '../services/reels_service.dart';
 import '../models/reel_model.dart';
@@ -19,10 +20,15 @@ import '../utils/current_user.dart';
 import '../services/user_account_service.dart';
 import '../services/wallet_service.dart';
 import '../api/auth_api.dart';
+import '../api/api_client.dart';
+import '../config/api_config.dart';
 import 'story_camera_screen.dart';
 import '../services/feed_service.dart';
 import '../models/story_model.dart';
 import 'story_viewer_screen.dart';
+import '../models/media_model.dart';
+import 'create_upload_screen.dart';
+import 'post_detail_screen.dart';
 
 /// Heroicons badge-check (same as React web app verified badge)
 const String _verifiedBadgeSvg = r'''
@@ -53,11 +59,37 @@ class _ProfileScreenState extends State<ProfileScreen> {
   static const int _initialPostsLimit = 20;
   final FeedService _feedService = FeedService();
   List<StoryGroup> _storyGroups = const [];
+  Map<String, String>? _reelImageHeaders;
 
   @override
   void initState() {
     super.initState();
+    ApiClient().getToken().then((token) {
+      if (!mounted) return;
+      if (token != null && token.isNotEmpty) {
+        setState(() {
+          _reelImageHeaders = {'Authorization': 'Bearer $token'};
+        });
+      }
+    });
     _load();
+  }
+
+  String _absoluteReelUrl(String url) {
+    if (url.startsWith('http://') || url.startsWith('https://')) return url;
+    final baseUri = Uri.parse(ApiConfig.baseUrl);
+    final origin = '${baseUri.scheme}://${baseUri.host}${baseUri.hasPort ? ':${baseUri.port}' : ''}';
+    return url.startsWith('/') ? '$origin$url' : '$origin/$url';
+  }
+
+  String _formatViews(int views) {
+    if (views < 1000) return views.toString();
+    if (views < 1000000) {
+      final value = views / 1000;
+      return value >= 10 ? '${value.toStringAsFixed(0)}K' : '${value.toStringAsFixed(1)}K';
+    }
+    final value = views / 1000000;
+    return value >= 10 ? '${value.toStringAsFixed(0)}M' : '${value.toStringAsFixed(1)}M';
   }
 
   @override
@@ -137,15 +169,45 @@ class _ProfileScreenState extends State<ProfileScreen> {
         if (m is String) return m;
         if (m is Map) {
           final mm = Map<String, dynamic>.from(m);
-          final url = (mm['fileUrl'] ?? mm['image'] ?? mm['url'])?.toString();
+          String? thumb;
+          final thumbField = mm['thumbnail'] ?? mm['thumbnailUrl'] ?? mm['thumb'];
+          if (thumbField is List && thumbField.isNotEmpty) {
+            thumb = thumbField.first.toString();
+          } else if (thumbField is String) {
+            thumb = thumbField;
+          }
+          final url = thumb ?? (mm['fileUrl'] ?? mm['image'] ?? mm['url'])?.toString();
           if (url != null && url.isNotEmpty) return url;
         }
         return m.toString();
       }).cast<String>().toList();
-      final typeStr = (map['type'] as String?) ?? 'post';
+      final typeStr = ((map['type'] as String?) ?? (map['media_type'] as String?) ?? 'post').toLowerCase();
+      bool hasVideo = false;
+      for (final m in media) {
+        if (m is Map) {
+          final t = (m['type'] as String?)?.toLowerCase();
+          if (t == 'video' || t == 'reel') {
+            hasVideo = true;
+            break;
+          }
+          final cand = (m['fileUrl'] ?? m['file_url'] ?? m['url'])?.toString().toLowerCase();
+          if (cand != null && (cand.endsWith('.mp4') || cand.endsWith('.mov') || cand.contains('.m3u8'))) {
+            hasVideo = true;
+            break;
+          }
+        } else if (m is String) {
+          final s = m.toLowerCase();
+          if (s.endsWith('.mp4') || s.endsWith('.mov')) {
+            hasVideo = true;
+            break;
+          }
+        }
+      }
       PostMediaType mediaType = PostMediaType.image;
       if (typeStr == 'reel') {
         mediaType = PostMediaType.reel;
+      } else if (hasVideo) {
+        mediaType = mediaUrls.length == 1 ? PostMediaType.reel : PostMediaType.video;
       } else if (mediaUrls.length > 1) {
         mediaType = PostMediaType.carousel;
       }
@@ -213,13 +275,62 @@ class _ProfileScreenState extends State<ProfileScreen> {
         'account_type': userAccount?.accountType.toString().split('.').last,
         'engagement_score': userAccount?.engagementScore,
       };
+
+      final reelsFromService =
+          _reelsService.getReels().where((r) => r.userId == targetId).toList();
+      final reelsFromPosts = posts
+          .where((p) => p.mediaType == PostMediaType.reel && p.mediaUrls.isNotEmpty)
+          .map((p) {
+        final firstUrl = p.mediaUrls.first;
+        return Reel(
+          id: p.id,
+          userId: p.userId,
+          userName: p.userName,
+          userAvatarUrl: p.userAvatar,
+          videoUrl: firstUrl,
+          thumbnailUrl: null,
+          caption: p.caption,
+          hashtags: p.hashtags,
+          audioTitle: null,
+          audioArtist: null,
+          audioId: null,
+          likes: p.likes,
+          comments: p.comments,
+          shares: p.shares,
+          views: p.views,
+          isLiked: p.isLiked,
+          isSaved: p.isSaved,
+          isFollowing: p.isFollowed,
+          createdAt: p.createdAt,
+          isSponsored: p.isAd,
+          sponsorBrand: p.adCompanyName,
+          sponsorLogoUrl: null,
+          productTags: null,
+          remixEnabled: true,
+          audioReuseEnabled: true,
+          originalReelId: null,
+          originalCreatorId: null,
+          originalCreatorName: null,
+          isRisingCreator: false,
+          isTrending: false,
+          duration: const Duration(seconds: 30),
+        );
+      }).toList();
+
+      final combinedReels = <String, Reel>{};
+      for (final r in reelsFromService) {
+        combinedReels[r.id] = r;
+      }
+      for (final r in reelsFromPosts) {
+        combinedReels[r.id] ??= r;
+      }
+
       setState(() {
         _profile = merged;
         _posts = posts;
         _saved = saved;
         _tagged = tagged;
-        _userReels =
-            _reelsService.getReels().where((r) => r.userId == targetId).toList();
+        _userReels = combinedReels.values.toList();
         _storyGroups = const [];
         _loading = false;
       });
@@ -331,8 +442,19 @@ class _ProfileScreenState extends State<ProfileScreen> {
   }
 
   void _onPostTap(FeedPost p) {
-    // Post detail modal implemented in task 5
-    _showPostDetail(p.id);
+    final isMobile = MediaQuery.sizeOf(context).width < 600;
+    if (isMobile) {
+      Navigator.of(context).push(
+        MaterialPageRoute(
+          builder: (ctx) => PostDetailScreen(
+            postId: p.id,
+            initialPost: p,
+          ),
+        ),
+      );
+    } else {
+      _showPostDetail(p.id);
+    }
   }
 
   void _showPostDetail(String postId) {
@@ -386,7 +508,14 @@ class _ProfileScreenState extends State<ProfileScreen> {
                 onTap: () {
                   Navigator.of(ctx).pop();
                   WidgetsBinding.instance.addPostFrameCallback((_) {
-                    if (mounted) Navigator.of(context).pushNamed('/create_post');
+                    if (!mounted) return;
+                    Navigator.of(context).push(
+                      MaterialPageRoute(
+                        builder: (context) => const CreateUploadScreen(
+                          initialMode: UploadMode.post,
+                        ),
+                      ),
+                    );
                   });
                 },
               ),
@@ -402,7 +531,15 @@ class _ProfileScreenState extends State<ProfileScreen> {
                 onTap: () {
                   Navigator.of(ctx).pop();
                   WidgetsBinding.instance.addPostFrameCallback((_) {
-                    if (mounted) Navigator.of(context).pushNamed('/create');
+                    if (mounted) {
+                      Navigator.of(context).push(
+                        MaterialPageRoute(
+                          builder: (context) => const CreateUploadScreen(
+                            initialMode: UploadMode.reel,
+                          ),
+                        ),
+                      );
+                    }
                   });
                 },
               ),
@@ -544,17 +681,78 @@ class _ProfileScreenState extends State<ProfileScreen> {
                 ),
               ],
             )
-          : ListView.builder(
-              itemCount: _userReels.length,
-              itemBuilder: (ctx, i) {
-                final r = _userReels[i];
-                return ListTile(
-                  leading: r.thumbnailUrl != null ? Image.network(r.thumbnailUrl!) : Icon(LucideIcons.video, color: fgColor),
-                  title: Text(r.caption ?? '', style: TextStyle(color: fgColor)),
-                  subtitle: Text('${r.views} views', style: TextStyle(color: theme.textTheme.bodyMedium?.color)),
-                  onTap: () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => ReelsScreen())),
-                );
-              },
+          : Padding(
+              padding: const EdgeInsets.all(8.0),
+              child: GridView.builder(
+                shrinkWrap: true,
+                physics: const NeverScrollableScrollPhysics(),
+                itemCount: _userReels.length,
+                gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+                  crossAxisCount: 3,
+                  crossAxisSpacing: 4,
+                  mainAxisSpacing: 4,
+                ),
+                itemBuilder: (ctx, i) {
+                  final r = _userReels[i];
+                  final thumbRaw = r.thumbnailUrl?.trim();
+                  final thumb = (thumbRaw != null && thumbRaw.isNotEmpty) ? _absoluteReelUrl(thumbRaw) : null;
+                  return GestureDetector(
+                    onTap: () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => const ReelsScreen())),
+                    child: ClipRRect(
+                      borderRadius: BorderRadius.circular(6),
+                      child: Stack(
+                        fit: StackFit.expand,
+                        children: [
+                          Container(color: Colors.black),
+                          if (thumb != null)
+                            CachedNetworkImage(
+                              imageUrl: thumb,
+                              httpHeaders: _reelImageHeaders,
+                              cacheKey: '${thumb}#${_reelImageHeaders?['Authorization'] ?? ''}',
+                              fit: BoxFit.cover,
+                              placeholder: (ctx, url) => Container(color: Colors.grey[900]),
+                              errorWidget: (ctx, url, err) => Container(color: Colors.grey[900]),
+                            ),
+                          Container(
+                            decoration: BoxDecoration(
+                              gradient: LinearGradient(
+                                begin: Alignment.topCenter,
+                                end: Alignment.bottomCenter,
+                                colors: [
+                                  Colors.black.withValues(alpha: 0.15),
+                                  Colors.black.withValues(alpha: 0.45),
+                                ],
+                              ),
+                            ),
+                          ),
+                          Positioned(
+                            left: 6,
+                            bottom: 6,
+                            child: Row(
+                              children: [
+                                Icon(
+                                  LucideIcons.eye,
+                                  size: 14,
+                                  color: Colors.white,
+                                ),
+                                const SizedBox(width: 4),
+                                Text(
+                                  _formatViews(r.views),
+                                  style: const TextStyle(
+                                    color: Colors.white,
+                                    fontSize: 12,
+                                    fontWeight: FontWeight.w600,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  );
+                },
+              ),
             ),
       if (isMe)
         (_saved.isEmpty
@@ -610,7 +808,18 @@ class _ProfileScreenState extends State<ProfileScreen> {
           ),
           actions: [
             if (isMe) ...[
-              IconButton(icon: Icon(LucideIcons.squarePlus, color: fgColor), onPressed: _showCreateModal),
+              IconButton(
+                icon: Icon(LucideIcons.squarePlus, color: fgColor),
+                onPressed: () {
+                  Navigator.of(context).push(
+                    MaterialPageRoute(
+                      builder: (context) => const CreateUploadScreen(
+                        initialMode: UploadMode.post,
+                      ),
+                    ),
+                  );
+                },
+              ),
               IconButton(icon: Icon(LucideIcons.menu, color: fgColor), onPressed: () => Navigator.of(context).pushNamed('/settings')),
             ],
           ],

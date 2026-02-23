@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:cached_network_image/cached_network_image.dart';
+import 'package:lucide_icons_flutter/lucide_icons.dart';
 import '../models/feed_post_model.dart';
 import '../api/api_client.dart';
 import '../config/api_config.dart';
@@ -58,21 +59,44 @@ class _PostsGridState extends State<PostsGrid> {
           onTap: () => widget.onTap(p),
           child: ClipRRect(
             borderRadius: BorderRadius.circular(6),
-            child: Container(
-              color: Colors.grey[200],
-              child: thumb != null
-                  ? CachedNetworkImage(
-                      imageUrl: thumb,
-                      httpHeaders: _headers,
-                      cacheKey: '${thumb}#${_headers?['Authorization'] ?? ''}',
-                      fit: BoxFit.cover,
-                      placeholder: (ctx, url) => Container(color: Colors.grey[300]),
-                      errorWidget: (ctx, url, err) => Container(
-                        color: Colors.grey[300],
-                        child: const Icon(Icons.broken_image),
+            child: Stack(
+              fit: StackFit.expand,
+              children: [
+                if (thumb != null)
+                  CachedNetworkImage(
+                    imageUrl: thumb,
+                    httpHeaders: _headers,
+                    cacheKey: '${thumb}#${_headers?['Authorization'] ?? ''}',
+                    fit: BoxFit.cover,
+                    placeholder: (ctx, url) => Container(color: Colors.grey[300]),
+                    errorWidget: (ctx, url, err) => Container(
+                      color: Colors.grey[300],
+                      child: const Icon(Icons.broken_image),
+                    ),
+                  )
+                else
+                  Container(color: Colors.grey[200]),
+                if (p.mediaType == PostMediaType.reel)
+                  Container(
+                    decoration: BoxDecoration(
+                      gradient: LinearGradient(
+                        begin: Alignment.topCenter,
+                        end: Alignment.bottomCenter,
+                        colors: [
+                          Colors.black.withValues(alpha: 0.1),
+                          Colors.black.withValues(alpha: 0.4),
+                        ],
                       ),
-                    )
-                  : const SizedBox.shrink(),
+                    ),
+                    child: Center(
+                      child: Icon(
+                        LucideIcons.play,
+                        color: Colors.white,
+                        size: 28,
+                      ),
+                    ),
+                  ),
+              ],
             ),
           ),
         );

@@ -110,121 +110,70 @@ class _StoryOverlayElement {
   }
 }
 
-class _StoryElementWidget extends StatefulWidget {
+class _StoryElementWidget extends StatelessWidget {
   final _StoryOverlayElement element;
-  final void Function(_StoryOverlayElement updated) onChanged;
-  final VoidCallback onStartDrag;
-  final void Function(Offset endPosition) onEndDrag;
-  final VoidCallback onTap;
+  final bool isActive;
+  final VoidCallback? onTap;
 
   const _StoryElementWidget({
     super.key,
     required this.element,
-    required this.onChanged,
-    required this.onStartDrag,
-    required this.onEndDrag,
-    required this.onTap,
+    this.isActive = false,
+    this.onTap,
   });
 
-  @override
-  State<_StoryElementWidget> createState() => _StoryElementWidgetState();
-}
-
-class _StoryElementWidgetState extends State<_StoryElementWidget> {
-  Offset _lastFocal = Offset.zero;
-  double _baseScale = 1.0;
-  double _baseRotation = 0.0;
-  Offset _lastGlobalPos = Offset.zero;
+  TextStyle _textStyleFor(String styleName, Color color) {
+    switch (styleName) {
+      case 'Modern':
+        return TextStyle(color: color, fontSize: 24, fontWeight: FontWeight.w400);
+      case 'Neon':
+        return TextStyle(
+          color: color,
+          fontSize: 24,
+          fontWeight: FontWeight.w700,
+          letterSpacing: 1.2,
+          shadows: [
+            Shadow(
+              color: color.withAlpha(160),
+              blurRadius: 12,
+            ),
+          ],
+        );
+      case 'Typewriter':
+        return TextStyle(color: color, fontSize: 22, fontWeight: FontWeight.w500, letterSpacing: 2.0);
+      case 'Strong':
+        return TextStyle(color: color, fontSize: 26, fontWeight: FontWeight.w800, letterSpacing: 0.8);
+      case 'Classic':
+      default:
+        return TextStyle(color: color, fontSize: 24, fontWeight: FontWeight.w600, letterSpacing: 0.5);
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
-    final e = widget.element;
+    final e = element;
     return Positioned(
       left: e.position.dx,
       top: e.position.dy,
-      child: GestureDetector(
-        onTap: widget.onTap,
-        onScaleStart: (d) {
-          widget.onStartDrag();
-          _baseScale = e.scale;
-          _baseRotation = e.rotation;
-          _lastFocal = d.focalPoint;
-          _lastGlobalPos = d.focalPoint;
-        },
-        onScaleUpdate: (d) {
-          _lastGlobalPos = d.focalPoint;
-          final delta = d.focalPoint - _lastFocal;
-          _lastFocal = d.focalPoint;
-
-          final updated = e.copyWith(
-            position: e.position + delta,
-            scale: (_baseScale * d.scale).clamp(0.5, 3.0),
-            rotation: _baseRotation + d.rotation,
-          );
-          widget.onChanged(updated);
-        },
-        onScaleEnd: (d) => widget.onEndDrag(_lastGlobalPos),
-        child: Transform.rotate(
-          angle: e.rotation,
-          child: Transform.scale(
-            scale: e.scale,
+      child: Transform.rotate(
+        angle: e.rotation,
+        child: Transform.scale(
+          scale: e.scale,
+          child: GestureDetector(
+            behavior: HitTestBehavior.opaque,
+            onTap: onTap,
             child: Container(
               padding: const EdgeInsets.all(8),
               decoration: BoxDecoration(
-                color: e.type == _StoryElementType.text ? Colors.black26 : Colors.transparent,
+                color: e.type == _StoryElementType.text
+                    ? (isActive ? Colors.white24 : Colors.black26)
+                    : Colors.transparent,
                 borderRadius: BorderRadius.circular(8),
               ),
               child: e.type == _StoryElementType.text
                   ? Text(
                       e.text ?? '',
-                      style: () {
-                        final color = e.color ?? Colors.white;
-                        final styleName = e.style ?? 'Classic';
-                        switch (styleName) {
-                          case 'Modern':
-                            return TextStyle(
-                              color: color,
-                              fontSize: 24,
-                              fontWeight: FontWeight.w400,
-                              letterSpacing: 0.0,
-                            );
-                          case 'Neon':
-                            return TextStyle(
-                              color: color,
-                              fontSize: 24,
-                              fontWeight: FontWeight.w700,
-                              letterSpacing: 1.2,
-                              shadows: [
-                                Shadow(
-                                  color: color.withAlpha(160),
-                                  blurRadius: 12,
-                                ),
-                              ],
-                            );
-                          case 'Typewriter':
-                            return TextStyle(
-                              color: color,
-                              fontSize: 22,
-                              fontWeight: FontWeight.w500,
-                              letterSpacing: 2.0,
-                            );
-                          case 'Strong':
-                            return TextStyle(
-                              color: color,
-                              fontSize: 26,
-                              fontWeight: FontWeight.w800,
-                              letterSpacing: 0.8,
-                            );
-                          case 'Classic':
-                          default:
-                            return TextStyle(
-                              color: color,
-                              fontSize: 24,
-                              fontWeight: FontWeight.w600,
-                              letterSpacing: 0.5,
-                            );
-                        }
-                      }(),
+                      style: _textStyleFor(e.style ?? 'Classic', e.color ?? Colors.white),
                     )
                   : Text(
                       e.sticker ?? '',
@@ -454,6 +403,7 @@ class _StoryCameraScreenState extends State<StoryCameraScreen> with WidgetsBindi
   Uint8List? _editingImageBytes;
   final GlobalKey _storyRepaintKey = GlobalKey();
   final List<_StoryOverlayElement> _storyElements = [];
+  int? _storyActiveElementIndex;
   bool _storyShowTrash = false;
   bool _storyDrawingMode = false;
   bool _storyStickerMode = false;
@@ -462,6 +412,9 @@ class _StoryCameraScreenState extends State<StoryCameraScreen> with WidgetsBindi
   double _storyBrushSize = 8.0;
   Color _storyCurrentColor = Colors.white;
   String _storyCurrentFilter = 'Original';
+  Offset _storyLastFocalPoint = Offset.zero;
+  double _storyTransformBaseScale = 1.0;
+  double _storyTransformBaseRotation = 0.0;
 
   @override
   void initState() {
@@ -928,6 +881,13 @@ class _StoryCameraScreenState extends State<StoryCameraScreen> with WidgetsBindi
                 setState(() {
                   _mode = UploadMode.reel;
                 });
+                Navigator.of(context).push(
+                  MaterialPageRoute(
+                    builder: (context) => const CreateUploadScreen(
+                      initialMode: UploadMode.reel,
+                    ),
+                  ),
+                );
               },
               child: AnimatedDefaultTextStyle(
                 duration: const Duration(milliseconds: 180),
@@ -1016,12 +976,43 @@ class _StoryCameraScreenState extends State<StoryCameraScreen> with WidgetsBindi
                 builder: (context, constraints) {
                   debugPrint('📐 Layout constraints: ${constraints.maxWidth}x${constraints.maxHeight}');
 
-                  return Stack(
-                    children: [
-                    GestureDetector(
-                      onPanStart: _storyDrawingMode ? (d) => _startStoryStroke(d.localPosition) : null,
-                      onPanUpdate: _storyDrawingMode ? (d) => _appendStoryStroke(d.localPosition) : null,
-                      child: RepaintBoundary(
+                  return GestureDetector(
+                    behavior: HitTestBehavior.translucent,
+                    onScaleStart: (details) {
+                      if (_storyDrawingMode || _storyElements.isEmpty) return;
+                      final activeIndex = _storyActiveElementIndex ?? (_storyElements.length - 1);
+                      _storyActiveElementIndex = activeIndex;
+                      _storyLastFocalPoint = details.focalPoint;
+                      final element = _storyElements[activeIndex];
+                      _storyTransformBaseScale = element.scale;
+                      _storyTransformBaseRotation = element.rotation;
+                    },
+                    onScaleUpdate: (details) {
+                      if (_storyDrawingMode || _storyElements.isEmpty) return;
+                      final activeIndex = _storyActiveElementIndex ?? (_storyElements.length - 1);
+                      final element = _storyElements[activeIndex];
+                      final delta = details.focalPoint - _storyLastFocalPoint;
+                      _storyLastFocalPoint = details.focalPoint;
+
+                      double newScale = element.scale;
+                      double newRotation = element.rotation;
+
+                      if (details.pointerCount > 1) {
+                        newScale = (_storyTransformBaseScale * details.scale).clamp(0.2, 8.0);
+                        newRotation = _storyTransformBaseRotation + details.rotation;
+                      }
+
+                      setState(() {
+                        _storyElements[activeIndex] = element.copyWith(
+                          position: element.position + delta,
+                          scale: newScale,
+                          rotation: newRotation,
+                        );
+                      });
+                    },
+                    child: Stack(
+                      children: [
+                        RepaintBoundary(
                           key: _storyRepaintKey,
                           child: SizedBox(
                             width: constraints.maxWidth,
@@ -1059,38 +1050,41 @@ class _StoryCameraScreenState extends State<StoryCameraScreen> with WidgetsBindi
                                   ),
                                 ),
                                 CustomPaint(painter: _StoryDrawingPainter(_storyStrokes)),
-                                ..._storyElements.map(
-                                  (e) => _StoryElementWidget(
-                                    element: e,
-                                    onChanged: (updated) {
-                                      setState(() {
-                                        final idx = _storyElements.indexOf(e);
-                                        if (idx != -1) {
-                                          _storyElements[idx] = updated;
+                                ..._storyElements.asMap().entries.map(
+                                  (entry) {
+                                    final index = entry.key;
+                                    final e = entry.value;
+                                    final isActive = _storyActiveElementIndex == null
+                                        ? index == _storyElements.length - 1
+                                        : index == _storyActiveElementIndex;
+                                    return _StoryElementWidget(
+                                      key: ValueKey(e.hashCode),
+                                      element: e,
+                                      isActive: isActive,
+                                      onTap: () {
+                                        if (e.type == _StoryElementType.text) {
+                                          setState(() {
+                                            _storyActiveElementIndex = index;
+                                          });
+                                          _storyEditText(e);
                                         }
-                                      });
-                                    },
-                                    onStartDrag: () => setState(() => _storyShowTrash = true),
-                                    onEndDrag: (pos) {
-                                      setState(() => _storyShowTrash = false);
-                                      if (pos.dy > MediaQuery.of(context).size.height - 140) {
-                                        setState(() {
-                                          _storyElements.remove(e);
-                                        });
-                                      }
-                                    },
-                                    onTap: () {
-                                      if (e.type == _StoryElementType.text) {
-                                        _storyEditText(e);
-                                      }
-                                    },
-                                  ),
+                                      },
+                                    );
+                                  },
                                 ),
                               ],
                             ),
                           ),
                         ),
-                      ),
+                        if (_storyDrawingMode)
+                          Positioned.fill(
+                            child: GestureDetector(
+                              behavior: HitTestBehavior.translucent,
+                              onPanStart: (d) => _startStoryStroke(d.localPosition),
+                              onPanUpdate: (d) => _appendStoryStroke(d.localPosition),
+                              child: const SizedBox.expand(),
+                            ),
+                          ),
                       Positioned(
                         left: 16,
                         top: 16,
@@ -1309,22 +1303,9 @@ class _StoryCameraScreenState extends State<StoryCameraScreen> with WidgetsBindi
                           ),
                         ),
                       ),
-                    if (_storyShowTrash)
-                      Positioned(
-                        left: 0,
-                        right: 0,
-                        bottom: 24,
-                        child: Center(
-                          child: Container(
-                            width: 80,
-                            height: 80,
-                            decoration: BoxDecoration(color: Colors.redAccent.withAlpha(160), shape: BoxShape.circle),
-                            child: const Icon(Icons.delete, color: Colors.white),
-                          ),
-                        ),
-                      ),
-                  ],
-                );
+                      ],
+                    ),
+                  );
               },
             ),
           ),
@@ -1413,6 +1394,7 @@ class _StoryCameraScreenState extends State<StoryCameraScreen> with WidgetsBindi
     setState(() {
       _storyElements.add(_StoryOverlayElement.sticker(label));
       _storyStickerMode = false;
+      _storyActiveElementIndex = _storyElements.length - 1;
     });
   }
 
@@ -1774,6 +1756,7 @@ class _StoryCameraScreenState extends State<StoryCameraScreen> with WidgetsBindi
         setState(() {
           _storyCurrentColor = value.color ?? _storyCurrentColor;
           _storyElements.add(value);
+          _storyActiveElementIndex = _storyElements.length - 1;
         });
       }
     });

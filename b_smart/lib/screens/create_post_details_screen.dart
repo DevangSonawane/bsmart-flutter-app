@@ -17,6 +17,8 @@ class CreatePostDetailsScreen extends StatefulWidget {
   final String? selectedFilter;
   final String? selectedMusic;
   final double musicVolume;
+  final Duration? trimStart;
+  final Duration? trimEnd;
 
   const CreatePostDetailsScreen({
     super.key,
@@ -24,6 +26,8 @@ class CreatePostDetailsScreen extends StatefulWidget {
     this.selectedFilter,
     this.selectedMusic,
     this.musicVolume = 0.5,
+    this.trimStart,
+    this.trimEnd,
   });
 
   @override
@@ -253,6 +257,10 @@ class _CreatePostDetailsScreenState extends State<CreatePostDetailsScreen> {
         'ratio': 1.0, // Default ratio
         'filter': widget.selectedFilter ?? 'none',
         'type': widget.media.type == MediaType.video ? 'video' : 'image',
+        if (widget.trimStart != null)
+          'trimStartMs': widget.trimStart!.inMilliseconds,
+        if (widget.trimEnd != null)
+          'trimEndMs': widget.trimEnd!.inMilliseconds,
       };
 
       await PostsApi().createPost(
@@ -344,7 +352,6 @@ class _CreatePostDetailsScreenState extends State<CreatePostDetailsScreen> {
       body: SingleChildScrollView(
         child: Column(
           children: [
-            // Media Preview
             Container(
               height: 300,
               width: double.infinity,
@@ -353,8 +360,6 @@ class _CreatePostDetailsScreenState extends State<CreatePostDetailsScreen> {
                   ? const Icon(Icons.play_circle_outline, size: 80, color: Colors.grey)
                   : const Icon(Icons.image, size: 80, color: Colors.grey),
             ),
-
-            // Caption
             Padding(
               padding: const EdgeInsets.all(16),
               child: Column(
@@ -388,8 +393,6 @@ class _CreatePostDetailsScreenState extends State<CreatePostDetailsScreen> {
                 ],
               ),
             ),
-
-            // Hashtags
             Padding(
               padding: const EdgeInsets.symmetric(horizontal: 16),
               child: Column(
@@ -457,10 +460,7 @@ class _CreatePostDetailsScreenState extends State<CreatePostDetailsScreen> {
                 ],
               ),
             ),
-
             const Divider(),
-
-            // Tag Friends
             ListTile(
               leading: const Icon(Icons.person_add),
               title: const Text('Tag Friends'),
@@ -468,10 +468,7 @@ class _CreatePostDetailsScreenState extends State<CreatePostDetailsScreen> {
               trailing: const Icon(Icons.chevron_right),
               onTap: () => _showTagFriendsDialog(),
             ),
-
             const Divider(),
-
-            // Privacy
             ListTile(
               leading: const Icon(Icons.lock_outline),
               title: const Text('Privacy'),
@@ -479,10 +476,7 @@ class _CreatePostDetailsScreenState extends State<CreatePostDetailsScreen> {
               trailing: const Icon(Icons.chevron_right),
               onTap: () => _showPrivacyDialog(),
             ),
-
             const Divider(),
-
-            // Comments
             SwitchListTile(
               secondary: const Icon(Icons.comment_outlined),
               title: const Text('Enable Comments'),
@@ -493,10 +487,7 @@ class _CreatePostDetailsScreenState extends State<CreatePostDetailsScreen> {
                 });
               },
             ),
-
             const Divider(),
-
-            // Location
             ListTile(
               leading: const Icon(Icons.location_on_outlined),
               title: const Text('Add Location'),
@@ -504,7 +495,6 @@ class _CreatePostDetailsScreenState extends State<CreatePostDetailsScreen> {
               trailing: const Icon(Icons.chevron_right),
               onTap: () => _showLocationDialog(),
             ),
-
             const SizedBox(height: 24),
           ],
         ),

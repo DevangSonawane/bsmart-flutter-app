@@ -93,7 +93,7 @@ const PostCard = ({ post, onCommentClick, onDelete }) => {
                     const likeUserId = like.user ? (like.user._id || like.user.id) : null;
                     return String(likeId) === String(userId) || String(likeUserId) === String(userId);
                 }) : false;
-                
+
                 setIsLiked(userLiked);
                 setLikeCount(post.likes.length);
             } else if (typeof post.is_liked_by_me !== 'undefined') {
@@ -230,7 +230,7 @@ const PostCard = ({ post, onCommentClick, onDelete }) => {
                                 {avatar ? (
                                     <img src={avatar} alt={username} className="w-full h-full rounded-full object-cover" />
                                 ) : (
-                                    <div className="w-full h-full rounded-full bg-gray-200 dark:bg-gray-800 flex items-center justify-center text-xs font-bold text-gray-700 dark:text-gray-300">
+                                    <div className="w-full h-full rounded-full bg-gradient-to-tr from-insta-yellow via-insta-orange to-insta-pink flex items-center justify-center text-xs font-bold text-white">
                                         {username.charAt(0).toUpperCase()}
                                     </div>
                                 )}
@@ -242,7 +242,7 @@ const PostCard = ({ post, onCommentClick, onDelete }) => {
                                 {avatar ? (
                                     <img src={avatar} alt={username} className="w-full h-full rounded-full object-cover" />
                                 ) : (
-                                    <div className="w-full h-full rounded-full bg-gray-200 dark:bg-gray-800 flex items-center justify-center text-xs font-bold text-gray-700 dark:text-gray-300">
+                                    <div className="w-full h-full rounded-full bg-gradient-to-tr from-insta-yellow via-insta-orange to-insta-pink flex items-center justify-center text-xs font-bold text-white">
                                         {username.charAt(0).toUpperCase()}
                                     </div>
                                 )}
@@ -250,7 +250,7 @@ const PostCard = ({ post, onCommentClick, onDelete }) => {
                         </div>
                     )}
                     {userId ? (
-                        <Link to={`/profile/${userId}`} className="font-semibold text-sm hover:underline dark:text-white">{username}</Link>
+                        <Link to={`/profile/${userId}`} className="font-semibold text-sm dark:text-white">{username}</Link>
                     ) : (
                         <span className="font-semibold text-sm dark:text-white">{username}</span>
                     )}
@@ -332,8 +332,8 @@ const PostCard = ({ post, onCommentClick, onDelete }) => {
                                         <div
                                             key={idx}
                                             className={`w-2 h-2 rounded-full transition-all duration-300 ${idx === currentImageIndex
-                                                    ? 'bg-white scale-110'
-                                                    : 'bg-white/50'
+                                                ? 'bg-white scale-110'
+                                                : 'bg-white/50'
                                                 }`}
                                         />
                                     ))}

@@ -4,7 +4,7 @@ import { useSelector, useDispatch } from 'react-redux';
 import api from '../lib/api';
 import authService from '../services/authService';
 import { login, fetchMe, setUser } from '../store/authSlice';
-import { ArrowLeft, Mail, Lock, User, Phone, LogIn, AlertCircle, CheckCircle } from 'lucide-react';
+import { ArrowLeft, Mail, Lock, User, Phone, LogIn, AlertCircle, CheckCircle, Eye, EyeOff } from 'lucide-react';
 
 const Login = () => {
   const navigate = useNavigate();
@@ -16,6 +16,7 @@ const Login = () => {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [message, setMessage] = useState(location.state?.message || '');
+  const [showPassword, setShowPassword] = useState(false);
 
   useEffect(() => {
     if (isAuthenticated) {
@@ -159,13 +160,20 @@ const Login = () => {
                   <Lock size={20} />
                 </div>
                 <input
-                  type="password"
+                type={showPassword ? 'text' : 'password'}
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
                   placeholder="••••••••"
                   className="w-full pl-10 pr-4 py-3 bg-gray-50 dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-xl focus:outline-none focus:ring-2 focus:ring-insta-pink/20 focus:border-insta-pink transition-all placeholder:text-gray-400 dark:placeholder:text-gray-600 dark:text-white"
                   required
                 />
+              <button
+                type="button"
+                onClick={() => setShowPassword((v) => !v)}
+                className="absolute inset-y-0 right-0 pr-3 flex items-center text-gray-400 dark:text-gray-500 hover:text-gray-600 dark:hover:text-gray-300"
+              >
+                {showPassword ? <EyeOff size={20} /> : <Eye size={20} />}
+              </button>
               </div>
             </div>
 
@@ -235,11 +243,20 @@ const Login = () => {
             Continue with Google
           </button>
 
-          <div className="text-center mt-8">
+        <div className="text-center mt-8 space-y-2">
             <p className="text-gray-600 dark:text-gray-400">
               Don't have an account?{' '}
               <Link to="/signup" className="text-insta-pink font-semibold hover:text-insta-purple transition-colors">
                 Sign up
+              </Link>
+            </p>
+            <p className="text-sm text-gray-500 dark:text-gray-400">
+              Are you a business founder?{' '}
+              <Link
+                to="/vendor-signup"
+                className="font-semibold text-insta-pink hover:text-insta-purple transition-colors"
+              >
+                Sign up as vendor
               </Link>
             </p>
           </div>
