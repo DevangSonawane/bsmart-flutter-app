@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
+import 'package:visibility_detector/visibility_detector.dart';
 import '../models/feed_post_model.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:video_player/video_player.dart';
@@ -7,6 +8,7 @@ import 'package:http/http.dart' as http;
 import '../api/api_client.dart';
 import '../config/api_config.dart';
 import '../theme/design_tokens.dart';
+import '../utils/url_helper.dart';
 
 class PostCard extends StatefulWidget {
   final FeedPost post;
@@ -37,11 +39,13 @@ class _PostCardState extends State<PostCard> with SingleTickerProviderStateMixin
   Future<void>? _initVideo;
   Map<String, String>? _imageHeaders;
   String? _resolvedImageUrl;
+  String? _resolvedThumbnailUrl;
   double? _mediaAspect;
   late final AnimationController _heartController;
   late final Animation<double> _heartScale;
   late final Animation<double> _heartOpacity;
   bool _isHeartAnimating = false;
+  bool _isVisible = false;
 
   @override
   void initState() {
@@ -128,9 +132,21 @@ class _PostCardState extends State<PostCard> with SingleTickerProviderStateMixin
 
     if (widget.post.mediaType == PostMediaType.video ||
         widget.post.mediaType == PostMediaType.reel) {
-      setState(() {
-        _initVideo = _initVideoFromCandidates(_candidateUrls(url));
-      });
+      if (widget.post.thumbnailUrl != null && widget.post.thumbnailUrl!.isNotEmpty) {
+        final candidates = _candidateUrls(widget.post.thumbnailUrl!);
+        setState(() {
+          _resolvedThumbnailUrl = candidates.first;
+        });
+      }
+
+      // Only initialize video if it's currently visible
+      if (_isVisible) {
+        setState(() {
+          _initVideo = _initVideoFromCandidates(_candidateUrls(url));
+        });
+      } else {
+        _disposeVideo();
+      }
     } else {
       _resolveImageUrl(url);
     }
@@ -151,12 +167,7 @@ class _PostCardState extends State<PostCard> with SingleTickerProviderStateMixin
   }
 
   List<String> _candidateUrls(String url) {
-    final baseUri = Uri.parse(ApiConfig.baseUrl);
-    final origin = '${baseUri.scheme}://${baseUri.host}${baseUri.hasPort ? ':${baseUri.port}' : ''}';
-    String abs = url;
-    if (!abs.startsWith('http://') && !abs.startsWith('https://')) {
-      abs = url.startsWith('/') ? '$origin$url' : '$origin/$url';
-    }
+    String abs = UrlHelper.absoluteUrl(url);
     final alts = <String>[abs];
     if (abs.startsWith('http://')) {
       alts.add(abs.replaceFirst('http://', 'https://'));
@@ -260,9 +271,11 @@ class _PostCardState extends State<PostCard> with SingleTickerProviderStateMixin
         _videoCtl?.dispose();
         _videoCtl = VideoPlayerController.networkUrl(Uri.parse(u), httpHeaders: headers);
         await _videoCtl!.initialize();
-        _videoCtl!.setLooping(true);
-        _videoCtl!.setVolume(0);
-        _videoCtl!.play();
+        if (mounted && _isVisible) {
+          _videoCtl!.setLooping(true);
+          _videoCtl!.setVolume(0);
+          _videoCtl!.play();
+        }
         if (mounted) {
           setState(() {
             _mediaAspect = _normalizedAspect(_videoCtl!.value.aspectRatio);
@@ -286,9 +299,26 @@ class _PostCardState extends State<PostCard> with SingleTickerProviderStateMixin
     final textColor = theme.colorScheme.onSurface;
     final mutedColor = theme.textTheme.bodyMedium?.color ?? Colors.grey.shade600;
 
-    return Container(
-      margin: const EdgeInsets.only(bottom: 0),
-      decoration: BoxDecoration(
+    return VisibilityDetector(
+      key: Key('post-${post.id}'),
+      onVisibilityChanged: (info) {
+        final visibleFraction = info.visibleFraction;
+        if (visibleFraction > 0.6) {
+          if (!_isVisible) {
+            _isVisible = true;
+            _setupMedia();
+          }
+        } else {
+          if (_isVisible) {
+            _isVisible = false;
+            _disposeVideo(); // Completely free hardware decoder
+            if (mounted) setState(() {});
+          }
+        }
+      },
+      child: Container(
+        margin: const EdgeInsets.only(bottom: 0),
+        decoration: BoxDecoration(
         color: surfaceColor,
         borderRadius: BorderRadius.circular(0),
         border: Border(
@@ -428,32 +458,69 @@ class _PostCardState extends State<PostCard> with SingleTickerProviderStateMixin
                             )
                           : (post.mediaType == PostMediaType.video ||
                                   post.mediaType == PostMediaType.reel)
-                              ? (_videoCtl != null
-                                  ? FutureBuilder(
-                                      future: _initVideo,
-                                      builder: (ctx, snap) {
-                                        if (snap.connectionState != ConnectionState.done) {
-                                          return Center(
-                                            child: CircularProgressIndicator(
-                                              strokeWidth: 2,
-                                              color: DesignTokens.instaPink,
-                                            ),
-                                          );
-                                        }
-                                        return Center(
-                                          child: AspectRatio(
-                                            aspectRatio: _videoCtl!.value.aspectRatio,
-                                            child: VideoPlayer(_videoCtl!),
-                                          ),
-                                        );
-                                      },
-                                    )
-                                  : Center(
-                                      child: CircularProgressIndicator(
-                                        strokeWidth: 2,
-                                        color: DesignTokens.instaPink,
+                              ? Stack(
+                                  fit: StackFit.expand,
+                                  children: [
+                                     // 1. Thumbnail Placeholder (Show immediately)
+                                     if (_resolvedThumbnailUrl != null)
+                                       CachedNetworkImage(
+                                         imageUrl: _resolvedThumbnailUrl!,
+                                         fit: BoxFit.cover,
+                                         placeholder: (ctx, url) => Container(color: Colors.black),
+                                         errorWidget: (ctx, url, err) => Container(color: Colors.black),
+                                       )
+                                     else
+                                       Container(color: Colors.black),
+
+                                    // 2. Video Player (Only if initialized)
+                                    if (_videoCtl != null)
+                                      FutureBuilder(
+                                        future: _initVideo,
+                                        builder: (ctx, snap) {
+                                          if (snap.connectionState == ConnectionState.done &&
+                                              _videoCtl!.value.isInitialized) {
+                                            return Center(
+                                              child: AspectRatio(
+                                                aspectRatio: _videoCtl!.value.aspectRatio,
+                                                child: VideoPlayer(_videoCtl!),
+                                              ),
+                                            );
+                                          }
+                                          // Keep showing thumbnail while loading
+                                          return const SizedBox.shrink();
+                                        },
                                       ),
-                                    ))
+
+                                    // 3. Optional: Subtle Loading Spinner overlay
+                                    if (_videoCtl != null)
+                                      FutureBuilder(
+                                        future: _initVideo,
+                                        builder: (ctx, snap) {
+                                          if (snap.connectionState != ConnectionState.done) {
+                                            return Center(
+                                              child: CircularProgressIndicator(
+                                                strokeWidth: 2,
+                                                color: Colors.white.withOpacity(0.5),
+                                              ),
+                                            );
+                                          }
+                                          return const SizedBox.shrink();
+                                        },
+                                      ),
+
+                                    // 4. Reel Icon overlay
+                                    if (post.mediaType == PostMediaType.reel)
+                                      Positioned(
+                                        top: 12,
+                                        right: 12,
+                                        child: Icon(
+                                          LucideIcons.play,
+                                          color: Colors.white.withOpacity(0.7),
+                                          size: 18,
+                                        ),
+                                      ),
+                                  ],
+                                )
                               : CachedNetworkImage(
                                   imageUrl: _resolvedImageUrl ?? post.mediaUrls.first,
                                   cacheKey:
@@ -622,6 +689,7 @@ class _PostCardState extends State<PostCard> with SingleTickerProviderStateMixin
             ),
           ),
         ],
+        ),
       ),
     );
   }

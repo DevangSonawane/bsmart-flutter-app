@@ -664,9 +664,18 @@ class _HomeDashboardState extends State<HomeDashboard> {
       Navigator.of(context).pushNamed('/profile');
       return;
     }
-    setState(() {
-      _currentIndex = idx;
-    });
+    
+    // If switching back to Home, refresh data
+    if (idx == 0 && _currentIndex != 0) {
+      final store = StoreProvider.of<AppState>(context);
+      _loadData(store);
+    }
+    
+    if (idx != _currentIndex) {
+      setState(() {
+        _currentIndex = idx;
+      });
+    }
   }
 
   void _showCreateModal() {

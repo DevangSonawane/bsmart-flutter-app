@@ -3,6 +3,7 @@ import '../config/api_config.dart';
 import '../models/feed_post_model.dart';
 import '../models/story_model.dart';
 import '../models/user_model.dart';
+import '../utils/url_helper.dart';
 import 'supabase_service.dart';
 
 class FeedService {
@@ -14,41 +15,6 @@ class FeedService {
   final PostsApi _postsApi = PostsApi();
   final AuthApi _authApi = AuthApi();
   final StoriesApi _storiesApi = StoriesApi();
-  String _absoluteUrl(String url) {
-    if (url.startsWith('http://') || url.startsWith('https://')) return url;
-    final base = ApiConfig.baseUrl;
-    final baseUri = Uri.parse(base);
-    final origin = '${baseUri.scheme}://${baseUri.host}${baseUri.hasPort ? ':${baseUri.port}' : ''}';
-    if (url.startsWith('/')) return '$origin$url';
-    return '$origin/$url';
-  }
-  String _normalizeUrl(String? url) {
-    if (url == null || url.isEmpty) return '';
-    var u = url.trim();
-    u = u.replaceAll('\\', '/');
-    final lower = u.toLowerCase();
-    final isLikelyFile =
-        lower.endsWith('.jpg') ||
-        lower.endsWith('.jpeg') ||
-        lower.endsWith('.png') ||
-        lower.endsWith('.webp') ||
-        lower.endsWith('.gif') ||
-        lower.endsWith('.mp4');
-    if (!u.startsWith('http://') && !u.startsWith('https://')) {
-      if (!u.startsWith('/')) {
-        if (isLikelyFile) {
-          if (u.startsWith('uploads/') || u.contains('/')) {
-            u = '/$u';
-          } else {
-            u = '/uploads/$u';
-          }
-        } else {
-          u = '/$u';
-        }
-      }
-    }
-    return _absoluteUrl(u);
-  }
 
   // Get personalized feed with ranking
   List<FeedPost> getPersonalizedFeed({
@@ -147,7 +113,8 @@ class FeedService {
         userId: 'user-3',
         userName: 'Bob Johnson',
         mediaType: PostMediaType.video,
-        mediaUrls: ['video_url_1'],
+        mediaUrls: ['https://assets.mixkit.co/videos/preview/mixkit-tree-branches-in-the-breeze-1188-large.mp4'],
+        thumbnailUrl: 'https://images.unsplash.com/photo-1441974231531-c6227db76b6e?w=800&q=80',
         caption: 'Working on something exciting! 💻 #coding #tech',
         hashtags: ['coding', 'tech'],
         createdAt: now.subtract(const Duration(hours: 5)),
@@ -162,7 +129,7 @@ class FeedService {
         userId: 'user-4',
         userName: 'Emma Wilson',
         mediaType: PostMediaType.carousel,
-        mediaUrls: ['image_url_2', 'image_url_3', 'image_url_4'],
+        mediaUrls: ['https://images.unsplash.com/photo-1517841905240-472988babdf9?w=800&q=80', 'https://images.unsplash.com/photo-1539571696357-5a69c17a67c6?w=800&q=80'],
         caption: 'Tagged you in this! @JohnDoe #friends #memories',
         hashtags: ['friends', 'memories'],
         createdAt: now.subtract(const Duration(hours: 1)),
@@ -176,7 +143,7 @@ class FeedService {
         userId: 'user-5',
         userName: 'Mike Brown',
         mediaType: PostMediaType.carousel,
-        mediaUrls: ['image_url_5', 'image_url_6'],
+        mediaUrls: ['https://images.unsplash.com/photo-1494790108377-be9c29b29330?w=800&q=80'],
         caption: 'Check out my new collection! 🎨 #art #design',
         hashtags: ['art', 'design'],
         createdAt: now.subtract(const Duration(hours: 3)),
@@ -190,14 +157,16 @@ class FeedService {
         userId: 'user-6',
         userName: 'Sarah Davis',
         mediaType: PostMediaType.reel,
-        mediaUrls: ['reel_url_1'],
+        mediaUrls: ['https://assets.mixkit.co/videos/preview/mixkit-girl-dancing-happy-in-a-room-4179-large.mp4'],
+        thumbnailUrl: 'https://images.unsplash.com/photo-1547153760-18fc86324498?w=800&q=80',
         caption: 'Quick tutorial! #tutorial #tips',
         hashtags: ['tutorial', 'tips'],
         createdAt: now.subtract(const Duration(hours: 4)),
         likes: 890,
         comments: 45,
         views: 5000,
-        isLiked: true,
+        isLiked: false,
+        isFollowed: false,
       ),
       FeedPost(
         id: 'post-6',
@@ -397,7 +366,7 @@ class FeedService {
               url = '/uploads/$fn';
             }
           }
-            return _normalizeUrl(url);
+            return UrlHelper.normalizeUrl(url);
           }).where((u) => u.isNotEmpty).cast<String>().toList();
           if (mediaUrls.isEmpty) {
           final single = (item['imageUrl'] ??
@@ -407,7 +376,7 @@ class FeedService {
                   item['url'] ??
                   item['file_path'])
               ?.toString();
-          final normalized = _normalizeUrl(single);
+          final normalized = UrlHelper.normalizeUrl(single);
             if (normalized.isNotEmpty) {
               mediaUrls = [normalized];
             }
@@ -458,6 +427,17 @@ class FeedService {
             mediaType = PostMediaType.carousel;
           }
 
+          String? thumbnailUrl;
+          if (media.isNotEmpty) {
+            final first = media.first;
+            if (first is Map) {
+              final thumb = (first['thumbnail'] ?? first['thumbnailUrl'] ?? first['thumb'])?.toString();
+              if (thumb != null && thumb.isNotEmpty) {
+                thumbnailUrl = UrlHelper.normalizeUrl(thumb);
+              }
+            }
+          }
+
           final post = FeedPost(
             id: postId,
             userId: authorId,
@@ -467,6 +447,7 @@ class FeedService {
             isVerified: user['is_verified'] as bool? ?? false,
             mediaType: mediaType,
             mediaUrls: mediaUrls,
+            thumbnailUrl: thumbnailUrl,
             caption: item['caption'] as String?,
             hashtags: ((item['tags'] as List<dynamic>?) ?? [])
                 .map((e) => e.toString())
@@ -547,7 +528,7 @@ class FeedService {
                       : (user['_id'] as String?) ?? (user['id'] as String?) ?? '',
                   userName: (user['username'] as String?) ?? 'User',
                   userAvatar: user['avatar_url'] as String?,
-                  mediaUrl: _normalizeUrl((media['url'] as String?) ?? ''),
+                  mediaUrl: UrlHelper.normalizeUrl((media['url'] as String?) ?? ''),
                   mediaType: (media['type'] as String?) == 'image'
                       ? StoryMediaType.image
                       : StoryMediaType.video,
@@ -604,7 +585,7 @@ class FeedService {
       } else if (rawMedia is Map) {
         media = Map<String, dynamic>.from(rawMedia);
       }
-      final mediaUrl = _normalizeUrl(media?['url'] as String? ?? '');
+      final mediaUrl = UrlHelper.normalizeUrl(media?['url'] as String? ?? '');
       final mediaType = (media?['type'] == 'image') ? StoryMediaType.image : StoryMediaType.video;
       final texts = (m['texts'] is List) ? (m['texts'] as List).whereType<Map>().map((e) => Map<String, dynamic>.from(e)).toList() : null;
       final mentions = (m['mentions'] is List) ? (m['mentions'] as List).whereType<Map>().map((e) => Map<String, dynamic>.from(e)).toList() : null;

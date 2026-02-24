@@ -429,10 +429,38 @@ const MobilePostDetail = () => {
         );
     }
 
-    // Prepare media items
     const mediaItems = post.media && post.media.length > 0
         ? post.media
         : (post.imageUrl ? [{ fileUrl: post.imageUrl, type: 'image' }] : []);
+
+    const getVideoTiming = (item) => {
+        if (!item) return { start: 0, end: 0 };
+        const toNumber = (v) => {
+            if (typeof v === 'number' && isFinite(v)) return v;
+            if (typeof v === 'string') {
+                const n = parseFloat(v);
+                return isFinite(n) ? n : 0;
+            }
+            return 0;
+        };
+        const timing = item.timing || {};
+        let start = toNumber(timing.start ?? item["finalLength-start"]);
+        let end = toNumber(timing.end ?? item["finallength-end"]);
+        const duration = toNumber(item.videoLength ?? item.totalLenght ?? item.duration);
+        if (start < 0) start = 0;
+        if ((!end || end <= 0) && duration > 0) end = duration;
+        if (duration > 0 && end > duration) end = duration;
+        if (end > 0 && end <= start) end = 0;
+        return { start, end };
+    };
+
+    const getAspectClass = (item) => {
+        const ratio = item && item.crop && item.crop.aspect_ratio ? item.crop.aspect_ratio : '4:5';
+        if (ratio === '1:1') return 'aspect-[1/1]';
+        if (ratio === '16:9') return 'aspect-[16/9]';
+        if (ratio === '9:16') return 'aspect-[9/16]';
+        return 'aspect-[4/5]';
+    };
 
     const nextImage = (e) => {
         e.stopPropagation();
@@ -528,18 +556,43 @@ const MobilePostDetail = () => {
 
             {/* Image/Media */}
             <div className="w-full bg-black relative group">
-                <div className="aspect-[4/5] w-full flex items-center justify-center bg-black">
+                <div className={`${getAspectClass(mediaItems[currentImageIndex])} w-full flex items-center justify-center bg-black`}>
                     {mediaItems.length > 0 ? (
                         <>
                             {mediaItems[currentImageIndex].type === 'video' ? (
-                                <video
-                                    src={mediaItems[currentImageIndex].fileUrl || mediaItems[currentImageIndex].url}
-                                    className="w-full h-full object-contain"
-                                    controls
-                                    autoPlay
-                                    loop
-                                    muted
-                                />
+                                (() => {
+                                    const { start, end } = getVideoTiming(mediaItems[currentImageIndex]);
+                                    return (
+                                        <video
+                                            src={mediaItems[currentImageIndex].fileUrl || mediaItems[currentImageIndex].url}
+                                            className="w-full h-full object-contain"
+                                            controls
+                                            autoPlay
+                                            muted
+                                            data-start={start}
+                                            data-end={end}
+                                            onLoadedMetadata={(e) => {
+                                                const s = Number(e.currentTarget.dataset.start || 0);
+                                                if (s > 0 && isFinite(s)) {
+                                                    e.currentTarget.currentTime = s;
+                                                }
+                                            }}
+                                            onTimeUpdate={(e) => {
+                                                const v = e.currentTarget;
+                                                const s = Number(v.dataset.start || 0);
+                                                const endVal = Number(v.dataset.end || 0);
+                                                if (endVal > 0 && isFinite(endVal) && v.currentTime > endVal) {
+                                                    if (s > 0 && isFinite(s)) {
+                                                        v.currentTime = s;
+                                                    } else {
+                                                        v.currentTime = endVal;
+                                                    }
+                                                    v.pause();
+                                                }
+                                            }}
+                                        />
+                                    );
+                                })()
                             ) : (
                                 <img
                                     src={mediaItems[currentImageIndex].fileUrl || mediaItems[currentImageIndex].url || mediaItems[currentImageIndex].image}

@@ -6,7 +6,7 @@ import 'screens/home_dashboard.dart';
 import 'theme/app_theme.dart';
 import 'theme/theme_notifier.dart';
 import 'theme/theme_scope.dart';
-import 'state/store.dart';
+import 'state/store.dart'; // Contains createStore and setGlobalStore
 import 'state/app_state.dart';
 import 'config/api_config.dart';
 import 'api/api.dart';
@@ -41,8 +41,15 @@ void main() async {
     DeviceOrientation.portraitDown,
   ]);
 
+  // 1. Create the Store
   final store = createStore();
+  
+  // 2. CRITICAL: Link the store to the Global Store helper so 
+  // Services (ReelsService, FeedService) can dispatch updates to the UI.
+  setGlobalStore(store); 
+
   final themeNotifier = await ThemeNotifier.create();
+  
   runApp(StoreProvider<AppState>(
     store: store,
     child: ThemeScope(
@@ -104,9 +111,9 @@ class _BSmartAppState extends State<BSmartApp> {
       );
     }
 
-    // When using home:, routes must not contain '/' (Navigator.defaultRouteName)
     final routes = Map<String, WidgetBuilder>.from(appRoutes)..remove('/');
     final isDark = ThemeScope.of(context).isDark;
+    
     return MaterialApp(
       title: 'b Smart',
       debugShowCheckedModeBanner: false,
@@ -119,7 +126,7 @@ class _BSmartAppState extends State<BSmartApp> {
         final name = settings.name ?? '';
         final uri = Uri.parse(name);
         final segments = uri.pathSegments;
-        // /post/:postId
+        
         if (segments.length == 2 && segments[0] == 'post') {
           final postId = segments[1];
           return MaterialPageRoute<void>(
@@ -127,7 +134,7 @@ class _BSmartAppState extends State<BSmartApp> {
             settings: settings,
           );
         }
-        // /profile/:userId
+        
         if (segments.length == 2 && segments[0] == 'profile') {
           final userId = segments[1];
           return MaterialPageRoute<void>(

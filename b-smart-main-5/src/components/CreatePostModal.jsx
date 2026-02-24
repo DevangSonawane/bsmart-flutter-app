@@ -1,8 +1,8 @@
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { useSelector } from 'react-redux';
 import { useNavigate } from 'react-router-dom';
 import api from '../lib/api';
-import { Image, Images, Video, X, ArrowLeft, Maximize2, Search, Copy, ZoomIn, Plus, ChevronLeft, ChevronRight, MapPin, UserPlus, ChevronDown, ChevronUp, Smile, Sun, Moon, Droplet, Thermometer, Cloud, Circle, Sliders, Megaphone } from 'lucide-react';
+import { Image, Images, Video, X, ArrowLeft, Maximize2, Search, Copy, ZoomIn, Plus, ChevronLeft, ChevronRight, UserPlus, ChevronDown, ChevronUp, Smile, Megaphone } from 'lucide-react';
 import Cropper from 'react-easy-crop';
 
 // Filter Definitions
@@ -78,6 +78,169 @@ async function getCroppedImg(imageSrc, pixelCrop) {
   })
 }
 
+// ─── Video Processing Utility ──────────────────────────────────────────────
+// Trims and crops a video using canvas + MediaRecorder (browser-native, no deps).
+// cropParams: { x, y, width, height, outputWidth, outputHeight } — all in NATIVE
+//             video pixel space (not screen pixels). Pass null for no crop.
+// onProgress: (0–100) called during processing.
+async function processVideoForUpload(originalFile, trimStart, trimEnd, cropParams, onProgress) {
+  return new Promise((resolve) => {
+    const video = document.createElement('video');
+    const objectUrl = URL.createObjectURL(originalFile);
+    video.src = objectUrl;
+    video.muted = true;
+    video.playsInline = true;
+    video.preload = 'auto';
+    // Must be in DOM (hidden) for captureStream to work in some browsers
+    video.style.cssText = 'position:fixed;top:-9999px;left:-9999px;width:1px;height:1px;';
+    document.body.appendChild(video);
+
+    const cleanup = () => {
+      try { document.body.removeChild(video); } catch (err) {
+        console.warn('Video element cleanup failed', err);
+      }
+      URL.revokeObjectURL(objectUrl);
+    };
+
+    video.onloadedmetadata = async () => {
+      const totalDuration = trimEnd - trimStart;
+      if (totalDuration <= 0.05) {
+        cleanup();
+        resolve(originalFile);
+        return;
+      }
+
+      const natW = video.videoWidth  || 1280;
+      const natH = video.videoHeight || 720;
+
+      // Source crop rect in native pixels
+      const srcX = cropParams?.x      ?? 0;
+      const srcY = cropParams?.y      ?? 0;
+      const srcW = cropParams?.width  ?? natW;
+      const srcH = cropParams?.height ?? natH;
+
+      // Output canvas dimensions
+      const outW = cropParams?.outputWidth  ?? natW;
+      const outH = cropParams?.outputHeight ?? natH;
+
+      // ── Canvas output ────────────────────────────────────────────────
+      const canvas = document.createElement('canvas');
+      canvas.width  = outW;
+      canvas.height = outH;
+      const ctx = canvas.getContext('2d');
+
+      // ── Pick best mimeType ──────────────────────────────────────────
+      const mimeType =
+        MediaRecorder.isTypeSupported('video/mp4;codecs=avc1') ? 'video/mp4;codecs=avc1' :
+        MediaRecorder.isTypeSupported('video/mp4')             ? 'video/mp4'              :
+        MediaRecorder.isTypeSupported('video/webm;codecs=vp9') ? 'video/webm;codecs=vp9' :
+        MediaRecorder.isTypeSupported('video/webm;codecs=vp8') ? 'video/webm;codecs=vp8' :
+        'video/webm';
+
+      // ── Set up MediaRecorder ────────────────────────────────────────
+      let stream, recorder;
+      try {
+        stream   = canvas.captureStream(30);
+        recorder = new MediaRecorder(stream, { mimeType, videoBitsPerSecond: 8_000_000 });
+      } catch {
+        try {
+          // Fallback: record straight from video (no crop applied)
+          const vStream = video.captureStream
+            ? video.captureStream(30)
+            : video.mozCaptureStream
+            ? video.mozCaptureStream(30)
+            : null;
+          if (!vStream) throw new Error('no stream');
+          recorder = new MediaRecorder(vStream, { mimeType });
+        } catch {
+          cleanup();
+          resolve(originalFile);
+          return;
+        }
+      }
+
+      const chunks = [];
+      recorder.ondataavailable = (e) => { if (e.data?.size > 0) chunks.push(e.data); };
+
+      recorder.onstop = () => {
+        cleanup();
+        const blob = new Blob(chunks, { type: 'video/mp4' });
+        resolve(new File([blob], 'video.mp4', { type: 'video/mp4' }));
+      };
+
+      recorder.onerror = () => { cleanup(); resolve(originalFile); };
+
+      // ── Seek to trimStart, then start ───────────────────────────────
+      video.currentTime = trimStart;
+      await new Promise(res => {
+        const onSeeked = () => { video.removeEventListener('seeked', onSeeked); res(); };
+        video.addEventListener('seeked', onSeeked);
+      });
+
+      recorder.start(100); // collect chunks every 100 ms
+      video.play().catch(() => {});
+
+      // ── Frame draw loop ─────────────────────────────────────────────
+      const drawFrame = () => {
+        const elapsed  = Math.max(0, video.currentTime - trimStart);
+        const progress = Math.min(100, Math.round((elapsed / totalDuration) * 100));
+        if (onProgress) onProgress(progress);
+
+        // Stop condition
+        if (video.currentTime >= trimEnd - 0.05 || video.ended || video.paused) {
+          video.pause();
+          if (recorder.state === 'recording') {
+            // Draw one last frame before stopping
+            ctx.drawImage(video, srcX, srcY, srcW, srcH, 0, 0, outW, outH);
+            recorder.stop();
+          }
+          return;
+        }
+
+        // Draw current frame — crop from native src rect into full output canvas
+        ctx.drawImage(video, srcX, srcY, srcW, srcH, 0, 0, outW, outH);
+
+        if (recorder.state === 'recording') requestAnimationFrame(drawFrame);
+      };
+
+      requestAnimationFrame(drawFrame);
+    };
+
+    video.onerror = () => { cleanup(); resolve(originalFile); };
+  });
+}
+
+// SuccessCountdown — thin line depletes over 5s then auto-navigates
+function SuccessCountdown({ onDone }) {
+  const [elapsed, setElapsed] = React.useState(0);
+  const TOTAL = 5000; // ms
+  const STEP  = 50;
+  const onDoneRef = React.useRef(onDone);
+  React.useEffect(() => { onDoneRef.current = onDone; }, [onDone]);
+  React.useEffect(() => {
+    if (elapsed >= TOTAL) { onDoneRef.current(); return; }
+    const t = setTimeout(() => setElapsed(e => e + STEP), STEP);
+    return () => clearTimeout(t);
+  }, [elapsed]);
+  const progress = Math.min(1, elapsed / TOTAL); // 0→1
+  return (
+    <div className="flex flex-col items-center gap-2 w-full">
+      {/* Thin depleting bar */}
+      <div className="w-full h-0.5 rounded-full overflow-hidden" style={{ background: 'rgba(255,255,255,0.1)' }}>
+        <div
+          className="h-full rounded-full"
+          style={{
+            width: `${(1 - progress) * 100}%`,
+            background: 'linear-gradient(90deg,#feda75,#fa7e1e,#d62976,#962fbf)',
+            transition: `width ${STEP}ms linear`
+          }}
+        />
+      </div>
+      <p className="text-xs text-white/40">Redirecting to home…</p>
+    </div>
+  );
+}
+
 const CreatePostModal = ({ isOpen, onClose, initialType = 'post' }) => {
   const navigate = useNavigate();
   const [isDragging, setIsDragging] = useState(false);
@@ -106,7 +269,7 @@ const CreatePostModal = ({ isOpen, onClose, initialType = 'post' }) => {
   const [showEmojiPicker, setShowEmojiPicker] = useState(false);
   const [tags, setTags] = useState([]); // { id, x, y, user: { id, username, avatar_url } }
   const [showTagSearch, setShowTagSearch] = useState(false);
-  const [tagCoordinates, setTagCoordinates] = useState({ x: 0, y: 0 });
+  // tagCoordinates removed — tags now always spawn at center (50,50)
   const [searchQuery, setSearchQuery] = useState('');
   const [searchResults, setSearchResults] = useState([]);
   const [isSearchingUsers, setIsSearchingUsers] = useState(false);
@@ -115,6 +278,13 @@ const CreatePostModal = ({ isOpen, onClose, initialType = 'post' }) => {
   const [allUsers, setAllUsers] = useState([]);
   const [isLoadingAllUsers, setIsLoadingAllUsers] = useState(false);
   const [showSuccess, setShowSuccess] = useState(false);
+  // Upload progress states
+  const [uploadStage, setUploadStage] = useState('idle'); // 'idle' | 'converting' | 'uploading' | 'posting' | 'done' | 'error'
+  const [uploadProgress, setUploadProgress] = useState(0); // 0-100
+  const [uploadError, setUploadError] = useState('');
+  // Dragging tag state
+  const [draggingTagId, setDraggingTagId] = useState(null);
+  // dragOffset removed — not needed
 
   const POPULAR_EMOJIS = ['😂', '😮', '😍', '😢', '👏', '🔥', '🎉', '💯', '❤️', '🤣', '🥰', '😘', '😭', '😊'];
 
@@ -123,15 +293,6 @@ const CreatePostModal = ({ isOpen, onClose, initialType = 'post' }) => {
   const [showZoomSlider, setShowZoomSlider] = useState(false);
   const [showMultiSelect, setShowMultiSelect] = useState(false);
   const [activeTab, setActiveTab] = useState('filters'); // 'filters', 'adjustments'
-
-  const ADJUSTMENT_ICONS = {
-    'Brightness': Sun,
-    'Contrast': Moon,
-    'Saturation': Droplet,
-    'Temperature': Thermometer,
-    'Fade': Cloud,
-    'Vignette': Circle
-  };
 
   const fileInputRef = useRef(null);
   const cropContainerRef = useRef(null);
@@ -143,6 +304,7 @@ const CreatePostModal = ({ isOpen, onClose, initialType = 'post' }) => {
   const [dragHandle, setDragHandle] = useState(null);
   const editVideoRef = useRef(null);
   const shareContainerRef = useRef(null);
+  const [trimPlayTime, setTrimPlayTime] = useState(0);
   const [shareBoxSize, setShareBoxSize] = useState({ w: 0, h: 0 });
 
   const currentMedia = media[currentIndex];
@@ -318,6 +480,9 @@ const CreatePostModal = ({ isOpen, onClose, initialType = 'post' }) => {
         return {
           id: Math.random().toString(36).substr(2, 9),
           url,
+          originalFile: file, // ← store original File so we can upload with correct mime type (mp4/mov)
+          videoNaturalWidth:  video.videoWidth  || 0, // ← native video dimensions for crop calc
+          videoNaturalHeight: video.videoHeight || 0,
           type: 'video',
           crop: { x: 0, y: 0 },
           zoom: 1,
@@ -354,11 +519,11 @@ const CreatePostModal = ({ isOpen, onClose, initialType = 'post' }) => {
     }
   };
 
-  const updateCurrentMedia = (updates) => {
+  const updateCurrentMedia = useCallback((updates) => {
     setMedia(prev => prev.map((item, index) =>
       index === currentIndex ? { ...item, ...updates } : item
     ));
-  };
+  }, [currentIndex]);
 
   const onCropChange = (crop) => {
     updateCurrentMedia({ crop });
@@ -412,39 +577,83 @@ const CreatePostModal = ({ isOpen, onClose, initialType = 'post' }) => {
 
   const handleNextStep = async () => {
     if (step === 'crop') {
-      if (media.some(m => m.type === 'video')) {
-        const newMedia = await Promise.all(media.map(async (item) => {
-          try {
-            const croppedUrl = await getCroppedImg(item.url, item.croppedAreaPixels);
-            return { ...item, croppedUrl };
-          } catch {
-            return { ...item, croppedUrl: item.url };
-          }
-        }));
-        setMedia(newMedia);
-        setStep('edit');
-      } else {
-        const newMedia = await Promise.all(media.map(async (item) => {
-          try {
-            const croppedUrl = await getCroppedImg(item.url, item.croppedAreaPixels);
-            return { ...item, croppedUrl };
-          } catch {
-            return { ...item, croppedUrl: item.url };
-          }
-        }));
-        setMedia(newMedia);
-        setStep('edit');
-      }
+      // ── Compute croppedAreaPixels for video items ──────────────────────
+      // Videos use a visual overlay box (not react-easy-crop) so we must
+      // manually derive the crop rectangle in the video's native pixel space.
+      const containerEl = cropContainerRef.current;
+
+      const computeVideoCropPixels = (item) => {
+        if (item.type !== 'video') return item.croppedAreaPixels || null;
+        if (!containerEl) return null;
+
+        const cw = containerEl.clientWidth;
+        const ch = containerEl.clientHeight;
+        const vw = item.videoNaturalWidth  || item.originalAspect ? (ch * item.originalAspect) : cw;
+        const vh = item.videoNaturalHeight || ch;
+
+        // How the video is rendered inside the container (object-contain)
+        const videoAspect = item.originalAspect || (vw / vh) || 1;
+        let rendW, rendH;
+        if (cw / ch > videoAspect) { rendH = ch; rendW = rendH * videoAspect; }
+        else                        { rendW = cw; rendH = rendW / videoAspect; }
+
+        // The white overlay box dimensions on screen
+        const boxW = overlaySize.w || rendW;
+        const boxH = overlaySize.h || rendH;
+
+        // Center of the rendered video on screen
+        const vidLeft = (cw - rendW) / 2;
+        const vidTop  = (ch - rendH) / 2;
+        // Center of the overlay box (it's centered in the container)
+        const boxLeft = (cw - boxW) / 2;
+        const boxTop  = (ch - boxH) / 2;
+
+        // Offset of box inside the rendered video (screen pixels)
+        const offsetX = boxLeft - vidLeft;
+        const offsetY = boxTop  - vidTop;
+
+        // Scale factor: native pixels per screen pixel
+        const scaleX = (item.videoNaturalWidth  || rendW) / rendW;
+        const scaleY = (item.videoNaturalHeight || rendH) / rendH;
+
+        return {
+          x:      Math.max(0, Math.round(offsetX * scaleX)),
+          y:      Math.max(0, Math.round(offsetY * scaleY)),
+          width:  Math.round(boxW * scaleX),
+          height: Math.round(boxH * scaleY),
+        };
+      };
+
+      const newMedia = await Promise.all(media.map(async (item) => {
+        if (item.type === 'video') {
+          // Compute and store the crop pixels for use during upload
+          const cropPx = computeVideoCropPixels(item);
+          return { ...item, croppedAreaPixels: cropPx, croppedUrl: item.url };
+        }
+        try {
+          const croppedUrl = await getCroppedImg(item.url, item.croppedAreaPixels);
+          return { ...item, croppedUrl };
+        } catch {
+          return { ...item, croppedUrl: item.url };
+        }
+      }));
+      setMedia(newMedia);
+      setStep('edit');
     } else if (step === 'edit') {
       setStep('share');
     } else if (step === 'share') {
       // Submit post
       if (isSubmitting) return;
       setIsSubmitting(true);
+      setUploadStage('converting');
+      setUploadProgress(0);
+      setUploadError('');
 
       try {
         if (!userObject) {
-          alert("Please log in to share a post.");
+          setUploadStage('error');
+          setUploadError('Please log in to share a post.');
+          setIsSubmitting(false);
           return;
         }
 
@@ -458,29 +667,102 @@ const CreatePostModal = ({ isOpen, onClose, initialType = 'post' }) => {
           return 'custom';
         };
 
-        // Upload media and prepare array
-        const processedMedia = await Promise.all(media.map(async (item) => {
-          // Fetch blob from blob URL or generate filtered blob
-          let blob;
-          try {
-            blob = await applyFiltersToImage(item);
-          } catch (e) {
-            console.error("Error applying filters, falling back to original", e);
-            const response = await fetch(item.croppedUrl || item.url);
-            blob = await response.blob();
+        // ── STAGE 1: Trim + Crop + Convert each video to MP4 ───────────
+        const totalItems = media.length;
+        const convertedMedia = await Promise.all(media.map(async (item, idx) => {
+          if (item.type !== 'video' || !item.originalFile) return item;
+
+          const start = item.trimStart || 0;
+          const dur   = item.duration  || 0;
+          const end   = (item.trimEnd && item.trimEnd > 0) ? item.trimEnd : dur;
+
+          // Build crop params from croppedAreaPixels (computed in crop step for videos)
+          let cropParams = null;
+          if (item.croppedAreaPixels) {
+            const { x, y, width, height } = item.croppedAreaPixels;
+            if (width > 0 && height > 0) {
+              // Output dimensions: match the chosen aspect ratio, capped at original size
+              const aspect = item.aspect || (width / height) || 1;
+              // Keep output resolution as close to source as possible, max 1920 on long side
+              const maxLong = 1920;
+              let outputWidth, outputHeight;
+              if (aspect >= 1) {
+                outputWidth  = Math.min(width,  maxLong);
+                outputHeight = Math.round(outputWidth / aspect);
+              } else {
+                outputHeight = Math.min(height, maxLong);
+                outputWidth  = Math.round(outputHeight * aspect);
+              }
+              // Ensure even dimensions (required by most video codecs)
+              outputWidth  = outputWidth  % 2 === 0 ? outputWidth  : outputWidth  - 1;
+              outputHeight = outputHeight % 2 === 0 ? outputHeight : outputHeight - 1;
+              cropParams = { x, y, width, height, outputWidth, outputHeight };
+            }
           }
 
-          const fileExt = blob.type.split('/')[1] || 'jpg';
+          const convertedFile = await processVideoForUpload(
+            item.originalFile,
+            start,
+            end,
+            cropParams,
+            (pct) => {
+              const base  = (idx / totalItems) * 50;
+              const slice = (1 / totalItems) * 50;
+              setUploadProgress(Math.round(base + (pct / 100) * slice));
+            }
+          );
+          return { ...item, convertedFile };
+        }));
+
+        // ── STAGE 2: Upload files ────────────────────────────────────────
+        setUploadStage('uploading');
+        setUploadProgress(50);
+
+        const processedMedia = await Promise.all(convertedMedia.map(async (item, idx) => {
+          let blob;
+          let uploadMimeType;
+
+          try {
+            if (item.type === 'video') {
+              // Use converted mp4 file if available, else original
+              const fileToUpload = item.convertedFile || item.originalFile;
+              if (fileToUpload) {
+                blob = fileToUpload;
+                uploadMimeType = 'video/mp4';
+              } else {
+                const response = await fetch(item.url);
+                blob = await response.blob();
+                uploadMimeType = blob.type;
+              }
+            } else {
+              blob = await applyFiltersToImage(item);
+              uploadMimeType = blob.type;
+            }
+          } catch (e) {
+            // eslint-disable-next-line no-console
+            console.error('Error processing media, falling back to original', e);
+            const response = await fetch(item.croppedUrl || item.url);
+            blob = await response.blob();
+            uploadMimeType = blob.type;
+          }
+
+          const fileExt = item.type === 'video' ? 'mp4' : (uploadMimeType.split('/')[1] || 'jpg');
           const fileName = `upload_${Date.now()}_${Math.random().toString(36).substr(2, 9)}.${fileExt}`;
-          const file = new File([blob], fileName, { type: blob.type });
+          const file = new File([blob], fileName, { type: uploadMimeType });
 
           const formData = new FormData();
           formData.append('file', file);
 
           const uploadResponse = await api.post('https://bsmart.asynk.store/api/upload', formData, {
-            headers: {
-              'Content-Type': 'multipart/form-data',
-            },
+            headers: { 'Content-Type': 'multipart/form-data' },
+            onUploadProgress: (evt) => {
+              if (evt.total) {
+                const filePct = Math.round((evt.loaded / evt.total) * 100);
+                const base = 50 + (idx / totalItems) * 45;
+                const slice = (1 / totalItems) * 45;
+                setUploadProgress(Math.round(base + (filePct / 100) * slice));
+              }
+            }
           });
 
           const { fileUrl, fileName: serverFileName } = uploadResponse.data;
@@ -494,10 +776,9 @@ const CreatePostModal = ({ isOpen, onClose, initialType = 'post' }) => {
           const saturate = `saturate(${100 + adj.saturate}%)`;
           const sepia = adj.sepia !== 0 ? `sepia(${Math.abs(adj.sepia)}%)` : '';
           const hue = adj.sepia < 0 ? `hue-rotate(-${Math.abs(adj.sepia)}deg)` : (adj.sepia > 0 ? `hue-rotate(${adj.sepia}deg)` : '');
-
           const filterCss = `${baseFilter} ${brightness} ${contrast} ${saturate} ${sepia} ${hue}`.trim();
 
-          // Upload selected thumbnail only (video)
+          // Upload thumbnail
           let uploadedThumbs = null;
           let thumbnailTime = 0;
           if (item.type === 'video') {
@@ -505,12 +786,8 @@ const CreatePostModal = ({ isOpen, onClose, initialType = 'post' }) => {
             const cover = item.coverUrl;
             if (cover) {
               const thumbForm = new FormData();
-              const imgBlob = await (async () => {
-                const img = await fetch(cover);
-                return await img.blob();
-              })();
+              const imgBlob = await (await fetch(cover)).blob();
               const tFile = new File([imgBlob], `thumb_${Date.now()}.jpg`, { type: 'image/jpeg' });
-              // API supports single file param
               thumbForm.append('file', tFile);
               try {
                 const thumbRes = await api.post('https://bsmart.asynk.store/api/upload/thumbnail', thumbForm, {
@@ -521,39 +798,44 @@ const CreatePostModal = ({ isOpen, onClose, initialType = 'post' }) => {
                 uploadedThumbs = null;
               }
               const count = thumbs.length;
-              const idx = Math.max(0, thumbs.findIndex(t => t === cover));
+              const idxThumb = Math.max(0, thumbs.findIndex(t => t === cover));
               const dur = item.duration || 0;
-              thumbnailTime = (count > 1 && dur > 0) ? (idx * dur) / (count - 1) : 0;
+              thumbnailTime = (count > 1 && dur > 0) ? (idxThumb * dur) / (count - 1) : 0;
             }
+          }
+
+          let timing;
+          if (item.type === 'video') {
+            const dur = item.duration || 0;
+            const start = item.trimStart || 0;
+            const end = (item.trimEnd && item.trimEnd > 0) ? item.trimEnd : dur;
+            timing = { start, end: end || dur };
           }
 
           const baseObj = {
             fileName: serverFileName || fileName,
             type: item.type === 'video' ? 'video' : 'image',
-            fileUrl: fileUrl,
+            fileUrl,
             crop: {
-              mode: "original",
+              mode: 'original',
               aspect_ratio: getAspectRatioLabel(item.aspect || item.originalAspect || 1),
               zoom: item.zoom,
               x: item.crop.x,
               y: item.crop.y
             },
-            timing: item.type === 'video' ? { start: item.trimStart || 0, end: item.trimEnd || item.duration || 0 } : undefined,
+            timing,
             thumbnail: uploadedThumbs || undefined,
-            "thumbail-time": item.type === 'video' ? thumbnailTime : undefined,
+            'thumbail-time': item.type === 'video' ? thumbnailTime : undefined,
             videoLength: item.type === 'video' ? (item.duration || 0) : undefined,
             totalLenght: item.type === 'video' ? (item.duration || 0) : undefined,
-            "finalLength-start": item.type === 'video' ? (item.trimStart || 0) : undefined,
-            "finallength-end": item.type === 'video' ? (item.trimEnd || item.duration || 0) : undefined,
+            'finalLength-start': item.type === 'video' ? (item.trimStart || 0) : undefined,
+            'finallength-end': item.type === 'video' ? (item.trimEnd || item.duration || 0) : undefined,
             finalLength: item.type === 'video' ? Math.max(0, (item.trimEnd || item.duration || 0) - (item.trimStart || 0)) : undefined,
             finallength: item.type === 'video' ? Math.max(0, (item.trimEnd || item.duration || 0) - (item.trimStart || 0)) : undefined
           };
-          
+
           if (item.type !== 'video') {
-            baseObj.filter = {
-              name: item.filter,
-              css: filterCss
-            };
+            baseObj.filter = { name: item.filter, css: filterCss };
             baseObj.adjustments = {
               brightness: item.adjustments.brightness,
               contrast: item.adjustments.contrast,
@@ -563,11 +845,14 @@ const CreatePostModal = ({ isOpen, onClose, initialType = 'post' }) => {
               vignette: item.adjustments.vignette
             };
           }
-          
+
           return baseObj;
         }));
 
-        // Extract hashtags from caption
+        // ── STAGE 3: Post to API ─────────────────────────────────────────
+        setUploadStage('posting');
+        setUploadProgress(97);
+
         const hashtags = caption.match(/#[a-zA-Z0-9_]+/g) || [];
 
         if (postType === 'reel') {
@@ -586,7 +871,6 @@ const CreatePostModal = ({ isOpen, onClose, initialType = 'post' }) => {
             turn_off_commenting: turnOffCommenting
           };
           await api.post('https://bsmart.asynk.store/api/posts/reels', payload);
-          setShowSuccess(true);
         } else {
           const payload = {
             caption,
@@ -606,18 +890,15 @@ const CreatePostModal = ({ isOpen, onClose, initialType = 'post' }) => {
           await api.post('/posts', payload);
         }
 
-        if (!showSuccess) {
-          handleClose();
-          setMedia([]);
-          setCaption('');
-          setLocation('');
-          setTags([]);
-          alert("Post shared successfully!");
-        }
+        setUploadProgress(100);
+        setUploadStage('done');
+        setShowSuccess(true);
 
       } catch (error) {
-        console.error("Error creating post:", error);
-        alert("Failed to create post. Please try again.");
+        // eslint-disable-next-line no-console
+        console.error('Error creating post:', error);
+        setUploadStage('error');
+        setUploadError(error?.response?.data?.message || error?.message || 'Failed to upload. Please try again.');
       } finally {
         setIsSubmitting(false);
       }
@@ -632,15 +913,8 @@ const CreatePostModal = ({ isOpen, onClose, initialType = 'post' }) => {
 
   const handleImageClick = (e) => {
     if (step !== 'share') return;
-
-    // Don't trigger if clicking on an existing tag or close button
     if (e.target.closest('.tag-item')) return;
-
-    const rect = e.currentTarget.getBoundingClientRect();
-    const x = ((e.clientX - rect.left) / rect.width) * 100;
-    const y = ((e.clientY - rect.top) / rect.height) * 100;
-
-    setTagCoordinates({ x, y });
+    if (draggingTagId) return; // don't open search if just finished dragging
     setShowTagSearch(true);
     setSearchQuery('');
     fetchUsers('');
@@ -695,10 +969,11 @@ const CreatePostModal = ({ isOpen, onClose, initialType = 'post' }) => {
   }, [step]);
 
   const handleTagUser = (user) => {
+    // Always spawn at center of the media — user can drag to position
     const newTag = {
       id: Math.random().toString(36).substr(2, 9),
-      x: tagCoordinates.x,
-      y: tagCoordinates.y,
+      x: 50,
+      y: 50,
       user
     };
     setTags([...tags, newTag]);
@@ -826,21 +1101,31 @@ const CreatePostModal = ({ isOpen, onClose, initialType = 'post' }) => {
       await new Promise(res => { v.onloadedmetadata = res; });
       const duration = isFinite(v.duration) ? v.duration : 0;
       const frames = [];
-      const count = 8;
-      const width = 240;
-      const height = 240;
-      canvas.width = width;
+      // 1 frame per second, so frame[i] = second i. Max 30 frames.
+      const count = duration > 0
+        ? Math.min(30, Math.max(2, Math.ceil(duration)))
+        : 7;
+      // Use video's natural aspect ratio for sharp thumbnails
+      const natW = v.videoWidth  || 640;
+      const natH = v.videoHeight || 360;
+      const aspect = natW / natH;
+      // Fixed height of 120px (enough for filmstrip), width matches aspect
+      const height = 120;
+      const width  = Math.round(height * aspect);
+      canvas.width  = width;
       canvas.height = height;
       for (let i = 0; i < count; i++) {
-        const t = duration > 0 ? (i * duration) / (count - 1) : 0;
+        // Exact second timestamp: 0s, 1s, 2s, 3s, ...
+        const t = duration > 0 ? Math.min(duration - 0.01, i) : 0;
         await new Promise(res => {
           v.currentTime = t;
           v.onseeked = res;
         });
         ctx.drawImage(v, 0, 0, width, height);
-        const url = canvas.toDataURL('image/jpeg', 0.9);
+        const url = canvas.toDataURL('image/jpeg', 0.92);
         frames.push(url);
       }
+      // Default cover = frame at second 0
       updateCurrentMedia({ thumbnails: frames, coverUrl: frames[0] });
     };
     run();
@@ -1136,47 +1421,47 @@ const CreatePostModal = ({ isOpen, onClose, initialType = 'post' }) => {
             <div ref={editContainerRef} className="relative bg-[#f0f0f0] dark:bg-[#121212] flex items-center justify-center w-full flex-1 h-auto">
               {currentMedia && (
                 currentMedia.type === 'video' ? (
-                  <div style={{ width: editBoxSize.w, height: editBoxSize.h }} className="overflow-hidden bg-black/10 rounded">
-                      <video
-                        src={currentMedia.croppedUrl || currentMedia.url}
-                        className="w-full h-full object-cover transition-all duration-200"
-                        controls
-                        autoPlay
-                        muted={!currentMedia.soundOn}
-                        loop={false}
-                        ref={editVideoRef}
-                        onLoadedMetadata={(e) => {
+                  /* Show cover thumbnail on left; trim scrubber drives trimPlayTime */
+                  <div style={{ width: editBoxSize.w, height: editBoxSize.h }} className="relative overflow-hidden bg-black rounded">
+                    {/* Hidden video drives trimPlayTime for the scrubber */}
+                    <video
+                      src={currentMedia.croppedUrl || currentMedia.url}
+                      className="hidden"
+                      ref={editVideoRef}
+                      muted
+                      preload="metadata"
+                      onLoadedMetadata={(e) => {
+                        e.currentTarget.currentTime = currentMedia.trimStart || 0;
+                      }}
+                      onTimeUpdate={(e) => {
+                        setTrimPlayTime(e.currentTarget.currentTime);
+                        const d = currentMedia.duration || 0;
+                        const end = currentMedia.trimEnd && currentMedia.trimEnd > 0 ? currentMedia.trimEnd : d;
+                        if (end > 0 && e.currentTarget.currentTime >= end) {
                           e.currentTarget.currentTime = currentMedia.trimStart || 0;
-                        }}
-                        onSeeking={(e) => {
-                          const v = e.currentTarget;
-                          const s = currentMedia.trimStart || 0;
-                          const d = currentMedia.duration || 0;
-                          const end = currentMedia.trimEnd && currentMedia.trimEnd > 0 ? currentMedia.trimEnd : d;
-                          if (v.currentTime < s) v.currentTime = s;
-                          if (end > 0 && v.currentTime > end) v.currentTime = end;
-                        }}
-                        onSeeked={(e) => {
-                          const v = e.currentTarget;
-                          const s = currentMedia.trimStart || 0;
-                          const d = currentMedia.duration || 0;
-                          const end = currentMedia.trimEnd && currentMedia.trimEnd > 0 ? currentMedia.trimEnd : d;
-                          if (v.currentTime < s) v.currentTime = s;
-                          if (end > 0 && v.currentTime > end) v.currentTime = end;
-                        }}
-                        onTimeUpdate={(e) => {
-                          const v = e.currentTarget;
-                          const d = currentMedia.duration || 0;
-                          const end = currentMedia.trimEnd && currentMedia.trimEnd > 0 ? currentMedia.trimEnd : d;
-                          if (end > 0 && v.currentTime >= end) {
-                            v.currentTime = currentMedia.trimStart || 0;
-                          }
-                        }}
-                        onEnded={(e) => {
-                          e.currentTarget.currentTime = currentMedia.trimStart || 0;
-                          e.currentTarget.play();
-                        }}
-                      />
+                        }
+                      }}
+                    />
+                    {/* Visible: selected cover thumbnail */}
+                    <img
+                      src={currentMedia.coverUrl || (currentMedia.thumbnails && currentMedia.thumbnails[0]) || currentMedia.croppedUrl || currentMedia.url}
+                      className="w-full h-full object-cover"
+                      alt="Cover"
+                    />
+                    {/* Play icon overlay */}
+                    <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
+                      <div className="w-14 h-14 rounded-full bg-black/40 flex items-center justify-center">
+                        <svg className="w-7 h-7 text-white ml-1" fill="currentColor" viewBox="0 0 24 24">
+                          <path d="M8 5v14l11-7z"/>
+                        </svg>
+                      </div>
+                    </div>
+                    {/* Duration badge */}
+                    {currentMedia.duration > 0 && (
+                      <div className="absolute bottom-2 right-2 bg-black/70 text-white text-xs font-mono px-2 py-0.5 rounded">
+                        {formatDuration((currentMedia.trimEnd && currentMedia.trimEnd > 0 ? currentMedia.trimEnd : currentMedia.duration) - (currentMedia.trimStart || 0))}
+                      </div>
+                    )}
                   </div>
                 ) : (
                   <img
@@ -1288,104 +1573,341 @@ const CreatePostModal = ({ isOpen, onClose, initialType = 'post' }) => {
                   </div>
                 ) : (
                   (currentMedia?.thumbnails && currentMedia.duration !== undefined) ? (
-                  <div className="flex flex-col gap-6 pb-4">
+                  <div className="flex flex-col gap-5 pb-4">
+
+                    {/* ── Cover Photo — horizontal filmstrip ── */}
                     <div>
-                      <div className="flex items-center justify-between mb-2">
-                        <div className="text-sm font-semibold dark:text-white">Cover photo</div>
-                        <button className="text-sm font-semibold text-[#0095f6]" onClick={() => coverInputRef.current?.click()}>Select From Computer</button>
+                      <div className="flex items-center justify-between mb-3">
+                        <span className="text-sm font-semibold dark:text-white">Cover photo</span>
+                        <button
+                          className="text-sm font-bold text-[#0095f6] hover:text-blue-400 transition-colors"
+                          onClick={() => coverInputRef.current?.click()}
+                        >
+                          Select From Computer
+                        </button>
                         <input ref={coverInputRef} type="file" accept="image/*" className="hidden" onChange={(e) => {
                           const f = e.target.files?.[0];
                           if (!f) return;
                           const url = URL.createObjectURL(f);
-                          updateCurrentMedia({ coverUrl: url });
+                          // Store uploaded image separately so it shows in gallery
+                          updateCurrentMedia({ coverUrl: url, uploadedCoverUrl: url });
                           e.target.value = '';
                         }} />
                       </div>
-                      <div className="grid grid-cols-3 gap-3">
-                        {(currentMedia?.thumbnails || []).map((thumb, idx) => (
-                          <button
-                            key={idx}
-                            onClick={() => updateCurrentMedia({ coverUrl: thumb })}
-                            className={`relative w-full aspect-square rounded overflow-hidden border-2 ${currentMedia.coverUrl === thumb ? 'border-[#0095f6]' : 'border-transparent'}`}
+
+                      {/* Filmstrip row — drag to pick cover frame */}
+                      {(() => {
+                        const thumbs = currentMedia?.thumbnails || [];
+                        const selIdx = Math.max(0, thumbs.findIndex(t => t === currentMedia.coverUrl));
+                        const frameW = thumbs.length > 0 ? 100 / thumbs.length : 100;
+                        return (
+                          <div
+                            className="relative w-full rounded-xl overflow-hidden bg-black select-none cursor-grab active:cursor-grabbing"
+                            style={{ height: 72 }}
+                            onMouseDown={(startE) => {
+                              startE.preventDefault();
+                              const strip = startE.currentTarget;
+                              const rect  = strip.getBoundingClientRect();
+                              const pick  = (clientX) => {
+                                const ratio = Math.min(1, Math.max(0, (clientX - rect.left) / rect.width));
+                                const idx   = Math.min(thumbs.length - 1, Math.floor(ratio * thumbs.length));
+                                if (thumbs[idx]) updateCurrentMedia({ coverUrl: thumbs[idx] });
+                              };
+                              pick(startE.clientX);
+                              const onMove = (e) => pick(e.clientX);
+                              const onUp   = () => {
+                                window.removeEventListener('mousemove', onMove);
+                                window.removeEventListener('mouseup', onUp);
+                              };
+                              window.addEventListener('mousemove', onMove);
+                              window.addEventListener('mouseup', onUp);
+                            }}
+                            onTouchStart={(startE) => {
+                              const strip = startE.currentTarget;
+                              const rect  = strip.getBoundingClientRect();
+                              const pick  = (clientX) => {
+                                const ratio = Math.min(1, Math.max(0, (clientX - rect.left) / rect.width));
+                                const idx   = Math.min(thumbs.length - 1, Math.floor(ratio * thumbs.length));
+                                if (thumbs[idx]) updateCurrentMedia({ coverUrl: thumbs[idx] });
+                              };
+                              pick(startE.touches[0].clientX);
+                              const onMove = (e) => pick(e.touches[0].clientX);
+                              const onEnd  = () => {
+                                window.removeEventListener('touchmove', onMove);
+                                window.removeEventListener('touchend', onEnd);
+                              };
+                              window.addEventListener('touchmove', onMove, { passive: true });
+                              window.addEventListener('touchend', onEnd);
+                            }}
                           >
-                            <img src={thumb} className="w-full h-full object-cover" alt="" />
-                          </button>
-                        ))}
-                      </div>
+                            {/* Frames */}
+                            <div className="flex h-full pointer-events-none">
+                              {thumbs.map((thumb, idx) => (
+                                <div key={idx} className="relative flex-1 h-full overflow-hidden" style={{ minWidth: 0 }}>
+                                  <img src={thumb} className="w-full h-full object-cover" alt="" draggable={false} />
+                                </div>
+                              ))}
+                            </div>
+                            {/* Moving white selection box */}
+                            <div
+                              className="absolute top-0 bottom-0 pointer-events-none z-10 transition-all duration-100"
+                              style={{
+                                left: `${selIdx * frameW}%`,
+                                width: `${frameW}%`,
+                                border: '3px solid white',
+                                borderRadius: 4,
+                                boxShadow: '0 0 0 1.5px rgba(0,0,0,0.5), inset 0 0 0 1px rgba(255,255,255,0.3)'
+                              }}
+                            />
+                            {/* Dim outside selection */}
+                            <div className="absolute top-0 bottom-0 left-0 bg-black/40 pointer-events-none transition-all duration-100" style={{ width: `${selIdx * frameW}%` }} />
+                            <div className="absolute top-0 bottom-0 right-0 bg-black/40 pointer-events-none transition-all duration-100" style={{ width: `${(thumbs.length - selIdx - 1) * frameW}%` }} />
+                            {/* Drag hint — only show when nothing selected yet */}
+                            {selIdx === 0 && (
+                              <div className="absolute bottom-1 left-1/2 -translate-x-1/2 text-[9px] text-white/50 pointer-events-none whitespace-nowrap px-2 py-0.5 rounded-full" style={{ background: 'rgba(0,0,0,0.5)' }}>
+                                Hold & drag to pick cover
+                              </div>
+                            )}
+                          </div>
+                        );
+                      })()}
+
+                      {/* Second labels below cover filmstrip */}
+                      {(() => {
+                        const thumbs = currentMedia?.thumbnails || [];
+                        if (thumbs.length === 0) return null;
+                        return (
+                          <div className="relative w-full mt-1" style={{ height: 14 }}>
+                            {thumbs.map((_, idx) => {
+                              const pct = ((idx + 0.5) / thumbs.length) * 100;
+                              return (
+                                <span
+                                  key={idx}
+                                  className="absolute text-[9px] text-gray-400 dark:text-gray-500 font-mono"
+                                  style={{ left: `${pct}%`, transform: 'translateX(-50%)', top: 0 }}
+                                >
+                                  {idx}s
+                                </span>
+                              );
+                            })}
+                          </div>
+                        );
+                      })()}
                     </div>
+
+                    {/* ── Selected cover preview + uploaded image ── */}
+                    {(() => {
+                      const thumbs = currentMedia?.thumbnails || [];
+                      const uploadedCover = currentMedia?.uploadedCoverUrl;
+                      const selectedCover = currentMedia?.coverUrl;
+                      // All selectable covers: uploaded image first (if any), then filmstrip frames
+                      const allCovers = uploadedCover
+                        ? [{ url: uploadedCover, label: 'Uploaded', isUploaded: true },
+                           ...thumbs.map((t, i) => ({ url: t, label: `${i}s`, isUploaded: false }))]
+                        : thumbs.map((t, i) => ({ url: t, label: `${i}s`, isUploaded: false }));
+
+                      if (allCovers.length === 0) return null;
+
+                      return (
+                        <div className="flex flex-col gap-2">
+                          {/* Big selected preview */}
+                          <div className="relative w-full rounded-xl overflow-hidden bg-black" style={{ height: 140 }}>
+                            <img
+                              src={selectedCover || allCovers[0]?.url}
+                              className="w-full h-full object-cover"
+                              alt="Selected cover"
+                              style={{ imageRendering: 'auto' }}
+                            />
+                            {/* "Cover" badge */}
+                            <div className="absolute top-2 left-2 bg-black/60 backdrop-blur-sm text-white text-[10px] font-semibold px-2 py-0.5 rounded-full">
+                              Cover
+                            </div>
+                          </div>
+
+                          {/* Horizontal scroll row — show uploaded image if exists */}
+                          {uploadedCover && (
+                            <div className="flex gap-2 overflow-x-auto scrollbar-hide pb-1">
+                              {allCovers.filter(c => c.isUploaded).map((cover, i) => (
+                                <button
+                                  key={`uploaded-${i}`}
+                                  onClick={() => updateCurrentMedia({ coverUrl: cover.url })}
+                                  className="relative flex-shrink-0 rounded-lg overflow-hidden focus:outline-none"
+                                  style={{ width: 60, height: 60 }}
+                                >
+                                  <img src={cover.url} className="w-full h-full object-cover" alt="" draggable={false} />
+                                  {/* Selected ring */}
+                                  {selectedCover === cover.url && (
+                                    <div className="absolute inset-0 rounded-lg border-[2.5px] border-white pointer-events-none" />
+                                  )}
+                                  {/* "Photo" label */}
+                                  <div className="absolute bottom-0 left-0 right-0 text-[9px] font-semibold text-white text-center py-0.5"
+                                    style={{ background: 'rgba(0,0,0,0.55)' }}>
+                                    Photo
+                                  </div>
+                                </button>
+                              ))}
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })()}
+
+                    {/* ── Trim ── */}
                     <div>
-                      <div className="text-sm font-semibold mb-2 dark:text-white">Trim</div>
-                      {currentMedia?.thumbnails ? (
+                      <div className="flex items-center justify-between mb-3">
+                        <span className="text-sm font-semibold dark:text-white">Trim</span>
+                        {(() => {
+                          const dur = currentMedia.duration || 0;
+                          const s   = currentMedia.trimStart || 0;
+                          const e2  = (currentMedia.trimEnd && currentMedia.trimEnd > 0) ? currentMedia.trimEnd : dur;
+                          const len = Math.max(0, e2 - s);
+                          return (
+                            <span className="text-xs text-gray-400 dark:text-gray-500 font-mono">
+                              {formatDuration(len)} selected
+                            </span>
+                          );
+                        })()}
+                      </div>
+
+                      {currentMedia?.thumbnails && (
                         <div
-                          ref={trimTrackRef}
-                          className="relative w-full h-20 rounded bg-black/10 dark:bg-white/5 overflow-visible select-none"
+                          className="relative select-none"
+                          style={{ paddingBottom: 20 }}
                           onMouseMove={(e) => {
                             if (!dragHandle) return;
                             const rect = trimTrackRef.current.getBoundingClientRect();
                             const ratio = Math.min(1, Math.max(0, (e.clientX - rect.left) / rect.width));
                             const t = ratio * (currentMedia.duration || 0);
                             if (dragHandle === 'start') {
-                              const val = Math.min(t, (currentMedia.trimEnd || 0) - 0.1);
-                              updateCurrentMedia({ trimStart: Math.max(0, val) });
+                              updateCurrentMedia({ trimStart: Math.max(0, Math.min(t, (currentMedia.trimEnd || 0) - 0.5)) });
                             } else {
-                              const val = Math.max(t, (currentMedia.trimStart || 0) + 0.1);
-                              updateCurrentMedia({ trimEnd: Math.min(currentMedia.duration || 0, val) });
+                              updateCurrentMedia({ trimEnd: Math.min(currentMedia.duration || 0, Math.max(t, (currentMedia.trimStart || 0) + 0.5)) });
                             }
                           }}
                           onMouseLeave={() => setDragHandle(null)}
                           onMouseUp={() => setDragHandle(null)}
+                          onTouchMove={(e) => {
+                            if (!dragHandle) return;
+                            e.preventDefault();
+                            const touch = e.touches[0];
+                            const rect = trimTrackRef.current.getBoundingClientRect();
+                            const ratio = Math.min(1, Math.max(0, (touch.clientX - rect.left) / rect.width));
+                            const t = ratio * (currentMedia.duration || 0);
+                            if (dragHandle === 'start') {
+                              updateCurrentMedia({ trimStart: Math.max(0, Math.min(t, (currentMedia.trimEnd || 0) - 0.5)) });
+                            } else {
+                              updateCurrentMedia({ trimEnd: Math.min(currentMedia.duration || 0, Math.max(t, (currentMedia.trimStart || 0) + 0.5)) });
+                            }
+                          }}
+                          onTouchEnd={() => setDragHandle(null)}
                         >
-                          <div className="absolute inset-0 flex">
-                            {(currentMedia.thumbnails || []).map((thumb, idx) => (
-                              <img key={idx} src={thumb} className="h-full flex-1 object-cover" alt="" />
-                            ))}
-                          </div>
-                          <div className="absolute inset-0">
+                          {/* Filmstrip track */}
+                          <div
+                            ref={trimTrackRef}
+                            className="relative w-full rounded-xl overflow-hidden"
+                            style={{ height: 64 }}
+                          >
+                            {/* Thumbnail frames */}
+                            <div className="flex h-full">
+                              {(currentMedia.thumbnails || []).map((thumb, idx) => (
+                                <div key={idx} className="flex-1 h-full overflow-hidden" style={{ minWidth: 0 }}>
+                                  <img src={thumb} className="w-full h-full object-cover" alt="" draggable={false} />
+                                </div>
+                              ))}
+                            </div>
+
+                            {/* Dimmed regions outside trim */}
                             {(() => {
                               const dur = currentMedia.duration || 0;
-                              const s = (currentMedia.trimStart || 0) / (dur || 1);
-                              const e = (currentMedia.trimEnd || 0) / (dur || 1);
-                              const left = `${s * 100}%`;
+                              const s   = (currentMedia.trimStart || 0) / (dur || 1);
+                              const e2  = ((currentMedia.trimEnd && currentMedia.trimEnd > 0) ? currentMedia.trimEnd : dur) / (dur || 1);
                               return (
                                 <>
-                                  <div className="absolute top-0 bottom-0 bg-black/40" style={{ left: 0, right: `calc(100% - ${left})` }} />
-                                  <div className="absolute top-0 bottom-0 bg-black/40" style={{ left: `${e * 100}%`, right: 0 }} />
+                                  {/* Left dim */}
+                                  <div className="absolute top-0 bottom-0 left-0 bg-black/55 pointer-events-none" style={{ width: `${s * 100}%` }} />
+                                  {/* Right dim */}
+                                  <div className="absolute top-0 bottom-0 right-0 bg-black/55 pointer-events-none" style={{ width: `${(1 - e2) * 100}%` }} />
+                                  {/* White selection border */}
                                   <div
-                                    className="absolute top-0 bottom-0 w-3 bg-white rounded-lg cursor-ew-resize ring-1 ring-black/30"
-                                    style={{ left }}
-                                    onMouseDown={() => setDragHandle('start')}
+                                    className="absolute top-0 bottom-0 border-t-[3px] border-b-[3px] border-white pointer-events-none z-10"
+                                    style={{ left: `${s * 100}%`, width: `${Math.max(0, e2 - s) * 100}%` }}
                                   />
+                                  {/* Playhead */}
                                   <div
-                                    className="absolute top-0 bottom-0 w-3 bg-white rounded-lg cursor-ew-resize ring-1 ring-black/30"
-                                    style={{ left: `calc(${e * 100}% - 0.5rem)` }}
-                                    onMouseDown={() => setDragHandle('end')}
+                                    className="absolute top-0 bottom-0 w-[2px] bg-white z-20"
+                                    style={{
+                                      left: `${Math.min(1, Math.max(0, (trimPlayTime || 0) / (dur || 1))) * 100}%`,
+                                      boxShadow: '0 0 4px rgba(255,255,255,0.8)'
+                                    }}
                                   />
-                                  <div className="absolute -top-6 z-20 text-xs font-mono text-white px-1.5 py-0.5 rounded bg-black/60 pointer-events-none" style={{ left: `calc(${s * 100}% - 1.5rem)` }}>
-                                    {formatDuration(currentMedia.trimStart || 0)}
+                                  {/* Left drag handle */}
+                                  <div
+                                    className="absolute top-0 bottom-0 z-30 flex items-center justify-center cursor-ew-resize"
+                                    style={{ left: `${s * 100}%`, width: 20, transform: 'translateX(-4px)' }}
+                                    onMouseDown={(e) => { e.preventDefault(); setDragHandle('start'); }}
+                                    onTouchStart={(e) => { e.preventDefault(); setDragHandle('start'); }}
+                                  >
+                                    <div className="w-[14px] h-full rounded-l-lg flex items-center justify-center" style={{ background: 'white' }}>
+                                      <div className="flex flex-col gap-[3px]">
+                                        <div className="w-[2px] h-3 bg-gray-400 rounded-full" />
+                                        <div className="w-[2px] h-3 bg-gray-400 rounded-full" />
+                                      </div>
+                                    </div>
                                   </div>
-                                  <div className="absolute -top-6 z-20 text-xs font-mono text-white px-1.5 py-0.5 rounded bg-black/60 pointer-events-none" style={{ left: `calc(${e * 100}% - 1.5rem)` }}>
-                                    {formatDuration(currentMedia.trimEnd || 0)}
+                                  {/* Right drag handle */}
+                                  <div
+                                    className="absolute top-0 bottom-0 z-30 flex items-center justify-center cursor-ew-resize"
+                                    style={{ left: `${e2 * 100}%`, width: 20, transform: 'translateX(-16px)' }}
+                                    onMouseDown={(e2e) => { e2e.preventDefault(); setDragHandle('end'); }}
+                                    onTouchStart={(e2e) => { e2e.preventDefault(); setDragHandle('end'); }}
+                                  >
+                                    <div className="w-[14px] h-full rounded-r-lg flex items-center justify-center" style={{ background: 'white' }}>
+                                      <div className="flex flex-col gap-[3px]">
+                                        <div className="w-[2px] h-3 bg-gray-400 rounded-full" />
+                                        <div className="w-[2px] h-3 bg-gray-400 rounded-full" />
+                                      </div>
+                                    </div>
                                   </div>
                                 </>
                               );
                             })()}
                           </div>
+
+                          {/* Time markers below filmstrip */}
                           {(() => {
                             const dur = currentMedia.duration || 0;
-                            const endVal = (currentMedia.trimEnd && currentMedia.trimEnd > 0) ? currentMedia.trimEnd : dur;
-                            const startVal = currentMedia.trimStart || 0;
-                            const midVal = (startVal + endVal) / 2;
+                            if (dur <= 0) return null;
+                            // Show ~5 evenly spaced time labels
+                            const steps = Math.min(5, Math.floor(dur));
                             return (
-                              <div className="absolute -bottom-6 left-1/2 -translate-x-1/2 text-xs font-semibold text-gray-200">
-                                {formatDuration(midVal)}
+                              <div className="relative w-full mt-1" style={{ height: 16 }}>
+                                {Array.from({ length: steps + 1 }).map((_, i) => {
+                                  const t   = (i / steps) * dur;
+                                  const pct = (i / steps) * 100;
+                                  return (
+                                    <span
+                                      key={i}
+                                      className="absolute text-[10px] text-gray-400 dark:text-gray-500 font-mono"
+                                      style={{
+                                        left: `${pct}%`,
+                                        transform: i === 0 ? 'none' : i === steps ? 'translateX(-100%)' : 'translateX(-50%)',
+                                        top: 0,
+                                      }}
+                                    >
+                                      {Math.round(t)}s
+                                    </span>
+                                  );
+                                })}
                               </div>
                             );
                           })()}
                         </div>
-                      ) : null}
+                      )}
                     </div>
-                    <div className="flex items-center justify-between mt-2">
-                      <span className="text-sm font-semibold dark:text-white">Sound on</span>
+
+                    {/* ── Sound toggle ── */}
+                    <div className="flex items-center justify-between pt-1 border-t border-gray-100 dark:border-gray-800">
+                      <span className="text-sm font-semibold dark:text-white">Sound</span>
                       <label className="relative inline-flex items-center cursor-pointer">
                         <input
                           type="checkbox"
@@ -1396,10 +1918,12 @@ const CreatePostModal = ({ isOpen, onClose, initialType = 'post' }) => {
                         <div className="w-11 h-6 bg-gray-200 dark:bg-gray-600 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-blue-600"></div>
                       </label>
                     </div>
+
                   </div>
                   ) : (
-                    <div className="flex items-center justify-center py-16">
+                    <div className="flex flex-col items-center justify-center py-16 gap-3">
                       <div className="w-8 h-8 border-2 border-[#0095f6] border-t-transparent rounded-full animate-spin"></div>
+                      <span className="text-xs text-gray-400 dark:text-gray-500">Generating frames…</span>
                     </div>
                   )
                 )}
@@ -1412,7 +1936,7 @@ const CreatePostModal = ({ isOpen, onClose, initialType = 'post' }) => {
             {/* Left: Final Image Preview */}
             <div className="relative bg-[#f0f0f0] dark:bg-[#121212] flex items-center justify-center select-none w-full h-auto md:flex-[2]">
               {currentMedia && (
-                <div ref={shareContainerRef} className="relative w-full h-full flex items-center justify-center" onClick={handleImageClick}>
+                <div ref={shareContainerRef} data-media-container className="relative w-full h-full flex items-center justify-center" onClick={handleImageClick}>
                   {currentMedia.type === 'video' ? (
                     <div style={{ width: shareBoxSize.w, height: shareBoxSize.h }} className="overflow-hidden bg-black rounded">
                       <video
@@ -1420,16 +1944,21 @@ const CreatePostModal = ({ isOpen, onClose, initialType = 'post' }) => {
                         className="w-full h-full object-cover"
                         controls={false}
                         autoPlay
+                        loop
                         muted={!currentMedia.soundOn}
                         onLoadedMetadata={(e) => {
-                          e.currentTarget.currentTime = currentMedia.trimStart || 0;
+                          const v = e.currentTarget;
+                          v.currentTime = currentMedia.trimStart || 0;
                         }}
                         onTimeUpdate={(e) => {
                           const v = e.currentTarget;
-                          const end = currentMedia.trimEnd || 0;
-                          if (end > 0 && v.currentTime > end) {
-                            v.pause();
-                            v.currentTime = end;
+                          const trimEnd = (currentMedia.trimEnd && currentMedia.trimEnd > 0)
+                            ? currentMedia.trimEnd
+                            : (currentMedia.duration || 0);
+                          if (trimEnd > 0 && v.currentTime >= trimEnd) {
+                            // Loop back to trimStart
+                            v.currentTime = currentMedia.trimStart || 0;
+                            v.play().catch(() => {});
                           }
                         }}
                       />
@@ -1442,22 +1971,85 @@ const CreatePostModal = ({ isOpen, onClose, initialType = 'post' }) => {
                       alt="Share Preview"
                     />
                   )}
-                  {currentMedia.type !== 'video' && (
-                    <div className="absolute bottom-4 left-1/2 -translate-x-1/2 bg-black/70 text-white text-xs px-3 py-1.5 rounded-full pointer-events-none">
-                      Click photo to tag people
+                  {tags.length === 0 && (
+                    <div className="absolute bottom-4 left-1/2 -translate-x-1/2 bg-black/70 text-white text-xs px-3 py-1.5 rounded-full pointer-events-none select-none">
+                      Tap to tag · Drag tags to reposition
                     </div>
                   )}
 
-                  {/* Tags */}
+                  {/* Tags — draggable */}
                   {tags.map((tag) => (
                     <div
                       key={tag.id}
-                      className="tag-item absolute bg-black/70 text-white px-3 py-1.5 rounded-lg flex items-center gap-2 transform -translate-x-1/2 -translate-y-1/2 cursor-default"
-                      style={{ left: `${tag.x}%`, top: `${tag.y}%` }}
+                      className="tag-item absolute z-20 select-none"
+                      style={{
+                        left: `${tag.x}%`,
+                        top:  `${tag.y}%`,
+                        transform: 'translate(-50%, -50%)',
+                        cursor: draggingTagId === tag.id ? 'grabbing' : 'grab',
+                      }}
+                      onMouseDown={(e) => {
+                        if (e.target.closest('button')) return;
+                        e.preventDefault();
+                        e.stopPropagation();
+                        const container = e.currentTarget.closest('[data-media-container]');
+                        if (!container) return;
+                        setDraggingTagId(tag.id);
+                        const rect = container.getBoundingClientRect();
+                        const onMove = (me) => {
+                          const nx = Math.min(100, Math.max(0, ((me.clientX - rect.left) / rect.width)  * 100));
+                          const ny = Math.min(100, Math.max(0, ((me.clientY - rect.top)  / rect.height) * 100));
+                          setTags(prev => prev.map(t => t.id === tag.id ? { ...t, x: nx, y: ny } : t));
+                        };
+                        const onUp = () => {
+                          setDraggingTagId(null);
+                          window.removeEventListener('mousemove', onMove);
+                          window.removeEventListener('mouseup', onUp);
+                        };
+                        window.addEventListener('mousemove', onMove);
+                        window.addEventListener('mouseup', onUp);
+                      }}
+                      onTouchStart={(e) => {
+                        if (e.target.closest('button')) return;
+                        e.stopPropagation();
+                        const container = e.currentTarget.closest('[data-media-container]');
+                        if (!container) return;
+                        setDraggingTagId(tag.id);
+                        const rect = container.getBoundingClientRect();
+                        const onMove = (te) => {
+                          const touch = te.touches[0];
+                          const nx = Math.min(100, Math.max(0, ((touch.clientX - rect.left) / rect.width)  * 100));
+                          const ny = Math.min(100, Math.max(0, ((touch.clientY - rect.top)  / rect.height) * 100));
+                          setTags(prev => prev.map(t => t.id === tag.id ? { ...t, x: nx, y: ny } : t));
+                        };
+                        const onEnd = () => {
+                          setDraggingTagId(null);
+                          window.removeEventListener('touchmove', onMove);
+                          window.removeEventListener('touchend', onEnd);
+                        };
+                        window.addEventListener('touchmove', onMove, { passive: false });
+                        window.addEventListener('touchend', onEnd);
+                      }}
                     >
-                      <div className="w-0 h-0 border-l-[6px] border-l-transparent border-r-[6px] border-r-transparent border-b-[6px] border-b-black/70 absolute -top-[6px] left-1/2 -translate-x-1/2"></div>
-                      <span className="text-xs font-semibold">{tag.user.username}</span>
-                      <button onClick={(e) => handleRemoveTag(e, tag.id)} className="hover:text-gray-300"><X size={12} /></button>
+                      {/* Tag bubble */}
+                      <div className="relative flex items-center gap-1.5 bg-black/80 backdrop-blur-sm text-white px-3 py-1.5 rounded-full shadow-lg border border-white/20">
+                        {tag.user.avatar_url ? (
+                          <img src={tag.user.avatar_url} className="w-4 h-4 rounded-full object-cover flex-shrink-0" alt="" />
+                        ) : (
+                          <div className="w-4 h-4 rounded-full bg-gradient-to-br from-pink-400 to-purple-500 flex items-center justify-center flex-shrink-0">
+                            <span className="text-[8px] font-bold text-white">{(tag.user.username || '').slice(0,1).toUpperCase()}</span>
+                          </div>
+                        )}
+                        <span className="text-xs font-semibold whitespace-nowrap">@{tag.user.username}</span>
+                        <button
+                          onClick={(e) => handleRemoveTag(e, tag.id)}
+                          className="ml-0.5 w-4 h-4 rounded-full bg-white/20 hover:bg-white/40 flex items-center justify-center transition-colors"
+                        >
+                          <X size={9} />
+                        </button>
+                      </div>
+                      {/* Pin dot */}
+                      <div className="absolute left-1/2 -translate-x-1/2 -bottom-[5px] w-2 h-2 bg-black/80 rounded-full border border-white/30" />
                     </div>
                   ))}
 
@@ -1582,7 +2174,6 @@ const CreatePostModal = ({ isOpen, onClose, initialType = 'post' }) => {
                 <div
                   className="flex items-center justify-between px-4 py-3 border-b border-gray-100 dark:border-gray-800 cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-900"
                   onClick={() => {
-                    setTagCoordinates({ x: 85, y: 85 });
                     setShowTagSearch(true);
                     setSearchQuery('');
                     fetchUsers('');
@@ -1603,7 +2194,6 @@ const CreatePostModal = ({ isOpen, onClose, initialType = 'post' }) => {
                         key={u.id}
                         className="flex items-center gap-3 cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-900 rounded-md px-2 py-1"
                         onClick={() => {
-                          setTagCoordinates({ x: 85, y: 85 });
                           handleTagUser(u);
                         }}
                       >
@@ -1700,24 +2290,193 @@ const CreatePostModal = ({ isOpen, onClose, initialType = 'post' }) => {
           </div>
         </div>
       )}
-      {showSuccess && (
-        <div className="fixed inset-0 z-[80] flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
-          <div className="bg-white dark:bg-gray-900 rounded-xl p-6 w-full max-w-sm shadow-2xl border border-gray-100 dark:border-gray-800">
-            <h3 className="text-lg font-bold text-gray-900 dark:text-white mb-2 text-center">
-              Reel uploaded successfully
-            </h3>
-            <p className="text-gray-500 dark:text-gray-400 text-sm mb-6 text-center">
-              Your reel has been created. You can close this window or continue editing.
-            </p>
-            <div className="flex justify-center gap-3">
-              <button
-                onClick={() => {
-                  setShowSuccess(false);
-                  handleClose();
+      {/* ── Upload Progress Overlay — Instagram color scheme ── */}
+      {isSubmitting && uploadStage !== 'idle' && (
+        <div className="fixed inset-0 z-[90] flex items-center justify-center p-4"
+          style={{ background: 'rgba(0,0,0,0.82)', backdropFilter: 'blur(12px)' }}>
+          <div className="rounded-3xl p-8 w-full max-w-xs flex flex-col items-center gap-5"
+            style={{ background: 'linear-gradient(145deg,#1a1a1a,#0d0d0d)', border: '1px solid rgba(255,255,255,0.07)', boxShadow: '0 32px 80px rgba(0,0,0,0.6)' }}>
+
+            {/* Instagram-style gradient ring */}
+            <div className="relative flex items-center justify-center w-24 h-24">
+              <svg className="absolute inset-0 w-24 h-24" style={{ transform: 'rotate(-90deg)' }} viewBox="0 0 96 96">
+                <circle cx="48" cy="48" r="42" fill="none" stroke="rgba(255,255,255,0.07)" strokeWidth="5" />
+                <circle
+                  cx="48" cy="48" r="42" fill="none"
+                  stroke="url(#iGrad)" strokeWidth="5"
+                  strokeLinecap="round"
+                  strokeDasharray={`${2 * Math.PI * 42}`}
+                  strokeDashoffset={`${2 * Math.PI * 42 * (1 - uploadProgress / 100)}`}
+                  style={{ transition: 'stroke-dashoffset 0.5s cubic-bezier(0.4,0,0.2,1)' }}
+                />
+                <defs>
+                  <linearGradient id="iGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+                    <stop offset="0%"   stopColor="#feda75" />
+                    <stop offset="25%"  stopColor="#fa7e1e" />
+                    <stop offset="50%"  stopColor="#d62976" />
+                    <stop offset="75%"  stopColor="#962fbf" />
+                    <stop offset="100%" stopColor="#4f5bd5" />
+                  </linearGradient>
+                </defs>
+              </svg>
+              {/* Center percentage */}
+              <span className="relative z-10 text-2xl font-bold text-white tabular-nums">{uploadProgress}%</span>
+            </div>
+
+            {/* Stage title */}
+            <div className="flex flex-col items-center gap-1 text-center">
+              <p className="text-base font-semibold text-white">
+                {uploadStage === 'converting' && '✂️ Trimming video…'}
+                {uploadStage === 'uploading'  && '⬆️ Uploading…'}
+                {uploadStage === 'posting'    && '🚀 Publishing…'}
+              </p>
+              <p className="text-xs text-white/40">
+                {uploadStage === 'converting' && 'Applying your trim & crop'}
+                {uploadStage === 'uploading'  && 'Sending to server'}
+                {uploadStage === 'posting'    && 'Almost done!'}
+              </p>
+            </div>
+
+            {/* Instagram gradient bar */}
+            <div className="w-full h-1.5 rounded-full overflow-hidden" style={{ background: 'rgba(255,255,255,0.08)' }}>
+              <div
+                className="h-full rounded-full transition-all duration-500"
+                style={{
+                  width: `${uploadProgress}%`,
+                  background: 'linear-gradient(90deg,#feda75,#fa7e1e,#d62976,#962fbf,#4f5bd5)'
                 }}
-                className="px-4 py-2.5 rounded-lg bg-insta-pink text-white font-medium hover:bg-insta-purple transition-colors"
+              />
+            </div>
+
+
+          </div>
+        </div>
+      )}
+
+      {/* ── Success Popup — Instagram style, auto-home after 5s ── */}
+      {showSuccess && (() => {
+        // Auto-navigate after 5s
+        const doClose = () => {
+          setShowSuccess(false);
+          setUploadStage('idle');
+          setUploadProgress(0);
+          handleClose();
+          setMedia([]);
+          setCaption('');
+          setLocation('');
+          setTags([]);
+          navigate('/');
+        };
+        return (
+          <div className="fixed inset-0 z-[90] flex items-center justify-center p-4"
+            style={{ background: 'rgba(0,0,0,0.85)', backdropFilter: 'blur(16px)' }}>
+            <style>{`
+              @keyframes igPopIn {
+                from { opacity:0; transform:scale(0.8) translateY(16px); }
+                to   { opacity:1; transform:scale(1) translateY(0); }
+              }
+              @keyframes igCheckDraw {
+                from { stroke-dashoffset: 48; }
+                to   { stroke-dashoffset: 0; }
+              }
+              @keyframes igRingRotate {
+                from { transform: rotate(0deg); }
+                to   { transform: rotate(360deg); }
+              }
+              @keyframes igCountdown {
+                from { stroke-dashoffset: 0; }
+                to   { stroke-dashoffset: ${2 * Math.PI * 22}; }
+              }
+            `}</style>
+
+            <div
+              className="w-full max-w-xs flex flex-col items-center gap-6 rounded-3xl p-8"
+              style={{
+                animation: 'igPopIn 0.4s cubic-bezier(0.34,1.56,0.64,1) both',
+                background: 'linear-gradient(145deg,#1c1c1c,#111)',
+                border: '1px solid rgba(255,255,255,0.08)',
+                boxShadow: '0 40px 100px rgba(0,0,0,0.7)'
+              }}
+            >
+              {/* Instagram gradient checkmark circle */}
+              <div className="relative flex items-center justify-center w-24 h-24">
+                {/* Spinning rainbow ring */}
+                <svg className="absolute inset-0 w-24 h-24" style={{ animation: 'igRingRotate 3s linear infinite' }} viewBox="0 0 96 96">
+                  <defs>
+                    <linearGradient id="igSuccessGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+                      <stop offset="0%"   stopColor="#feda75" />
+                      <stop offset="25%"  stopColor="#fa7e1e" />
+                      <stop offset="50%"  stopColor="#d62976" />
+                      <stop offset="75%"  stopColor="#962fbf" />
+                      <stop offset="100%" stopColor="#4f5bd5" />
+                    </linearGradient>
+                  </defs>
+                  <circle cx="48" cy="48" r="44" fill="none" stroke="url(#igSuccessGrad)" strokeWidth="4" strokeDasharray="138 138" strokeLinecap="round" />
+                </svg>
+                {/* Inner circle with checkmark */}
+                <div className="w-16 h-16 rounded-full flex items-center justify-center"
+                  style={{ background: 'linear-gradient(135deg,#feda75,#fa7e1e,#d62976,#962fbf,#4f5bd5)' }}>
+                  <svg className="w-8 h-8" viewBox="0 0 32 32" fill="none">
+                    <path
+                      d="M7 17l6 6 12-12"
+                      stroke="white" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"
+                      strokeDasharray="48" strokeDashoffset="0"
+                      style={{ animation: 'igCheckDraw 0.5s 0.15s ease both' }}
+                    />
+                  </svg>
+                </div>
+              </div>
+
+              {/* Text */}
+              <div className="flex flex-col items-center gap-1.5 text-center">
+                <h3 className="text-xl font-bold text-white">
+                  {postType === 'reel' ? 'Reel Published! 🎉' : 'Post Shared! 🎉'}
+                </h3>
+                <p className="text-sm text-white/50">
+                  {postType === 'reel' ? 'Your reel is now live' : 'Your post has been shared'}
+                </p>
+              </div>
+
+              {/* Instagram gradient divider */}
+              <div className="w-full h-px" style={{ background: 'linear-gradient(90deg,transparent,#d62976,transparent)' }} />
+
+              {/* Countdown auto-redirect */}
+              <SuccessCountdown onDone={doClose} />
+
+            </div>
+          </div>
+        );
+      })()}
+
+      {/* ── Error Popup ── */}
+      {uploadStage === 'error' && !isSubmitting && (
+        <div className="fixed inset-0 z-[90] flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
+          <div
+            className="bg-white dark:bg-[#1a1a1a] rounded-2xl p-8 w-full max-w-sm shadow-2xl border border-red-100 dark:border-red-900/40 flex flex-col items-center gap-5"
+            style={{ animation: 'popIn 0.3s ease both' }}
+          >
+            <div className="w-20 h-20 rounded-full flex items-center justify-center bg-red-50 dark:bg-red-900/20 border-2 border-red-200 dark:border-red-800">
+              <svg className="w-9 h-9 text-red-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126zM12 15.75h.007v.008H12v-.008z" />
+              </svg>
+            </div>
+            <div className="flex flex-col items-center gap-1 text-center">
+              <h3 className="text-lg font-bold text-gray-900 dark:text-white">Upload Failed</h3>
+              <p className="text-sm text-gray-500 dark:text-gray-400">{uploadError || 'Something went wrong. Please try again.'}</p>
+            </div>
+            <div className="flex gap-3 w-full">
+              <button
+                onClick={() => { setUploadStage('idle'); setUploadProgress(0); setUploadError(''); }}
+                className="flex-1 py-3 rounded-xl border border-gray-200 dark:border-gray-700 text-gray-700 dark:text-gray-300 font-semibold text-sm hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors"
               >
-                Close
+                Cancel
+              </button>
+              <button
+                onClick={() => { setUploadStage('idle'); setUploadProgress(0); setUploadError(''); handleNextStep(); }}
+                className="flex-1 py-3 rounded-xl text-white font-semibold text-sm transition-all active:scale-95"
+                style={{ background: 'linear-gradient(135deg, #f472b6, #a855f7)' }}
+              >
+                Try Again
               </button>
             </div>
           </div>

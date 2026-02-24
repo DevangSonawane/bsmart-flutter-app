@@ -1,3 +1,5 @@
+import 'feed_post_model.dart';
+
 class Reel {
   final String id;
   final String userId;
@@ -130,6 +132,49 @@ class Reel {
       isRisingCreator: isRisingCreator ?? this.isRisingCreator,
       isTrending: isTrending ?? this.isTrending,
       duration: duration ?? this.duration,
+    );
+  }
+  FeedPost toFeedPost() {
+    return FeedPost(
+      id: id,
+      userId: userId,
+      userName: userName,
+      userAvatar: userAvatarUrl,
+      mediaType: PostMediaType.reel,
+      mediaUrls: [videoUrl],
+      thumbnailUrl: thumbnailUrl,
+      caption: caption,
+      hashtags: hashtags,
+      createdAt: createdAt,
+      likes: likes,
+      comments: comments,
+      views: views,
+      shares: shares,
+      isLiked: isLiked,
+      isSaved: isSaved,
+      isFollowed: isFollowing,
+    );
+  }
+
+  factory Reel.fromFeedPost(FeedPost post) {
+    return Reel(
+      id: post.id,
+      userId: post.userId,
+      userName: post.userName,
+      userAvatarUrl: post.userAvatar,
+      videoUrl: post.mediaUrls.first,
+      thumbnailUrl: post.thumbnailUrl,
+      caption: post.caption,
+      hashtags: post.hashtags,
+      createdAt: post.createdAt,
+      likes: post.likes,
+      comments: post.comments,
+      views: post.views,
+      shares: post.shares,
+      isLiked: post.isLiked,
+      isSaved: post.isSaved,
+      isFollowing: post.isFollowed,
+      duration: const Duration(seconds: 30),
     );
   }
 }

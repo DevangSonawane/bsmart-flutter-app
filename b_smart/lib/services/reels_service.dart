@@ -1,5 +1,10 @@
 import '../api/posts_api.dart';
 import '../models/reel_model.dart';
+import '../config/api_config.dart';
+import '../utils/url_helper.dart';
+import '../state/store.dart';
+import '../state/feed_actions.dart';
+import '../models/feed_post_model.dart';
 
 class ReelsService {
   static final ReelsService _instance = ReelsService._internal();
@@ -21,7 +26,7 @@ class ReelsService {
         userName: 'dance_queen',
         userAvatarUrl: 'https://i.pravatar.cc/150?u=dance_queen',
         videoUrl: 'https://assets.mixkit.co/videos/preview/mixkit-girl-dancing-happy-in-a-room-4179-large.mp4',
-        thumbnailUrl: null,
+        thumbnailUrl: 'https://images.unsplash.com/photo-1547153760-18fc86324498?w=800&q=80',
         caption: 'Dancing vibes! 💃 #dance #fun',
         hashtags: ['dance', 'fun'],
         audioTitle: 'Original Audio - dance_quee',
@@ -54,7 +59,7 @@ class ReelsService {
         userName: 'nature_walks',
         userAvatarUrl: 'https://i.pravatar.cc/150?u=nature_walks',
         videoUrl: 'https://assets.mixkit.co/videos/preview/mixkit-tree-branches-in-the-breeze-1188-large.mp4',
-        thumbnailUrl: null,
+        thumbnailUrl: 'https://images.unsplash.com/photo-1441974231531-c6227db76b6e?w=800&q=80',
         caption: 'Peaceful morning 🌳 #nature',
         hashtags: ['nature'],
         audioTitle: 'Original Audio - nature_walks',
@@ -87,7 +92,7 @@ class ReelsService {
         userName: 'city_life',
         userAvatarUrl: 'https://i.pravatar.cc/150?u=city_life',
         videoUrl: 'https://assets.mixkit.co/videos/preview/mixkit-traffic-in-the-city-at-night-4228-large.mp4',
-        thumbnailUrl: null,
+        thumbnailUrl: 'https://images.unsplash.com/photo-1477959858617-67f85cf4f1df?w=800&q=80',
         caption: 'City lights 🌃 #nightlife',
         hashtags: ['city', 'nightlife'],
         audioTitle: 'Original Audio - city_life',
@@ -141,8 +146,8 @@ class ReelsService {
       
       // Filter for reels client-side since API doesn't support type filtering yet
       final items = allPosts.where((p) {
-        final type = p['type'] as String? ?? p['media_type'] as String? ?? 'post';
-        return type == 'reel';
+        final type = (p['type'] as String? ?? p['media_type'] as String? ?? 'post').toLowerCase();
+        return type == 'reel' || type == 'video';
       }).toList();
 
       final list = items.map((item) {
@@ -169,9 +174,9 @@ class ReelsService {
           id: item['id'] as String,
           userId: item['user_id'] as String? ?? user?['id'] as String? ?? '',
           userName: user?['username'] as String? ?? 'user',
-          userAvatarUrl: user?['avatar_url'] as String?,
-          videoUrl: videoUrl,
-          thumbnailUrl: thumbnailUrl,
+          userAvatarUrl: UrlHelper.normalizeUrl(user?['avatar_url'] as String?),
+          videoUrl: UrlHelper.normalizeUrl(videoUrl),
+          thumbnailUrl: thumbnailUrl != null ? UrlHelper.normalizeUrl(thumbnailUrl) : null,
           caption: item['caption'] as String?,
           hashtags: ((item['hashtags'] as List<dynamic>?) ?? []).map((e) => e.toString()).toList(),
           audioTitle: null,
@@ -203,6 +208,8 @@ class ReelsService {
       if (offset == 0) {
         _cache.clear();
         _cache.addAll(list);
+        // Dispatch to Redux to sync with Home Feed
+        globalStore.dispatch(SetFeedPosts(list.map((r) => r.toFeedPost()).toList()));
       }
       return list;
     } catch (e) {
@@ -325,7 +332,12 @@ class ReelsService {
     if (idx != -1) {
       final r = _cache[idx];
       final newLiked = !r.isLiked;
-      _cache[idx] = r.copyWith(isLiked: newLiked, likes: newLiked ? r.likes + 1 : r.likes - 1);
+      final updatedReel = r.copyWith(isLiked: newLiked, likes: newLiked ? r.likes + 1 : r.likes - 1);
+      _cache[idx] = updatedReel;
+      
+      // Update Redux store
+      globalStore.dispatch(UpdatePostLikedWithCount(reelId, newLiked, updatedReel.likes));
+      
       // async backend update
       if (newLiked) {
         _postsApi.likePost(reelId);
@@ -339,8 +351,12 @@ class ReelsService {
     final idx = _cache.indexWhere((r) => r.id == reelId);
     if (idx != -1) {
       final r = _cache[idx];
-      _cache[idx] = r.copyWith(isSaved: !r.isSaved);
-      // backend save action (not supported in new API yet)
+      final newSaved = !r.isSaved;
+      final updatedReel = r.copyWith(isSaved: newSaved);
+      _cache[idx] = updatedReel;
+      
+      // Update Redux store
+      globalStore.dispatch(UpdatePostSaved(reelId, newSaved));
     }
   }
 

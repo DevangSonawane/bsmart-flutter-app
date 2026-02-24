@@ -1,8 +1,11 @@
 import 'dart:async';
+import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:video_player/video_player.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
+import 'package:flutter_cache_manager/flutter_cache_manager.dart';
+import 'package:preload_page_view/preload_page_view.dart';
 import '../models/reel_model.dart';
 import '../services/reels_service.dart';
 import '../services/user_account_service.dart';
@@ -31,6 +34,8 @@ class _ReelsScreenState extends State<ReelsScreen> {
   Timer? _viewTimer;
   List<Reel> _reels = [];
   final Map<String, VideoPlayerController> _controllers = {};
+  final Map<String, bool> _isInitializing = {};
+  final Map<String, bool> _hasError = {};
 
   @override
   void initState() {
@@ -43,17 +48,27 @@ class _ReelsScreenState extends State<ReelsScreen> {
   void dispose() {
     _pageController.dispose();
     _viewTimer?.cancel();
-    // dispose all video controllers
+    _disposeAllControllers();
+    super.dispose();
+  }
+
+  void _disposeAllControllers() {
     for (final c in _controllers.values) {
-      try {
-        c.pause();
-      } catch (_) {}
-      try {
-        c.dispose();
-      } catch (_) {}
+      _cleanupController(c);
     }
     _controllers.clear();
-    super.dispose();
+    _isInitializing.clear();
+  }
+
+  void _cleanupController(VideoPlayerController? c) {
+    if (c == null) return;
+    try {
+      c.pause();
+      c.setVolume(0);
+      c.dispose();
+    } catch (e) {
+      debugPrint('Error disposing controller: $e');
+    }
   }
 
   void _loadReels() {
@@ -62,38 +77,76 @@ class _ReelsScreenState extends State<ReelsScreen> {
     });
     if (_reels.isNotEmpty) {
       _reelsService.incrementViews(_reels[_currentIndex].id);
-      // Ensure current and next controllers are initialized for smooth playback
       _ensureControllerForIndex(_currentIndex);
       _ensureControllerForIndex(_currentIndex + 1);
-      _ensureControllerForIndex(_currentIndex + 2);
     }
   }
 
-  void _ensureControllerForIndex(int index) {
+  Future<void> _ensureControllerForIndex(int index) async {
     if (index < 0 || index >= _reels.length) return;
     final reel = _reels[index];
     final url = reel.videoUrl;
     if (url.isEmpty) return;
+    
+    // If already initialized or initializing, skip
     if (_controllers.containsKey(reel.id)) {
       final c = _controllers[reel.id]!;
-      if (!c.value.isInitialized) {
-        c.initialize().then((_) {
-          if (mounted && _currentIndex == index && _isPlaying) c.play();
-          setState(() {});
-        });
-      } else {
-        if (_isPlaying) c.play();
+      if (c.value.isInitialized) {
+        if (index == _currentIndex && _isPlaying) c.play();
+        c.setVolume(_isMuted ? 0 : 1);
       }
       return;
     }
+    if (_isInitializing[reel.id] == true) return;
 
-    final controller = VideoPlayerController.network(url);
-    _controllers[reel.id] = controller;
-    controller.setLooping(true);
-    controller.initialize().then((_) {
-      if (mounted && _currentIndex == index && _isPlaying) controller.play();
-      setState(() {});
-    });
+    // Strict limit: only allow 2 controllers (current and next)
+    if (_controllers.length >= 2 && index != _currentIndex) return;
+
+    _isInitializing[reel.id] = true;
+    _hasError[reel.id] = false;
+
+    try {
+      if (!mounted) return;
+
+      final controller = VideoPlayerController.networkUrl(
+        Uri.parse(url),
+        videoPlayerOptions: VideoPlayerOptions(mixWithOthers: true),
+      );
+      
+      _controllers[reel.id] = controller;
+      
+      if (index == _currentIndex) {
+        await controller.initialize();
+        if (mounted && _currentIndex == index) {
+          controller.setLooping(true);
+          controller.setVolume(_isMuted ? 0 : 1);
+          if (_isPlaying) await controller.play();
+        }
+      } else {
+        // Initialize next reel in background
+        unawaited(controller.initialize().then((_) {
+          if (mounted) {
+            controller.setLooping(true);
+            controller.setVolume(_isMuted ? 0 : 1);
+            setState(() {});
+          }
+        }).catchError((e) {
+          debugPrint('Background init error: $e');
+        }));
+      }
+      
+      if (mounted) setState(() {});
+    } catch (e) {
+      debugPrint('Error initializing video: $e');
+      if (mounted) {
+        setState(() {
+          _hasError[reel.id] = true;
+          _controllers.remove(reel.id);
+        });
+      }
+    } finally {
+      _isInitializing[reel.id] = false;
+    }
   }
 
   void _disposeControllerForIndex(int index) {
@@ -101,13 +154,10 @@ class _ReelsScreenState extends State<ReelsScreen> {
     final id = _reels[index].id;
     final c = _controllers.remove(id);
     if (c != null) {
-      try {
-        c.pause();
-      } catch (_) {}
-      try {
-        c.dispose();
-      } catch (_) {}
+      _cleanupController(c);
     }
+    _isInitializing.remove(id);
+    _hasError.remove(id);
   }
 
   void _startViewTracking() {
@@ -119,21 +169,41 @@ class _ReelsScreenState extends State<ReelsScreen> {
   }
 
   void _onPageChanged(int index) {
+    // 1. Pause previous immediately
+    final prevId = _reels[_currentIndex].id;
+    if (_controllers.containsKey(prevId)) {
+      _controllers[prevId]?.pause();
+    }
+
     setState(() {
       _currentIndex = index;
       _isPlaying = true;
     });
+
     if (index < _reels.length) {
       _reelsService.incrementViews(_reels[index].id);
-      // Ensure current and next two controllers are ready (prefetch)
-      _ensureControllerForIndex(index);
-      _ensureControllerForIndex(index + 1);
-      _ensureControllerForIndex(index + 2);
-      for (int i = 0; i < _reels.length; i++) {
-        if ((i - index).abs() > 2) {
-          _disposeControllerForIndex(i);
-        }
+      
+      // 2. Aggressive Cleanup: Keep ONLY current and next
+      final List<String> keepIds = [
+        _reels[index].id,
+        if (index + 1 < _reels.length) _reels[index + 1].id,
+      ];
+
+      final keysToRemove = _controllers.keys.where((id) => !keepIds.contains(id)).toList();
+      for (final id in keysToRemove) {
+        final c = _controllers.remove(id);
+        _cleanupController(c);
+        _isInitializing.remove(id);
+        _hasError.remove(id);
       }
+
+      // 3. Ensure current and next
+      _ensureControllerForIndex(index);
+      Future.delayed(const Duration(milliseconds: 200), () {
+        if (mounted && _currentIndex == index) {
+          _ensureControllerForIndex(index + 1);
+        }
+      });
     }
   }
 
@@ -159,12 +229,28 @@ class _ReelsScreenState extends State<ReelsScreen> {
     setState(() {
       _isPlaying = !_isPlaying;
     });
+    
+    final currentId = _reels[_currentIndex].id;
+    if (_controllers.containsKey(currentId)) {
+      if (_isPlaying) {
+        _controllers[currentId]?.play();
+      } else {
+        _controllers[currentId]?.pause();
+      }
+    }
   }
 
   void _toggleMute() {
     setState(() {
       _isMuted = !_isMuted;
     });
+    
+    // Apply mute/unmute to all initialized controllers
+    for (final controller in _controllers.values) {
+      if (controller.value.isInitialized) {
+        controller.setVolume(_isMuted ? 0 : 1);
+      }
+    }
   }
 
   void _handleDoubleTap() {
@@ -485,7 +571,7 @@ class _ReelsScreenState extends State<ReelsScreen> {
     }
 
     return Scaffold(
-      backgroundColor: InstagramTheme.backgroundWhite,
+      backgroundColor: Colors.black,
       body: GestureDetector(
         onVerticalDragEnd: (details) {
           if (details.primaryVelocity != null) {
@@ -502,11 +588,21 @@ class _ReelsScreenState extends State<ReelsScreen> {
           setState(() {
             _isPlaying = false;
           });
+          
+          final currentId = _reels[_currentIndex].id;
+          if (_controllers.containsKey(currentId)) {
+            _controllers[currentId]?.pause();
+          }
         },
         onLongPressEnd: (_) {
           setState(() {
             _isPlaying = true;
           });
+          
+          final currentId = _reels[_currentIndex].id;
+          if (_controllers.containsKey(currentId)) {
+            _controllers[currentId]?.play();
+          }
         },
         child: Stack(
           children: [
@@ -522,18 +618,23 @@ class _ReelsScreenState extends State<ReelsScreen> {
               },
             ),
 
-            // Top counter (minimal)
+            // Mute Button (Top Right)
             Positioned(
-              top: 0,
-              left: 0,
+              top: 40,
+              right: 16,
               child: SafeArea(
-                bottom: false,
-                child: Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-                  child: Text(
-                    '${_currentIndex + 1} / ${_reels.length}',
-                    style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                      fontWeight: FontWeight.w600,
+                child: GestureDetector(
+                  onTap: _toggleMute,
+                  child: Container(
+                    padding: const EdgeInsets.all(8),
+                    decoration: BoxDecoration(
+                      color: Colors.black.withOpacity(0.4),
+                      shape: BoxShape.circle,
+                    ),
+                    child: Icon(
+                      _isMuted ? LucideIcons.volumeX : LucideIcons.volume2,
+                      color: Colors.white,
+                      size: 20,
                     ),
                   ),
                 ),
@@ -543,7 +644,7 @@ class _ReelsScreenState extends State<ReelsScreen> {
             // Right Side Actions
             Positioned(
               right: 16,
-              bottom: 0,
+              bottom: 40,
               child: SafeArea(
                 top: false,
                 minimum: const EdgeInsets.only(bottom: 5),
@@ -554,7 +655,7 @@ class _ReelsScreenState extends State<ReelsScreen> {
             // Bottom Left Metadata
             Positioned(
               left: 16,
-              bottom: 0,
+              bottom: 40,
               right: 100,
               child: SafeArea(
                 top: false,
@@ -580,34 +681,93 @@ class _ReelsScreenState extends State<ReelsScreen> {
 
   Widget _buildReelPlayer(Reel reel) {
     final controller = _controllers[reel.id];
-    if (controller == null || !controller.value.isInitialized) {
-      return Container(
-        width: double.infinity,
-        height: double.infinity,
-        color: Colors.black,
-        child: Center(
-          child: reel.videoUrl.isNotEmpty
-              ? const CircularProgressIndicator()
-              : Icon(LucideIcons.imageOff, size: 64, color: Colors.white54),
-        ),
-      );
-    }
+    final isInitialized = controller != null && controller.value.isInitialized;
+    final hasError = _hasError[reel.id] ?? false;
 
     return SizedBox.expand(
       child: Stack(
+        fit: StackFit.expand,
         children: [
-          FittedBox(
-            fit: BoxFit.cover,
-            child: SizedBox(
-              width: controller.value.size.width,
-              height: controller.value.size.height,
-              child: VideoPlayer(controller),
+          // 1. Thumbnail Placeholder
+          if (reel.thumbnailUrl != null && reel.thumbnailUrl!.isNotEmpty)
+            CachedNetworkImage(
+              imageUrl: reel.thumbnailUrl!,
+              fit: BoxFit.cover,
+              placeholder: (context, url) => Container(
+                color: Colors.black,
+                child: const Center(child: CircularProgressIndicator(strokeWidth: 2)),
+              ),
+              errorWidget: (context, url, error) => Container(
+                color: Colors.black,
+                child: const Center(child: Icon(LucideIcons.imageOff, color: Colors.white24)),
+              ),
+            )
+          else
+            Container(color: Colors.black),
+
+          // 2. Video Player
+          if (isInitialized)
+            FittedBox(
+              fit: BoxFit.cover,
+              child: SizedBox(
+                width: controller.value.size.width,
+                height: controller.value.size.height,
+                child: VideoPlayer(controller),
+              ),
             ),
-          ),
-          if (!_isPlaying)
+
+          // 3. Error State
+          if (hasError)
             Container(
-              color: Colors.black.withValues(alpha: 0.35),
-              child: Center(
+              color: Colors.black.withOpacity(0.7),
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  const Icon(Icons.error_outline, color: Colors.white70, size: 40),
+                  const SizedBox(height: 16),
+                  const Text(
+                    'Could not load video',
+                    style: TextStyle(color: Colors.white70),
+                  ),
+                  const SizedBox(height: 20),
+                  ElevatedButton(
+                    onPressed: () {
+                      _disposeControllerForIndex(_currentIndex);
+                      _ensureControllerForIndex(_currentIndex);
+                    },
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: InstagramTheme.primaryPink,
+                      foregroundColor: Colors.white,
+                    ),
+                    child: const Text('Retry'),
+                  ),
+                ],
+              ),
+            ),
+
+          // 4. Loading Indicator (Only if not initialized and no error)
+          if (!isInitialized && !hasError)
+            Center(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  SizedBox(
+                    width: 40,
+                    height: 40,
+                    child: CircularProgressIndicator(
+                      strokeWidth: 2,
+                      valueColor: AlwaysStoppedAnimation<Color>(Colors.white.withOpacity(0.5)),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+
+          // 5. Pause Overlay
+          if (!_isPlaying && isInitialized)
+            Container(
+              color: Colors.black.withOpacity(0.3),
+              child: const Center(
                 child: Icon(LucideIcons.pause, size: 60, color: Colors.white),
               ),
             ),
@@ -622,15 +782,9 @@ class _ReelsScreenState extends State<ReelsScreen> {
       mainAxisSize: MainAxisSize.min,
       children: [
         _buildActionButton(
-          icon: _isMuted ? LucideIcons.volumeX : LucideIcons.volume2,
-          label: 'Mute',
-          onTap: _toggleMute,
-        ),
-        const SizedBox(height: 24),
-        _buildActionButton(
           icon: LucideIcons.heart,
           label: _formatCount(reel.likes),
-          color: reel.isLiked ? InstagramTheme.errorRed : InstagramTheme.textBlack,
+          color: reel.isLiked ? InstagramTheme.errorRed : Colors.white,
           onTap: _handleLike,
         ),
         const SizedBox(height: 24),
@@ -649,7 +803,7 @@ class _ReelsScreenState extends State<ReelsScreen> {
         _buildActionButton(
           icon: LucideIcons.bookmark,
           label: 'Save',
-          color: reel.isSaved ? InstagramTheme.primaryPink : InstagramTheme.textBlack,
+          color: reel.isSaved ? InstagramTheme.primaryPink : Colors.white,
           onTap: _handleSave,
         ),
         const SizedBox(height: 24),
@@ -672,11 +826,12 @@ class _ReelsScreenState extends State<ReelsScreen> {
       onTap: onTap,
       child: Column(
         children: [
-          Icon(icon, color: color ?? InstagramTheme.textBlack, size: 28),
+          Icon(icon, color: color ?? Colors.white, size: 28),
           const SizedBox(height: 6),
           Text(
             label,
-            style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+            style: const TextStyle(
+              color: Colors.white,
               fontSize: 12,
               fontWeight: FontWeight.w500,
             ),
@@ -700,109 +855,78 @@ class _ReelsScreenState extends State<ReelsScreen> {
               onTap: () {
                 Navigator.of(context).pushNamed('/profile/${reel.userId}');
               },
+              child: Container(
+                decoration: BoxDecoration(
+                  shape: BoxShape.circle,
+                  border: Border.all(color: Colors.white24, width: 1),
+                ),
+                padding: const EdgeInsets.all(2),
                 child: CircleAvatar(
-                  radius: 20,
-                  backgroundColor: InstagramTheme.surfaceWhite,
+                  radius: 16,
+                  backgroundColor: Colors.grey[800],
                   backgroundImage: reel.userAvatarUrl != null ? CachedNetworkImageProvider(reel.userAvatarUrl!) : null,
                   child: reel.userAvatarUrl == null
                       ? Text(
                           reel.userName[0].toUpperCase(),
                           style: const TextStyle(
-                            color: InstagramTheme.textBlack,
+                            color: Colors.white,
                             fontWeight: FontWeight.bold,
-                            fontSize: 16,
+                            fontSize: 14,
                           ),
                         )
                       : null,
                 ),
-            ),
-            const SizedBox(width: 12),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Row(
-                    crossAxisAlignment: CrossAxisAlignment.baseline,
-                    textBaseline: TextBaseline.alphabetic,
-                    children: [
-                      Flexible(
-                        child: GestureDetector(
-                          onTap: () {
-                            Navigator.of(context).pushNamed('/profile/${reel.userId}');
-                          },
-                          child: Text(
-                            reel.userName,
-                            style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                              fontWeight: FontWeight.bold,
-                              fontSize: 15,
-                            ),
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                          ),
-                        ),
-                      ),
-                      if (!reel.isFollowing) ...[
-                        const SizedBox(width: 10),
-                        Container(
-                          height: 28,
-                          alignment: Alignment.center,
-                          child: TextButton(
-                            onPressed: () {
-                              _reelsService.toggleFollow(reel.userId);
-                              setState(() {});
-                            },
-                            style: TextButton.styleFrom(
-                              backgroundColor: Colors.transparent,
-                              foregroundColor: InstagramTheme.backgroundWhite,
-                              padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 6),
-                              minimumSize: const Size(0, 28),
-                              tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                              shape: RoundedRectangleBorder(
-                                borderRadius: BorderRadius.circular(14),
-                              ),
-                            ),
-                            child: const Text(
-                              'Follow',
-                              style: TextStyle(
-                                fontSize: 12,
-                                fontWeight: FontWeight.w600,
-                                height: 1.0,
-                              ),
-                            ),
-                          ),
-                        ),
-                      ],
-                    ],
-                  ),
-                  if (reel.isRisingCreator || reel.isTrending) ...[
-                    const SizedBox(height: 3),
-                    Text(
-                      reel.isRisingCreator ? 'Rising Creator' : 'Trending Today',
-                      style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                        color: InstagramTheme.primaryPink,
-                        fontSize: 11,
-                        fontWeight: FontWeight.w600,
-                        height: 1.2,
-                      ),
-                    ),
-                  ],
-                ],
               ),
             ),
+            const SizedBox(width: 10),
+            GestureDetector(
+              onTap: () {
+                Navigator.of(context).pushNamed('/profile/${reel.userId}');
+              },
+              child: Text(
+                reel.userName,
+                style: const TextStyle(
+                  color: Colors.white,
+                  fontWeight: FontWeight.bold,
+                  fontSize: 14,
+                ),
+              ),
+            ),
+            if (!reel.isFollowing) ...[
+              const SizedBox(width: 10),
+              GestureDetector(
+                onTap: () {
+                  _reelsService.toggleFollow(reel.userId);
+                  setState(() {});
+                },
+                child: Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+                  decoration: BoxDecoration(
+                    border: Border.all(color: Colors.white54),
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: const Text(
+                    'Follow',
+                    style: TextStyle(
+                      color: Colors.white,
+                      fontSize: 12,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                ),
+              ),
+            ],
           ],
         ),
-        const SizedBox(height: 14),
-        
+        const SizedBox(height: 12),
         // Caption
-        if (reel.caption != null) ...[
-          GestureDetector(
-            onTap: () {
-              // Expand caption
-            },
+        if (reel.caption != null && reel.caption!.isNotEmpty)
+          Padding(
+            padding: const EdgeInsets.only(bottom: 12),
             child: Text(
               reel.caption!,
-              style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+              style: const TextStyle(
+                color: Colors.white,
                 fontSize: 14,
                 height: 1.4,
               ),
@@ -810,100 +934,25 @@ class _ReelsScreenState extends State<ReelsScreen> {
               overflow: TextOverflow.ellipsis,
             ),
           ),
-          const SizedBox(height: 10),
-        ],
-        
-        // Hashtags
-        if (reel.hashtags.isNotEmpty) ...[
-          Wrap(
-            spacing: 6,
-            runSpacing: 6,
-            children: reel.hashtags.map((tag) {
-              return GestureDetector(
-                onTap: () {
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    SnackBar(
-                      content: Text('Opening #$tag'),
-                      backgroundColor: InstagramTheme.surfaceWhite,
-                      behavior: SnackBarBehavior.floating,
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(12),
-                      ),
-                    ),
-                  );
-                },
+        // Audio Info
+        Row(
+          children: [
+            const Icon(LucideIcons.music2, color: Colors.white, size: 12),
+            const SizedBox(width: 8),
+            Expanded(
+              child: SingleChildScrollView(
+                scrollDirection: Axis.horizontal,
                 child: Text(
-                  '#$tag ',
-                  style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                    color: InstagramTheme.primaryPink,
-                    fontWeight: FontWeight.w600,
-                    fontSize: 14,
+                  reel.audioTitle ?? 'Original Audio - ${reel.userName}',
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontSize: 12,
                   ),
                 ),
-              );
-            }).toList(),
-          ),
-          const SizedBox(height: 10),
-        ],
-        
-        // Audio
-        if (reel.audioTitle != null) ...[
-          GestureDetector(
-            onTap: () {
-              ScaffoldMessenger.of(context).showSnackBar(
-                SnackBar(
-                  content: Text('Opening audio: ${reel.audioTitle}'),
-                  backgroundColor: InstagramTheme.surfaceWhite,
-                  behavior: SnackBarBehavior.floating,
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(12),
-                  ),
-                ),
-              );
-            },
-            child: Row(
-              children: [
-                Icon(
-                  LucideIcons.music2,
-                  color: InstagramTheme.textBlack,
-                  size: 14,
-                ),
-                const SizedBox(width: 6),
-                Flexible(
-                  child: Text(
-                    '${reel.audioTitle}${reel.audioArtist != null ? ' - ${reel.audioArtist}' : ''}',
-                    style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                      fontSize: 12,
-                      color: InstagramTheme.textBlack,
-                    ),
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                  ),
-                ),
-              ],
-            ),
-          ),
-          const SizedBox(height: 8),
-        ],
-        
-        // Sponsored Badge
-        if (reel.isSponsored)
-          Container(
-            margin: const EdgeInsets.only(top: 4),
-            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-            decoration: BoxDecoration(
-              color: InstagramTheme.primaryPink,
-              borderRadius: BorderRadius.circular(8),
-            ),
-            child: Text(
-              'Sponsored',
-              style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                color: InstagramTheme.backgroundWhite,
-                fontSize: 10,
-                fontWeight: FontWeight.bold,
               ),
             ),
-          ),
+          ],
+        ),
       ],
     );
   }

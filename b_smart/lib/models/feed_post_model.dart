@@ -14,6 +14,7 @@ class FeedPost {
   final bool isVerified;
   final PostMediaType mediaType;
   final List<String> mediaUrls; // For carousel, multiple URLs
+  final String? thumbnailUrl; // Added thumbnail URL for videos/reels
   final String? caption;
   final List<String> hashtags;
   final DateTime createdAt;
@@ -43,6 +44,7 @@ class FeedPost {
     this.isVerified = false,
     required this.mediaType,
     required this.mediaUrls,
+    this.thumbnailUrl,
     this.caption,
     this.hashtags = const [],
     required this.createdAt,
@@ -72,6 +74,7 @@ class FeedPost {
     bool? isVerified,
     PostMediaType? mediaType,
     List<String>? mediaUrls,
+    String? thumbnailUrl,
     String? caption,
     List<String>? hashtags,
     DateTime? createdAt,
@@ -100,6 +103,7 @@ class FeedPost {
       isVerified: isVerified ?? this.isVerified,
       mediaType: mediaType ?? this.mediaType,
       mediaUrls: mediaUrls ?? this.mediaUrls,
+      thumbnailUrl: thumbnailUrl ?? this.thumbnailUrl,
       caption: caption ?? this.caption,
       hashtags: hashtags ?? this.hashtags,
       createdAt: createdAt ?? this.createdAt,
