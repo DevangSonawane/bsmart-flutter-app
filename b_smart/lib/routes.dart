@@ -20,6 +20,15 @@ import '../models/media_model.dart';
 import 'screens/edit_video_screen.dart';
 
 /// Centralized route definitions matching the React app structure.
+///
+/// NOTE: '/profile' and '/post' are intentionally NOT in this map.
+/// They are dynamic routes handled by onGenerateRoute in main.dart:
+///   /profile/:userId  → ProfileScreen(userId: userId)
+///   /post/:postId     → PostDetailScreen(postId: postId)
+///
+/// Putting '/profile' here as a static route would intercept
+/// pushNamed('/profile/someId') and strip the userId segment,
+/// causing ProfileScreen to receive null and show the wrong user.
 final Map<String, WidgetBuilder> appRoutes = {
   '/login': (ctx) => const LoginScreen(),
   '/signup': (ctx) => const SignupScreen(),
@@ -29,12 +38,11 @@ final Map<String, WidgetBuilder> appRoutes = {
     return VerifyOtpScreen(email: email);
   },
   '/home': (ctx) => const HomeDashboard(),
-  // Do not add '/' here when MaterialApp uses home: - it would be redundant and trigger an assertion
   '/create_post': (ctx) => const CreateUploadScreen(
         initialMode: UploadMode.post,
       ),
   '/create': (ctx) => const CreateScreen(),
-  '/profile': (ctx) => const ProfileScreen(),
+  // '/profile' is intentionally removed — handled by onGenerateRoute
   '/reels': (ctx) => const ReelsScreen(),
   '/ads': (ctx) => const AdsScreen(),
   '/promote': (ctx) => const PromoteScreen(),
@@ -42,9 +50,7 @@ final Map<String, WidgetBuilder> appRoutes = {
   '/wallet': (ctx) => const WalletScreen(),
   '/notifications': (ctx) => const NotificationsScreen(),
   '/auth/google/success': (ctx) => const AuthCallbackScreen(),
-  '/edit-profile': (ctx) {
-    return const EditProfileScreen(userId: '');
-  },
+  '/edit-profile': (ctx) => const EditProfileScreen(userId: ''),
   '/story-camera': (ctx) => const StoryCameraScreen(),
   '/own-story-viewer': (ctx) {
     return OwnStoryViewerScreen(stories: const [], userName: 'You');

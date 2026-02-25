@@ -77,6 +77,11 @@ dependencies:
   geocoding: ^2.2.0
   video_thumbnail: ^0.5.3
   visibility_detector: ^0.4.0+2
+  insta_assets_picker: ^3.4.0
+  wechat_assets_picker: ^9.8.0
+  pro_image_editor: ^12.0.0
+  flutter_colorpicker: ^1.1.0
+  google_fonts: ^4.0.5
 
 dev_dependencies:
   flutter_test:

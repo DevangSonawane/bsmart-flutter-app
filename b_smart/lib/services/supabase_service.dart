@@ -124,6 +124,10 @@ class SupabaseService {
     } catch (_) {}
   }
 
+  Future<void> syncFollowStatus(String targetUserId, bool followed) async {
+    await _updateLocalFollow(targetUserId, followed);
+  }
+
   Future<void> _updateLocalFollow(String targetUserId, bool followed) async {
     try {
       final uid = await CurrentUser.id;
@@ -144,11 +148,28 @@ class SupabaseService {
     // Primary source: public users endpoint with posts
     try {
       final data = await _usersApi.getUserProfile(userId);
-      final user = data['user'] as Map<String, dynamic>?;
-      if (user != null && (user['username'] != null || user['full_name'] != null)) {
-        return user;
+      
+      // Case 1: data['user'] exists (Standard format)
+      if (data['user'] is Map) {
+        return data['user'] as Map<String, dynamic>;
+      }
+      
+      // Case 2: data['data'] exists (Sometimes wrapped)
+      if (data['data'] is Map) {
+        final d = data['data'] as Map;
+        if (d['user'] is Map) return d['user'] as Map<String, dynamic>;
+        // If data['data'] IS the user object
+        if (d['username'] != null || d['full_name'] != null || d['_id'] != null) {
+          return d.cast<String, dynamic>();
+        }
+      }
+
+      // Case 3: data IS the user object (Direct return)
+      if (data['username'] != null || data['full_name'] != null || data['_id'] != null || data['id'] != null) {
+        return data;
       }
     } catch (_) {}
+
     // Fallback: authenticated user endpoint
     try {
       final me = await AuthApi().me();
@@ -399,12 +420,15 @@ class SupabaseService {
   }
 
   Future<bool> followUser(String targetUserId) async {
-    bool result = true;
+    bool result = false; // Default to failure for optimistic UI revert
     try {
       final res = await _followsApi.follow(targetUserId);
       final followed = res['followed'] as bool?;
       if (followed != null) {
         result = followed;
+      } else {
+        // Fallback if 'followed' key missing but no error
+        result = true;
       }
     } catch (_) {
       try {
@@ -412,27 +436,37 @@ class SupabaseService {
         final followed = res['followed'] as bool?;
         if (followed != null) {
           result = followed;
+        } else {
+           result = true;
         }
       } catch (_) {
-        result = true;
+        result = false;
       }
     }
-    await _updateLocalFollow(targetUserId, result);
+    // Only update local cache if operation appeared successful (or explicitly returned status)
+    if (result) {
+      await _updateLocalFollow(targetUserId, true);
+    }
     return result;
   }
 
   Future<bool> unfollowUser(String targetUserId) async {
-    bool result = false;
+    bool result = false; // Default to failure
     try {
       final res = await _followsApi.unfollow(targetUserId);
       final followed = res['followed'] as bool?;
       if (followed != null) {
-        result = !followed;
+        result = !followed; // If followed=false, then unfollow succeeded (result=true means "success")
+      } else {
+        result = true;
       }
     } catch (_) {
       result = false;
     }
-    await _updateLocalFollow(targetUserId, result);
+    // If unfollow succeeded (result=true), we update cache to false (not following)
+    if (result) {
+      await _updateLocalFollow(targetUserId, false);
+    }
     return result;
   }
 

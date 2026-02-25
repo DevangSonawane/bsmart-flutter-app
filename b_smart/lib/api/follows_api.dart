@@ -19,10 +19,10 @@ class FollowsApi {
 
   /// Follow a user.
   ///
-  /// Accepts either body `{ "userId": "<id>" }` or path `/follows/{userId}` depending on server.
+  /// Accepts either body `{ "followedUserId": "<id>" }` or path `/follows/{userId}` depending on server.
   Future<Map<String, dynamic>> follow(String userId) async {
     final res = await _client.post('/follow', body: {
-      'userId': userId,
+      'followedUserId': userId,
     });
     return res as Map<String, dynamic>;
   }
@@ -36,7 +36,7 @@ class FollowsApi {
   /// Unfollow a user.
   Future<Map<String, dynamic>> unfollow(String userId) async {
     final res = await _client.post('/unfollow', body: {
-      'userId': userId,
+      'followedUserId': userId,
     });
     return res as Map<String, dynamic>;
   }

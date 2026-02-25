@@ -1,4 +1,5 @@
 import 'dart:io';
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 import 'package:video_player/video_player.dart';
@@ -7,6 +8,7 @@ import '../models/media_model.dart';
 import '../services/supabase_service.dart';
 import '../api/upload_api.dart';
 import '../api/reels_api.dart';
+import '../api/users_api.dart';
 import '../config/api_config.dart';
 import '../utils/current_user.dart';
 
@@ -42,7 +44,10 @@ class _CreateReelDetailsScreenState extends State<CreateReelDetailsScreen> {
   bool _advancedOpen = false;
   bool _showEmojiPicker = false;
   bool _isSubmitting = false;
+  bool _soundOn = true;
   Map<String, dynamic>? _currentUserProfile;
+  final List<Map<String, dynamic>> _peopleTags = [];
+  String? _draggingTagId;
 
   VideoPlayerController? _videoController;
   Future<void>? _videoInit;
@@ -100,15 +105,16 @@ class _CreateReelDetailsScreenState extends State<CreateReelDetailsScreen> {
       final filename = 'thumb_${DateTime.now().millisecondsSinceEpoch}.jpg';
       final res = await UploadApi().uploadThumbnailBytes(bytes: bytes, filename: filename);
       final rawThumbs = res['thumbnails'];
-      List<String>? urls;
+      if (rawThumbs == null) return null;
+      List<Map<String, dynamic>>? thumbs;
       if (rawThumbs is List) {
-        urls = rawThumbs.map((e) => e.toString()).toList();
-      } else if (rawThumbs is String) {
-        urls = [rawThumbs];
+        thumbs = rawThumbs.map((e) => Map<String, dynamic>.from(e as Map)).toList();
+      } else if (rawThumbs is Map) {
+        thumbs = [Map<String, dynamic>.from(rawThumbs as Map)];
       }
-      if (urls == null || urls.isEmpty) return null;
+      if (thumbs == null || thumbs.isEmpty) return null;
       return {
-        'urls': urls,
+        'thumbs': thumbs,
         'timeMs': captureMs,
       };
     } catch (_) {
@@ -226,18 +232,30 @@ class _CreateReelDetailsScreenState extends State<CreateReelDetailsScreen> {
         'finallength-end': endMs,
         'finalLength': finalLenMs,
         'finallength': finalLenMs,
-        if (thumbMeta != null && thumbMeta['urls'] != null) 'thumbnail': thumbMeta['urls'],
+        if (thumbMeta != null && thumbMeta['thumbs'] != null) 'thumbnail': thumbMeta['thumbs'],
         if (thumbMeta != null && thumbMeta['timeMs'] != null) 'thumbail-time': thumbMeta['timeMs'],
+        'soundOn': _soundOn,
+        'isMuted': !_soundOn,
+        'volume': 1.0,
         if (widget.selectedMusic != null) 'musicId': widget.selectedMusic,
         if (widget.selectedMusic != null) 'musicVolume': widget.musicVolume,
       };
 
+      // Extract hashtags
+      final captionText = _captionCtl.text.trim();
+      final tags = RegExp(r'#(\w+)').allMatches(captionText).map((m) => m.group(0)!).toList();
+
       final created = await ReelsApi().createReel(
         media: [mediaItem],
-        caption: _captionCtl.text.trim().isEmpty ? null : _captionCtl.text.trim(),
+        caption: captionText.isEmpty ? null : captionText,
         location: _location.isEmpty ? null : _location,
-        tags: const [],
-        peopleTags: const [],
+        tags: tags,
+        peopleTags: _peopleTags.map((t) => {
+          'user_id': t['user_id'],
+          'username': t['username'],
+          'x': (t['x'] as double) * 100, // API expects 0-100 range? React sends 0-100.
+          'y': (t['y'] as double) * 100,
+        }).toList(),
         hideLikesCount: _hideLikes,
         turnOffCommenting: _turnOffCommenting,
       );
@@ -263,6 +281,29 @@ class _CreateReelDetailsScreenState extends State<CreateReelDetailsScreen> {
         setState(() => _isSubmitting = false);
       }
     }
+  }
+
+  void _showTagSearch() {
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.white,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
+      ),
+      builder: (ctx) => _TagSearchSheet(onSelect: (user) {
+        setState(() {
+          _peopleTags.add({
+            'user_id': user['id'],
+            'username': user['username'],
+            'avatar_url': user['avatar_url'],
+            'x': 0.5,
+            'y': 0.5,
+          });
+        });
+        Navigator.pop(ctx);
+      }),
+    );
   }
 
   @override
@@ -312,7 +353,75 @@ class _CreateReelDetailsScreenState extends State<CreateReelDetailsScreen> {
 
     final previewSection = Container(
       color: Colors.black,
-      child: Center(child: previewChild),
+      child: Stack(
+        alignment: Alignment.center,
+        children: [
+          Center(child: previewChild),
+          // Interactive layer for tagging
+          Positioned.fill(
+            child: GestureDetector(
+              onTap: () {
+                if (_peopleTags.isEmpty) {
+                   _showTagSearch();
+                }
+              },
+              child: Container(color: Colors.transparent),
+            ),
+          ),
+          if (_peopleTags.isEmpty)
+             const Positioned(
+                bottom: 20,
+                child: Text(
+                  'Tap to tag people',
+                  style: TextStyle(
+                    color: Colors.white54,
+                    fontSize: 12,
+                    shadows: [Shadow(blurRadius: 2, color: Colors.black)],
+                  ),
+                ),
+             ),
+          // Render tags
+           ..._peopleTags.map((tag) {
+              final x = (tag['x'] as double);
+              final y = (tag['y'] as double);
+              return Align(
+                alignment: Alignment(x * 2 - 1, y * 2 - 1),
+                child: GestureDetector(
+                  onPanUpdate: (details) {
+                    // Drag logic requires container size context, skipping complex drag for now
+                    // just allow tap to remove
+                  },
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                    decoration: BoxDecoration(
+                      color: Colors.black.withOpacity(0.7),
+                      borderRadius: BorderRadius.circular(8),
+                      border: Border.all(color: Colors.white30),
+                    ),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Text(
+                          tag['username'],
+                          style: const TextStyle(color: Colors.white, fontSize: 12, fontWeight: FontWeight.bold),
+                        ),
+                        const SizedBox(width: 4),
+                        GestureDetector(
+                          onTap: () {
+                            setState(() {
+                              _peopleTags.remove(tag);
+                            });
+                          },
+                          child: const Icon(LucideIcons.x, size: 14, color: Colors.white),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              );
+           }).toList(),
+        ],
+      ),
     );
 
     final sharePanel = Container(
@@ -453,13 +562,58 @@ class _CreateReelDetailsScreenState extends State<CreateReelDetailsScreen> {
             ),
           ),
           const Divider(height: 1),
-          ListTile(
-            contentPadding:
-                const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
-            leading:
-                Icon(LucideIcons.userPlus, size: 22, color: Colors.grey[700]),
-            title: const Text('Add Tag', style: TextStyle(fontSize: 14)),
+          InkWell(
+            onTap: _showTagSearch,
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  const Text('Tag People', style: TextStyle(fontSize: 14)),
+                  const Text('Add Tag', style: TextStyle(fontSize: 14, color: Colors.blue, fontWeight: FontWeight.bold)),
+                ],
+              ),
+            ),
           ),
+          if (_peopleTags.isNotEmpty)
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 16),
+              child: Wrap(
+                spacing: 8,
+                runSpacing: 8,
+                children: _peopleTags.map((tag) => Chip(
+                  avatar: CircleAvatar(
+                    backgroundImage: tag['avatar_url'] != null ? NetworkImage(tag['avatar_url']) : null,
+                    child: tag['avatar_url'] == null ? Text(tag['username'][0].toUpperCase()) : null,
+                  ),
+                  label: Text(tag['username']),
+                  onDeleted: () {
+                    setState(() {
+                      _peopleTags.remove(tag);
+                    });
+                  },
+                )).toList(),
+              ),
+            ),
+          const Divider(height: 1),
+          InkWell(
+            onTap: () => setState(() => _soundOn = !_soundOn),
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  const Text('Sound', style: TextStyle(fontSize: 14, fontWeight: FontWeight.w500)),
+                  Switch(
+                    value: _soundOn,
+                    onChanged: (v) => setState(() => _soundOn = v),
+                    activeColor: Colors.blue,
+                  ),
+                ],
+              ),
+            ),
+          ),
+          const Divider(height: 1),
           InkWell(
             onTap: () => setState(() => _advancedOpen = !_advancedOpen),
             child: Padding(
@@ -617,6 +771,138 @@ class _CreateReelDetailsScreenState extends State<CreateReelDetailsScreen> {
             ],
           );
         },
+      ),
+    );
+  }
+}
+
+class _TagSearchSheet extends StatefulWidget {
+  final Function(Map<String, dynamic>) onSelect;
+  const _TagSearchSheet({Key? key, required this.onSelect}) : super(key: key);
+
+  @override
+  State<_TagSearchSheet> createState() => _TagSearchSheetState();
+}
+
+class _TagSearchSheetState extends State<_TagSearchSheet> {
+  final TextEditingController _searchCtl = TextEditingController();
+  List<Map<String, dynamic>> _results = [];
+  bool _loading = false;
+  Timer? _debounce;
+
+  @override
+  void initState() {
+    super.initState();
+    _searchCtl.addListener(() => _onSearchChanged(_searchCtl.text));
+  }
+
+  @override
+  void dispose() {
+    _searchCtl.dispose();
+    _debounce?.cancel();
+    super.dispose();
+  }
+
+  void _onSearchChanged(String query) {
+    if (_debounce?.isActive ?? false) _debounce!.cancel();
+    _debounce = Timer(const Duration(milliseconds: 500), () async {
+      if (query.trim().isEmpty) {
+        if (mounted) setState(() => _results = []);
+        return;
+      }
+      if (mounted) setState(() => _loading = true);
+      try {
+        final res = await UsersApi().search(query);
+        if (mounted) setState(() => _results = res);
+      } catch (_) {
+      } finally {
+        if (mounted) setState(() => _loading = false);
+      }
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      height: MediaQuery.of(context).size.height * 0.7,
+      padding: const EdgeInsets.all(16),
+      decoration: const BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
+      ),
+      child: Column(
+        children: [
+          Container(
+            width: 40,
+            height: 4,
+            margin: const EdgeInsets.only(bottom: 16),
+            decoration: BoxDecoration(
+              color: Colors.grey[300],
+              borderRadius: BorderRadius.circular(2),
+            ),
+          ),
+          const Text(
+            'Tag People',
+            style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+          ),
+          const SizedBox(height: 16),
+          TextField(
+            controller: _searchCtl,
+            decoration: InputDecoration(
+              hintText: 'Search user',
+              prefixIcon: const Icon(LucideIcons.search, size: 20),
+              filled: true,
+              fillColor: Colors.grey[100],
+              border: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(12),
+                borderSide: BorderSide.none,
+              ),
+              contentPadding: const EdgeInsets.symmetric(horizontal: 16),
+            ),
+          ),
+          const SizedBox(height: 16),
+          Expanded(
+            child: _loading
+                ? const Center(child: CircularProgressIndicator())
+                : _results.isEmpty
+                    ? Center(
+                        child: Text(
+                          _searchCtl.text.isEmpty
+                              ? 'Search for users to tag'
+                              : 'No users found',
+                          style: TextStyle(color: Colors.grey[500]),
+                        ),
+                      )
+                    : ListView.builder(
+                        itemCount: _results.length,
+                        itemBuilder: (context, index) {
+                          final user = _results[index];
+                          final avatar = user['avatar_url'] as String?;
+                          final username = (user['username'] as String?) ?? 'User';
+                          final fullName = (user['full_name'] as String?) ?? '';
+                          return ListTile(
+                            leading: CircleAvatar(
+                              backgroundColor: Colors.grey[200],
+                              backgroundImage: avatar != null && avatar.isNotEmpty
+                                  ? NetworkImage(avatar)
+                                  : null,
+                              child: (avatar == null || avatar.isEmpty)
+                                  ? Text(
+                                      username.substring(0, 1).toUpperCase(),
+                                      style: const TextStyle(
+                                          color: Colors.black,
+                                          fontWeight: FontWeight.bold),
+                                    )
+                                  : null,
+                            ),
+                            title: Text(username),
+                            subtitle: fullName.isNotEmpty ? Text(fullName) : null,
+                            onTap: () => widget.onSelect(user),
+                          );
+                        },
+                      ),
+          ),
+        ],
       ),
     );
   }

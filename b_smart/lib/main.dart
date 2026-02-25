@@ -6,7 +6,7 @@ import 'screens/home_dashboard.dart';
 import 'theme/app_theme.dart';
 import 'theme/theme_notifier.dart';
 import 'theme/theme_scope.dart';
-import 'state/store.dart'; // Contains createStore and setGlobalStore
+import 'state/store.dart';
 import 'state/app_state.dart';
 import 'config/api_config.dart';
 import 'api/api.dart';
@@ -19,14 +19,12 @@ import 'screens/profile_screen.dart';
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
-  // Load environment (if present)
   try {
     await dotenv.load(fileName: ".env");
   } catch (e) {
     // ignore - .env may be absent in some environments
   }
 
-  // ── Initialize REST API config ──────────────────────────────────────────
   {
     String? apiBaseUrl;
     try {
@@ -35,21 +33,15 @@ void main() async {
     ApiConfig.init(baseUrl: apiBaseUrl);
   }
 
-  // Set preferred orientations
   await SystemChrome.setPreferredOrientations([
     DeviceOrientation.portraitUp,
     DeviceOrientation.portraitDown,
   ]);
 
-  // 1. Create the Store
   final store = createStore();
-  
-  // 2. CRITICAL: Link the store to the Global Store helper so 
-  // Services (ReelsService, FeedService) can dispatch updates to the UI.
-  setGlobalStore(store); 
-
+  setGlobalStore(store);
   final themeNotifier = await ThemeNotifier.create();
-  
+
   runApp(StoreProvider<AppState>(
     store: store,
     child: ThemeScope(
@@ -111,9 +103,17 @@ class _BSmartAppState extends State<BSmartApp> {
       );
     }
 
-    final routes = Map<String, WidgetBuilder>.from(appRoutes)..remove('/');
+    // Remove any static entries that would shadow onGenerateRoute.
+    // Static routes ALWAYS win over onGenerateRoute for exact matches,
+    // so '/profile' in the map would intercept '/profile/someId' and
+    // hand it to the wrong screen (or crash with a missing argument).
+    final staticRoutes = Map<String, WidgetBuilder>.from(appRoutes)
+      ..remove('/')
+      ..remove('/profile')   // ← CRITICAL: must not be in static map
+      ..remove('/post');     // ← CRITICAL: must not be in static map
+
     final isDark = ThemeScope.of(context).isDark;
-    
+
     return MaterialApp(
       title: 'b Smart',
       debugShowCheckedModeBanner: false,
@@ -121,27 +121,34 @@ class _BSmartAppState extends State<BSmartApp> {
       darkTheme: AppTheme.darkTheme,
       themeMode: isDark ? ThemeMode.dark : ThemeMode.light,
       home: _isAuthenticated ? const HomeDashboard() : const LoginScreen(),
-      routes: routes,
+      routes: staticRoutes,
       onGenerateRoute: (settings) {
         final name = settings.name ?? '';
         final uri = Uri.parse(name);
         final segments = uri.pathSegments;
-        
-        if (segments.length == 2 && segments[0] == 'post') {
-          final postId = segments[1];
-          return MaterialPageRoute<void>(
-            builder: (ctx) => PostDetailScreen(postId: postId),
-            settings: settings,
-          );
-        }
-        
+
+        // /profile/:userId
         if (segments.length == 2 && segments[0] == 'profile') {
           final userId = segments[1];
+          debugPrint('[Router] → ProfileScreen userId=$userId');
           return MaterialPageRoute<void>(
-            builder: (ctx) => ProfileScreen(userId: userId),
             settings: settings,
+            builder: (ctx) => ProfileScreen(userId: userId),
           );
         }
+
+        // /post/:postId
+        if (segments.length == 2 && segments[0] == 'post') {
+          final postId = segments[1];
+          debugPrint('[Router] → PostDetailScreen postId=$postId');
+          return MaterialPageRoute<void>(
+            settings: settings,
+            builder: (ctx) => PostDetailScreen(postId: postId),
+          );
+        }
+
+        // Let Flutter handle anything else (404, etc.)
+        debugPrint('[Router] No match for: $name');
         return null;
       },
     );

@@ -32,6 +32,7 @@ class Reel {
   final bool isRisingCreator;
   final bool isTrending;
   final Duration duration;
+  final List<Map<String, dynamic>>? peopleTags;
 
   Reel({
     required this.id,
@@ -65,6 +66,7 @@ class Reel {
     this.isRisingCreator = false,
     this.isTrending = false,
     required this.duration,
+    this.peopleTags,
   });
 
   Reel copyWith({
@@ -99,6 +101,7 @@ class Reel {
     bool? isRisingCreator,
     bool? isTrending,
     Duration? duration,
+    List<Map<String, dynamic>>? peopleTags,
   }) {
     return Reel(
       id: id ?? this.id,
@@ -132,6 +135,7 @@ class Reel {
       isRisingCreator: isRisingCreator ?? this.isRisingCreator,
       isTrending: isTrending ?? this.isTrending,
       duration: duration ?? this.duration,
+      peopleTags: peopleTags ?? this.peopleTags,
     );
   }
   FeedPost toFeedPost() {
@@ -153,6 +157,8 @@ class Reel {
       isLiked: isLiked,
       isSaved: isSaved,
       isFollowed: isFollowing,
+      isTagged: peopleTags?.isNotEmpty ?? false,
+      peopleTags: peopleTags,
     );
   }
 
@@ -175,6 +181,7 @@ class Reel {
       isSaved: post.isSaved,
       isFollowing: post.isFollowed,
       duration: const Duration(seconds: 30),
+      peopleTags: post.peopleTags,
     );
   }
 }

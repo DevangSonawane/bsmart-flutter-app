@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 import '../theme/design_tokens.dart';
+import '../screens/profile_screen.dart';
 
 class TopBar extends StatelessWidget implements PreferredSizeWidget {
   final String title;
@@ -26,10 +27,18 @@ class TopBar extends StatelessWidget implements PreferredSizeWidget {
         ),
         Padding(
           padding: const EdgeInsets.symmetric(horizontal: 8.0),
-          child: CircleAvatar(
-            radius: 16,
-            backgroundColor: DesignTokens.instaPink,
-            child: Icon(LucideIcons.user, size: 16, color: Colors.white),
+          child: GestureDetector(
+            onTap: () {
+              Navigator.push(
+                context,
+                MaterialPageRoute(builder: (context) => const ProfileScreen()),
+              );
+            },
+            child: CircleAvatar(
+              radius: 16,
+              backgroundColor: DesignTokens.instaPink,
+              child: Icon(LucideIcons.user, size: 16, color: Colors.white),
+            ),
           ),
         ),
       ],

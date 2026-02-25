@@ -56,17 +56,40 @@ class UsersApi {
   ///
   /// Returns a list of users matching the query.
   Future<List<Map<String, dynamic>>> search(String query) async {
-    final res = await _client.get('/users/search', queryParams: {
-      'q': query,
-    });
-    final data = res;
-    if (data is Map<String, dynamic>) {
-      final list = data['data'] as List<dynamic>? ?? [];
-      return list.cast<Map<String, dynamic>>();
+    // Note: The React app uses GET /users and filters client-side if a query is present.
+    // However, if the backend supports /users/search, we should use it.
+    // If /users/search is not implemented or returns 404, we might need to fallback to /users.
+    // Based on the React code: 
+    // const { data } = await api.get('https://bsmart.asynk.store/api/users');
+    // It fetches ALL users and filters them in the frontend.
+    // Let's replicate that behavior here to ensure consistency if the search endpoint is missing.
+    
+    final res = await _client.get('/users');
+    
+    List<dynamic> list = [];
+    if (res is Map<String, dynamic>) {
+      list = (res['users'] as List<dynamic>?) ?? (res['data'] as List<dynamic>?) ?? [];
+    } else if (res is List) {
+      list = res;
     }
-    if (data is List) {
-      return data.cast<Map<String, dynamic>>();
+
+    // React app structure: items might be { user: {...} } or just {...}
+    final users = list.map((item) {
+      if (item is Map<String, dynamic> && item.containsKey('user')) {
+        return item['user'] as Map<String, dynamic>;
+      }
+      return item as Map<String, dynamic>;
+    }).toList();
+
+    if (query.trim().isEmpty) {
+      return users;
     }
-    return <Map<String, dynamic>>[];
+
+    final q = query.trim().toLowerCase();
+    return users.where((u) {
+      final username = (u['username'] as String?)?.toLowerCase() ?? '';
+      final fullName = (u['full_name'] as String?)?.toLowerCase() ?? '';
+      return username.contains(q) || fullName.contains(q);
+    }).toList();
   }
 }

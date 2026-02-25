@@ -11,6 +11,7 @@ import '../utils/current_user.dart';
 import '../config/api_config.dart';
 import '../api/upload_api.dart';
 import '../api/posts_api.dart';
+import '../api/users_api.dart';
 import '../models/media_model.dart';
 
 /// Single media item in the create-post flow (select → crop → edit → share).
@@ -40,7 +41,7 @@ class _CreatePostMediaItem {
 /// Tag on the post (x, y as percentage; user map from Supabase).
 class _PostTag {
   final String id;
-  final double x, y;
+  double x, y;
   final Map<String, dynamic> user;
 
   _PostTag({required this.id, required this.x, required this.y, required this.user});
@@ -407,28 +408,52 @@ class _CreatePostScreenState extends State<CreatePostScreen> {
     if (item != null) setState(() => item.adjustments[key] = value);
   }
 
-  void _onImageTapForTag(TapDownDetails details) {
-    final box = context.findRenderObject() as RenderBox?;
-    if (box == null) return;
-    final size = box.size;
-    final local = box.globalToLocal(details.globalPosition);
+  String? _draggingTagId;
+
+  void _onImageTapForTag(TapDownDetails details, Size size) {
+    if (_draggingTagId != null) return;
     setState(() {
-      _tagX = (local.dx / size.width).clamp(0.0, 1.0) * 100;
-      _tagY = (local.dy / size.height).clamp(0.0, 1.0) * 100;
+      _tagX = (details.localPosition.dx / size.width).clamp(0.0, 1.0) * 100;
+      _tagY = (details.localPosition.dy / size.height).clamp(0.0, 1.0) * 100;
       _showTagSearch = true;
       _searchTagUsers('');
     });
   }
 
+  Timer? _searchDebounce;
+  String _lastSearchQuery = '';
+
   Future<void> _searchTagUsers(String query) async {
-    setState(() => _isSearchingUsers = true);
-    // TODO: Use REST API to search users
-    // final list = await _svc.searchUsersByUsername(query, limit: 20);
-    // Mock result for now
-    final list = <Map<String, dynamic>>[];
-    if (mounted) setState(() {
-      _tagSearchResults = list;
-      _isSearchingUsers = false;
+    if (_searchDebounce?.isActive ?? false) _searchDebounce!.cancel();
+    
+    // Clear results if query is empty
+    if (query.isEmpty) {
+      if (mounted) setState(() {
+        _tagSearchResults = [];
+        _isSearchingUsers = false;
+        _lastSearchQuery = '';
+      });
+      return;
+    }
+
+    _searchDebounce = Timer(const Duration(milliseconds: 300), () async {
+      if (!mounted) return;
+      setState(() {
+        _isSearchingUsers = true;
+        _lastSearchQuery = query;
+      });
+      try {
+        final list = await UsersApi().search(query);
+        if (mounted) setState(() {
+          _tagSearchResults = list;
+          _isSearchingUsers = false;
+        });
+      } catch (e) {
+        if (mounted) setState(() {
+          _tagSearchResults = [];
+          _isSearchingUsers = false;
+        });
+      }
     });
   }
 
@@ -547,7 +572,7 @@ class _CreatePostScreenState extends State<CreatePostScreen> {
       if (processedMedia.isEmpty) throw Exception('No media to upload');
 
       final peopleTags = _tags.map((t) => {
-        'user_id': t.user['id'],
+        'user_id': t.user['id'] ?? t.user['_id'],
         'username': t.user['username'],
         'x': t.x,
         'y': t.y,
@@ -1118,258 +1143,313 @@ class _CreatePostScreenState extends State<CreatePostScreen> {
   Widget _buildShare() {
     final item = _currentMedia;
     if (item == null) return const SizedBox();
-    final imageSection = Stack(
-      alignment: Alignment.center,
-      children: [
-        GestureDetector(
-          onTapDown: _onImageTapForTag,
-          child: item.isVideo
-              ? Icon(LucideIcons.video, size: 100, color: Colors.grey[600])
-              : _applyFilterToImage(File(item.displayPath), item),
-        ),
-        Positioned(
-          left: 0,
-          right: 0,
-          bottom: 16,
-          child: Center(
-            child: Container(
-              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-              decoration: BoxDecoration(color: Colors.black54, borderRadius: BorderRadius.circular(20)),
-              child: const Text('Tap photo to tag people', style: TextStyle(color: Colors.white, fontSize: 12)),
-            ),
-          ),
-        ),
-        ..._tags.map((t) => Positioned(
-          left: 0,
-          right: 0,
-          top: 0,
-          bottom: 0,
-          child: Align(
-            alignment: Alignment(t.x / 50 - 1, t.y / 50 - 1),
-            child: Container(
-              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-              decoration: BoxDecoration(color: Colors.black54, borderRadius: BorderRadius.circular(8)),
-              child: Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Text(
-                    (t.user['username'] as String?) ?? '',
-                    style: const TextStyle(color: Colors.white, fontSize: 12, fontWeight: FontWeight.w600),
-                  ),
-                  GestureDetector(
-                    onTap: () => _removeTag(t.id),
-                    child: Padding(
-                      padding: const EdgeInsets.only(left: 6),
-                      child: Icon(LucideIcons.x, size: 14, color: Colors.white),
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ),
-        )),
-        if (_showTagSearch) _buildTagSearchOverlay(),
-        if (_media.length > 1) ...[
-          if (_currentIndex > 0)
-            Positioned(
-              left: 8,
-              child: IconButton(
-                icon: Icon(LucideIcons.chevronLeft, color: Colors.black87),
-                style: IconButton.styleFrom(backgroundColor: Colors.white70),
-                onPressed: () => setState(() => _currentIndex--),
-              ),
-            ),
-          if (_currentIndex < _media.length - 1)
-            Positioned(
-              right: 8,
-              child: IconButton(
-                icon: Icon(LucideIcons.chevronRight, color: Colors.black87),
-                style: IconButton.styleFrom(backgroundColor: Colors.white70),
-                onPressed: () => setState(() => _currentIndex++),
-              ),
-            ),
-        ],
-      ],
-    );
-    final sharePanel = Container(
-      color: Theme.of(context).colorScheme.surface,
-      child: ListView(
-        padding: EdgeInsets.zero,
-        children: [
-          // User row (React: user avatar + username)
-          Padding(
-            padding: const EdgeInsets.all(16),
-            child: Row(
-              children: [
-                CircleAvatar(
-                  radius: 16,
-                  backgroundColor: Colors.grey[300],
-                  backgroundImage: _currentUserProfile?['avatar_url'] != null &&
-                          (_currentUserProfile!['avatar_url'] as String).isNotEmpty
-                      ? NetworkImage(_currentUserProfile!['avatar_url'] as String)
-                      : null,
-                  child: _currentUserProfile?['avatar_url'] == null ||
-                          (_currentUserProfile!['avatar_url'] as String).isEmpty
-                      ? Text(
-                          ((_currentUserProfile?['username'] as String?) ?? 'U').toUpperCase().substring(0, 1),
-                          style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w600),
-                        )
-                      : null,
-                ),
-                const SizedBox(width: 12),
-                Text(
-                  (_currentUserProfile?['username'] as String?) ?? 'User',
-                  style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w600),
-                ),
-              ],
-            ),
-          ),
-          // Caption section
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 16),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                TextField(
-                  controller: _captionCtl,
-                  maxLines: 6,
-                  maxLength: 2200,
-                  decoration: const InputDecoration(
-                    hintText: 'Write a caption...',
-                    border: InputBorder.none,
-                    contentPadding: EdgeInsets.zero,
-                    counterText: '',
-                  ),
-                ),
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                  children: [
-                    IconButton(
-                      icon: Icon(LucideIcons.smile, color: Colors.grey[600], size: 22),
-                      onPressed: () => setState(() => _showEmojiPicker = !_showEmojiPicker),
-                    ),
-                    ValueListenableBuilder<TextEditingValue>(
-                      valueListenable: _captionCtl,
-                      builder: (_, value, __) => Text(
-                        '${value.text.length}/2,200',
-                        style: TextStyle(fontSize: 12, color: Colors.grey[600]),
-                      ),
-                    ),
-                  ],
-                ),
-                if (_showEmojiPicker)
-                  Container(
-                    padding: const EdgeInsets.all(12),
-                    decoration: BoxDecoration(
-                      border: Border.all(color: Colors.grey[300]!),
-                      borderRadius: BorderRadius.circular(12),
-                    ),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          'Most popular',
-                          style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: Colors.grey[600]),
-                        ),
-                        const SizedBox(height: 8),
-                        Wrap(
-                          spacing: 6,
-                          runSpacing: 6,
-                          children: _popularEmojis.map((e) => InkWell(
-                            onTap: () {
-                              _captionCtl.text = _captionCtl.text + e;
-                              setState(() {});
-                            },
-                            child: Padding(
-                              padding: const EdgeInsets.all(6),
-                              child: Text(e, style: const TextStyle(fontSize: 22)),
-                            ),
-                          )).toList(),
-                        ),
-                      ],
-                    ),
-                  ),
-              ],
-            ),
-          ),
-          const Divider(height: 1),
-          // Add Tag row (React parity)
-          ListTile(
-            contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
-            leading: Icon(LucideIcons.userPlus, size: 22, color: Colors.grey[700]),
-            title: const Text('Add Tag', style: TextStyle(fontSize: 14)),
-          ),
-          // Advanced Settings accordion (React: Hide likes, Turn off commenting + description)
-          InkWell(
-            onTap: () => setState(() => _advancedOpen = !_advancedOpen),
-            child: Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-              child: Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                children: [
-                  const Text('Advanced Settings', style: TextStyle(fontSize: 14, fontWeight: FontWeight.w500)),
-                  Icon(_advancedOpen ? LucideIcons.chevronUp : LucideIcons.chevronDown, color: Colors.grey[600], size: 20),
-                ],
-              ),
-            ),
-          ),
-          if (_advancedOpen) ...[
-            Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Row(
-                    children: [
-                      Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            const Text(
-                              'Hide like and view counts on this post',
-                              style: TextStyle(fontSize: 14),
-                            ),
-                            const SizedBox(height: 4),
-                            Text(
-                              'Only you will see the total number of likes and views. You can change this later in the ... menu.',
-                              style: TextStyle(fontSize: 12, color: Colors.grey[600]),
-                            ),
-                          ],
-                        ),
-                      ),
-                      Switch(value: _hideLikes, onChanged: (v) => setState(() => _hideLikes = v)),
-                    ],
-                  ),
-                  const SizedBox(height: 16),
-                  Row(
-                    children: [
-                      Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            const Text('Turn off commenting', style: TextStyle(fontSize: 14)),
-                            const SizedBox(height: 4),
-                            Text(
-                              'You can change this later in the ... menu at the top of your post.',
-                              style: TextStyle(fontSize: 12, color: Colors.grey[600]),
-                            ),
-                          ],
-                        ),
-                      ),
-                      Switch(value: _turnOffCommenting, onChanged: (v) => setState(() => _turnOffCommenting = v)),
-                    ],
-                  ),
-                ],
-              ),
-            ),
-          ],
-          const SizedBox(height: 24),
-        ],
-      ),
-    );
+    
     return LayoutBuilder(
       builder: (context, constraints) {
         final useColumn = constraints.maxWidth < 600;
+
+        final imageSection = LayoutBuilder(
+          builder: (context, imageConstraints) {
+            final w = imageConstraints.maxWidth;
+            final h = imageConstraints.maxHeight;
+            return Stack(
+              alignment: Alignment.center,
+              children: [
+                GestureDetector(
+                  onTapDown: (details) => _onImageTapForTag(details, Size(w, h)),
+                  child: Container(
+                    width: w,
+                    height: h,
+                    color: Colors.black,
+                    child: Center(
+                      child: item.isVideo
+                          ? Icon(LucideIcons.video, size: 100, color: Colors.grey[600])
+                          : _applyFilterToImage(File(item.displayPath), item),
+                    ),
+                  ),
+                ),
+                Positioned(
+                  left: 0,
+                  right: 0,
+                  bottom: 16,
+                  child: Center(
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                      decoration: BoxDecoration(color: Colors.black54, borderRadius: BorderRadius.circular(20)),
+                      child: const Text('Tap photo to tag people', style: TextStyle(color: Colors.white, fontSize: 12)),
+                    ),
+                  ),
+                ),
+                ..._tags.map((t) {
+                  final x = (t.x / 100) * w;
+                  final y = (t.y / 100) * h;
+                  return Positioned(
+                    left: x,
+                    top: y,
+                    child: GestureDetector(
+                      onPanStart: (_) => setState(() => _draggingTagId = t.id),
+                      onPanEnd: (_) => setState(() => _draggingTagId = null),
+                      onPanUpdate: (details) {
+                        setState(() {
+                          t.x += (details.delta.dx / w) * 100;
+                          t.y += (details.delta.dy / h) * 100;
+                          t.x = t.x.clamp(0.0, 100.0);
+                          t.y = t.y.clamp(0.0, 100.0);
+                        });
+                      },
+                      child: Transform.translate(
+                        offset: const Offset(-20, -15),
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                          decoration: BoxDecoration(
+                            color: Colors.black.withOpacity(0.8),
+                            borderRadius: BorderRadius.circular(20),
+                            border: Border.all(color: Colors.white.withOpacity(0.2)),
+                            boxShadow: [
+                              BoxShadow(color: Colors.black.withOpacity(0.2), blurRadius: 4, offset: const Offset(0, 2)),
+                            ],
+                          ),
+                          child: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              CircleAvatar(
+                                radius: 8,
+                                backgroundColor: Colors.grey[800],
+                                backgroundImage: t.user['avatar_url'] != null && (t.user['avatar_url'] as String).isNotEmpty
+                                    ? NetworkImage(t.user['avatar_url'] as String)
+                                    : null,
+                                child: t.user['avatar_url'] == null || (t.user['avatar_url'] as String).isEmpty
+                                    ? Text(((t.user['username'] as String?) ?? 'U')[0].toUpperCase(),
+                                        style: const TextStyle(color: Colors.white, fontSize: 8, fontWeight: FontWeight.bold))
+                                    : null,
+                              ),
+                              const SizedBox(width: 6),
+                              Text(
+                                (t.user['username'] as String?) ?? '',
+                                style: const TextStyle(color: Colors.white, fontSize: 12, fontWeight: FontWeight.w600),
+                              ),
+                              const SizedBox(width: 4),
+                              GestureDetector(
+                                onTap: () => _removeTag(t.id),
+                                child: Container(
+                                  padding: const EdgeInsets.all(2),
+                                  decoration: BoxDecoration(
+                                    color: Colors.white.withOpacity(0.2),
+                                    shape: BoxShape.circle,
+                                  ),
+                                  child: const Icon(LucideIcons.x, size: 10, color: Colors.white),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
+                    ),
+                  );
+                }),
+                if (_showTagSearch) _buildTagSearchOverlay(),
+                if (_media.length > 1) ...[
+                  if (_currentIndex > 0)
+                    Positioned(
+                      left: 8,
+                      child: IconButton(
+                        icon: Icon(LucideIcons.chevronLeft, color: Colors.black87),
+                        style: IconButton.styleFrom(backgroundColor: Colors.white70),
+                        onPressed: () => setState(() => _currentIndex--),
+                      ),
+                    ),
+                  if (_currentIndex < _media.length - 1)
+                    Positioned(
+                      right: 8,
+                      child: IconButton(
+                        icon: Icon(LucideIcons.chevronRight, color: Colors.black87),
+                        style: IconButton.styleFrom(backgroundColor: Colors.white70),
+                        onPressed: () => setState(() => _currentIndex++),
+                      ),
+                    ),
+                ],
+              ],
+            );
+          }
+        );
+
+        final sharePanel = Container(
+          color: Theme.of(context).colorScheme.surface,
+          child: ListView(
+            padding: EdgeInsets.zero,
+            children: [
+              // User row (React: user avatar + username)
+              Padding(
+                padding: const EdgeInsets.all(16),
+                child: Row(
+                  children: [
+                    CircleAvatar(
+                      radius: 16,
+                      backgroundColor: Colors.grey[300],
+                      backgroundImage: _currentUserProfile?['avatar_url'] != null &&
+                              (_currentUserProfile!['avatar_url'] as String).isNotEmpty
+                          ? NetworkImage(_currentUserProfile!['avatar_url'] as String)
+                          : null,
+                      child: _currentUserProfile?['avatar_url'] == null ||
+                              (_currentUserProfile!['avatar_url'] as String).isEmpty
+                          ? Text(
+                              ((_currentUserProfile?['username'] as String?) ?? 'U').toUpperCase().substring(0, 1),
+                              style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w600),
+                            )
+                          : null,
+                    ),
+                    const SizedBox(width: 12),
+                    Text(
+                      (_currentUserProfile?['username'] as String?) ?? 'User',
+                      style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w600),
+                    ),
+                  ],
+                ),
+              ),
+              // Caption section
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 16),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    TextField(
+                      controller: _captionCtl,
+                      maxLines: 6,
+                      maxLength: 2200,
+                      decoration: const InputDecoration(
+                        hintText: 'Write a caption...',
+                        border: InputBorder.none,
+                        contentPadding: EdgeInsets.zero,
+                        counterText: '',
+                      ),
+                    ),
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        IconButton(
+                          icon: Icon(LucideIcons.smile, color: Colors.grey[600], size: 22),
+                          onPressed: () => setState(() => _showEmojiPicker = !_showEmojiPicker),
+                        ),
+                        ValueListenableBuilder<TextEditingValue>(
+                          valueListenable: _captionCtl,
+                          builder: (_, value, __) => Text(
+                            '${value.text.length}/2,200',
+                            style: TextStyle(fontSize: 12, color: Colors.grey[600]),
+                          ),
+                        ),
+                      ],
+                    ),
+                    if (_showEmojiPicker)
+                      Container(
+                        padding: const EdgeInsets.all(12),
+                        decoration: BoxDecoration(
+                          border: Border.all(color: Colors.grey[300]!),
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              'Most popular',
+                              style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: Colors.grey[600]),
+                            ),
+                            const SizedBox(height: 8),
+                            Wrap(
+                              spacing: 6,
+                              runSpacing: 6,
+                              children: _popularEmojis.map((e) => InkWell(
+                                onTap: () {
+                                  _captionCtl.text = _captionCtl.text + e;
+                                  setState(() {});
+                                },
+                                child: Padding(
+                                  padding: const EdgeInsets.all(6),
+                                  child: Text(e, style: const TextStyle(fontSize: 22)),
+                                ),
+                              )).toList(),
+                            ),
+                          ],
+                        ),
+                      ),
+                  ],
+                ),
+              ),
+              const Divider(height: 1),
+              // Add Tag row (React parity)
+              ListTile(
+                contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+                leading: Icon(LucideIcons.userPlus, size: 22, color: Colors.grey[700]),
+                title: const Text('Add Tag', style: TextStyle(fontSize: 14)),
+              ),
+              // Advanced Settings accordion (React: Hide likes, Turn off commenting + description)
+              InkWell(
+                onTap: () => setState(() => _advancedOpen = !_advancedOpen),
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                  child: Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      const Text('Advanced Settings', style: TextStyle(fontSize: 14, fontWeight: FontWeight.w500)),
+                      Icon(_advancedOpen ? LucideIcons.chevronUp : LucideIcons.chevronDown, color: Colors.grey[600], size: 20),
+                    ],
+                  ),
+                ),
+              ),
+              if (_advancedOpen) ...[
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        children: [
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                const Text(
+                                  'Hide like and view counts on this post',
+                                  style: TextStyle(fontSize: 14),
+                                ),
+                                const SizedBox(height: 4),
+                                Text(
+                                  'Only you will see the total number of likes and views. You can change this later in the ... menu.',
+                                  style: TextStyle(fontSize: 12, color: Colors.grey[600]),
+                                ),
+                              ],
+                            ),
+                          ),
+                          Switch(value: _hideLikes, onChanged: (v) => setState(() => _hideLikes = v)),
+                        ],
+                      ),
+                      const SizedBox(height: 16),
+                      Row(
+                        children: [
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                const Text('Turn off commenting', style: TextStyle(fontSize: 14)),
+                                const SizedBox(height: 4),
+                                Text(
+                                  'You can change this later in the ... menu at the top of your post.',
+                                  style: TextStyle(fontSize: 12, color: Colors.grey[600]),
+                                ),
+                              ],
+                            ),
+                          ),
+                          Switch(value: _turnOffCommenting, onChanged: (v) => setState(() => _turnOffCommenting = v)),
+                        ],
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+              const SizedBox(height: 24),
+            ],
+          ),
+        );
+
         final borderedPanel = Container(
           decoration: BoxDecoration(
             color: Theme.of(context).colorScheme.surface,
@@ -1380,14 +1460,16 @@ class _CreatePostScreenState extends State<CreatePostScreen> {
           ),
           child: sharePanel,
         );
+
         if (useColumn) {
           return Column(
             children: [
               Expanded(flex: 2, child: imageSection),
-              SizedBox(
-                height: 320,
-                child: borderedPanel,
-              ),
+              if (!_showTagSearch)
+                SizedBox(
+                  height: 320,
+                  child: borderedPanel,
+                ),
             ],
           );
         }
@@ -1410,11 +1492,13 @@ class _CreatePostScreenState extends State<CreatePostScreen> {
       left: 24,
       right: 24,
       top: 24,
-      bottom: 24,
       child: Material(
         elevation: 8,
         borderRadius: BorderRadius.circular(12),
         child: Container(
+          constraints: BoxConstraints(
+            maxHeight: MediaQuery.of(context).size.height * 0.4, // Reduced slightly to ensure it fits well
+          ),
           padding: const EdgeInsets.all(12),
           decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(12)),
           child: Column(
@@ -1425,26 +1509,45 @@ class _CreatePostScreenState extends State<CreatePostScreen> {
                 children: [
                   const Text('Tag People', style: TextStyle(fontWeight: FontWeight.w600, fontSize: 14)),
                   IconButton(
-                    icon: Icon(LucideIcons.x, size: 20),
-                    onPressed: () => setState(() => _showTagSearch = false),
+                    icon: const Icon(LucideIcons.x, size: 20),
+                    onPressed: () {
+                      setState(() {
+                        _showTagSearch = false;
+                      });
+                    },
                   ),
                 ],
               ),
               TextField(
-                decoration: InputDecoration(
+                decoration: const InputDecoration(
                   hintText: 'Search user',
                   prefixIcon: Icon(LucideIcons.search, size: 20),
                   isDense: true,
-                  border: const OutlineInputBorder(),
+                  border: OutlineInputBorder(),
+                  contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 8),
                 ),
                 onChanged: (v) => _searchTagUsers(v),
               ),
               const SizedBox(height: 8),
               Flexible(
+                fit: FlexFit.loose,
                 child: _isSearchingUsers
-                    ? const Center(child: CircularProgressIndicator(strokeWidth: 2))
+                    ? const Padding(
+                        padding: EdgeInsets.all(16.0),
+                        child: Center(child: CircularProgressIndicator(strokeWidth: 2)),
+                      )
                     : _tagSearchResults.isEmpty
-                        ? const Center(child: Text('No users found', style: TextStyle(fontSize: 12, color: Colors.grey)))
+                        ? Padding(
+                            padding: const EdgeInsets.all(16.0),
+                            child: Center(
+                              child: Text(
+                                _lastSearchQuery.isEmpty 
+                                  ? 'Type a name to search...' 
+                                  : 'No users found',
+                                style: const TextStyle(fontSize: 12, color: Colors.grey),
+                              ),
+                            ),
+                          )
                         : ListView.builder(
                             shrinkWrap: true,
                             itemCount: _tagSearchResults.length,
@@ -1452,12 +1555,14 @@ class _CreatePostScreenState extends State<CreatePostScreen> {
                               final u = _tagSearchResults[i];
                               return ListTile(
                                 dense: true,
+                                contentPadding: EdgeInsets.zero,
                                 leading: CircleAvatar(
+                                  radius: 16,
                                   backgroundImage: u['avatar_url'] != null && (u['avatar_url'] as String).isNotEmpty
                                       ? NetworkImage(u['avatar_url'] as String)
                                       : null,
                                   child: u['avatar_url'] == null || (u['avatar_url'] as String).isEmpty
-                                      ? Icon(LucideIcons.user)
+                                      ? const Icon(LucideIcons.user, size: 16)
                                       : null,
                                 ),
                                 title: Text((u['username'] as String?) ?? '', style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w600)),

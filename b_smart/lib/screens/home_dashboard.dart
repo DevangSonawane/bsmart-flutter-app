@@ -30,6 +30,7 @@ import '../api/api_exceptions.dart';
 import '../api/api_client.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:geocoding/geocoding.dart';
+import 'profile_screen.dart';
 
 class HomeDashboard extends StatefulWidget {
   final int? initialIndex;
@@ -277,27 +278,42 @@ class _HomeDashboardState extends State<HomeDashboard> {
 
   void _onFollowPost(FeedPost post) {
     final followed = !post.isFollowed;
-    StoreProvider.of<AppState>(context).dispatch(UpdatePostFollowed(post.id, followed));
+    final store = StoreProvider.of<AppState>(context);
+    
+    // 1. Optimistic UI Update
+    store.dispatch(UpdatePostFollowed(post.id, followed));
     if (mounted) setState(() {});
+    
     final messenger = ScaffoldMessenger.of(context);
     messenger.showSnackBar(SnackBar(
       content: Text(followed ? 'Following ${post.userName}' : 'Unfollowed ${post.userName}'),
       behavior: SnackBarBehavior.floating,
       duration: const Duration(seconds: 1),
     ));
+
+    // 2. Call Service & Handle Result
     () async {
       final success = followed
           ? await _supabase.followUser(post.userId)
           : await _supabase.unfollowUser(post.userId);
-      if (!success && mounted) {
-        StoreProvider.of<AppState>(context).dispatch(UpdatePostFollowed(post.id, !followed));
+
+      if (!mounted) return;
+
+      if (!success) {
+        // Revert UI if API failed
+        store.dispatch(UpdatePostFollowed(post.id, !followed));
         setState(() {});
+        messenger.clearSnackBars();
+        messenger.showSnackBar(const SnackBar(content: Text('Action failed')));
       } else {
+        // Success: Update "My Profile" following count in Redux
         final meId = await CurrentUser.id;
-        if (!mounted || meId == null || meId.isEmpty) return;
-        final store = StoreProvider.of<AppState>(context);
+        if (meId == null || meId.isEmpty) return;
+        
         final cachedProfile = store.state.profileState.profile;
-        final cachedId = cachedProfile?['id']?.toString();
+        final cachedId = cachedProfile?['id']?.toString() ?? cachedProfile?['_id']?.toString();
+        
+        // Only update if the cached profile belongs to the current user
         if (cachedId != null && cachedId == meId) {
           final delta = followed ? 1 : -1;
           store.dispatch(AdjustFollowingCount(delta));
@@ -826,7 +842,11 @@ class _HomeDashboardState extends State<HomeDashboard> {
                           ],
                         ),
                         GestureDetector(
-                          onTap: () => Navigator.of(context).pushNamed('/profile'),
+                          onTap: () => Navigator.of(context).push(
+                            MaterialPageRoute(
+                              builder: (context) => const ProfileScreen(),
+                            ),
+                          ),
                           child: Padding(
                             padding: const EdgeInsets.only(left: 4, right: 12),
                             child: CircleAvatar(

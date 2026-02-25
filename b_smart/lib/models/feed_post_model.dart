@@ -34,6 +34,7 @@ class FeedPost {
   final String? adCompanyName;
   /// Raw likes array from backend (same as React: [{ user_id, like: true }, ...])
   final List<Map<String, dynamic>>? rawLikes;
+  final List<Map<String, dynamic>>? peopleTags;
 
   FeedPost({
     required this.id,
@@ -63,6 +64,7 @@ class FeedPost {
     this.adCompanyId,
     this.adCompanyName,
     this.rawLikes,
+    this.peopleTags,
   });
 
   FeedPost copyWith({
@@ -93,6 +95,7 @@ class FeedPost {
     String? adCompanyId,
     String? adCompanyName,
     List<Map<String, dynamic>>? rawLikes,
+    List<Map<String, dynamic>>? peopleTags,
   }) {
     return FeedPost(
       id: id ?? this.id,
@@ -122,6 +125,7 @@ class FeedPost {
       adCompanyId: adCompanyId ?? this.adCompanyId,
       adCompanyName: adCompanyName ?? this.adCompanyName,
       rawLikes: rawLikes ?? this.rawLikes,
+      peopleTags: peopleTags ?? this.peopleTags,
     );
   }
 }
